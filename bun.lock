@@ -45,6 +45,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@factory/shared": "workspace:*",
+        "@paralleldrive/cuid2": "^3.3.0",
       },
     },
     "packages/shared": {

@@ -8,9 +8,12 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "dev-spawn": "bun run src/bin/dev-spawn.ts"
   },
   "dependencies": {
-    "@factory/shared": "workspace:*"
+    "@factory/shared": "workspace:*",
+    "@paralleldrive/cuid2": "^3.3.0"
   }
 }

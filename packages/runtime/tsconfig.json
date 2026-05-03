@@ -2,8 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["bun"],
-    "rootDir": "./src",
+    "rootDir": ".",
     "baseUrl": "."
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }
