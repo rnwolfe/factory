@@ -5,11 +5,19 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts"
   },
   "dependencies": {
     "@factory/db": "workspace:*",
     "@factory/runtime": "workspace:*",
-    "@factory/shared": "workspace:*"
+    "@factory/shared": "workspace:*",
+    "@paralleldrive/cuid2": "^3.3.0",
+    "@trpc/server": "^11.17.0",
+    "drizzle-orm": "^0.45.2",
+    "yaml": "^2.8.4",
+    "zod": "^4.4.2"
   }
 }
