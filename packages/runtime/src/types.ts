@@ -7,7 +7,13 @@ export type StreamEvent =
   | { kind: "commit"; sha: string; subject: string }
   | { kind: "idle_timeout"; ts: number }
   | { kind: "agent_exit"; exitCode: number; ts: number }
-  | { kind: "decision_required"; question: string; options?: string[] };
+  | { kind: "decision_required"; question: string; options?: string[] }
+  /**
+   * One newline-terminated line of raw pane output as captured by `pipe-pane`.
+   * Emitted in addition to any parsed events the agent extracts. Consumers
+   * (e.g. the daemon's pane WebSocket channel) forward these to xterm.js.
+   */
+  | { kind: "raw"; line: string };
 
 export type RuntimeEvent = StreamEvent & { runId: string; iteration: number };
 
