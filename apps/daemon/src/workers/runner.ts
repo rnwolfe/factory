@@ -36,6 +36,8 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
     .set({ status: "running", startedAt: Date.now(), iterationCount: 0 })
     .where(eq(schema.runs.id, runId));
 
+  const paneEncoder = new TextEncoder();
+
   const persistEvent = async (e: RuntimeEvent) => {
     try {
       await db.insert(schema.events).values({
@@ -72,6 +74,15 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
       maxIterations: 1,
       abort: ac.signal,
       onEvent: (e) => {
+        if (e.kind === "raw") {
+          // raw lines are high-volume — fan out to pane subscribers only.
+          events.publish({
+            channel: "pane",
+            runId: e.runId,
+            bytes: paneEncoder.encode(`${e.line}\r\n`),
+          });
+          return;
+        }
         events.publish({ channel: "events", ...e });
         void persistEvent(e);
         if (e.kind === "session") lastSessionId = e.id;

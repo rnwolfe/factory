@@ -62,6 +62,8 @@ class HostRuntime implements Runtime {
     let stalenessTripped = false;
 
     const onLine = (line: string) => {
+      // Always emit the raw line so consumers can stream pane output to xterm.
+      spec.onEvent({ kind: "raw", line, runId: spec.runId, iteration });
       if (spec.agent.detectStaleness?.(line)) {
         stalenessTripped = true;
       }
