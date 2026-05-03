@@ -6,9 +6,9 @@
   "main": "./src/main.tsx",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dev": "vite",
+    "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --port 4081"
+    "preview": "vite preview --host"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -12,6 +12,40 @@ import { attachWsChannel, detachWsChannel, planWsUpgrade, type WsClientData } fr
 
 export type { AppRouter } from "./router.ts";
 
+const PORT_RETRY_LIMIT = 10;
+
+function isAddrInUse(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { code?: string; message?: string };
+  if (e.code === "EADDRINUSE") return true;
+  return typeof e.message === "string" && /address already in use|EADDRINUSE/i.test(e.message);
+}
+
+/**
+ * Run `factory(port)` to start a server bound to `port`. If the port is in
+ * use, step forward up to `PORT_RETRY_LIMIT` times and try the next one.
+ * Throws if no port in the window is available — the caller should surface
+ * that to the operator clearly.
+ */
+function serveWithPortRetry<T>(startPort: number, factory: (port: number) => T): T {
+  let lastErr: unknown;
+  for (let i = 0; i < PORT_RETRY_LIMIT; i++) {
+    const port = startPort + i;
+    try {
+      return factory(port);
+    } catch (err) {
+      lastErr = err;
+      if (!isAddrInUse(err)) throw err;
+      console.warn(`[factoryd] port ${port} in use — trying ${port + 1}`);
+    }
+  }
+  throw new Error(
+    `could not bind any port in [${startPort}, ${startPort + PORT_RETRY_LIMIT - 1}]: ${
+      lastErr instanceof Error ? lastErr.message : String(lastErr)
+    }`,
+  );
+}
+
 interface DaemonHandle {
   config: FactoryConfig;
   /** Actual bound port (matters when config.port is 0 / ephemeral). */
@@ -52,76 +86,82 @@ export async function startDaemon(): Promise<DaemonHandle> {
     authorized: authorizeRequest(req, config),
   });
 
-  const server = Bun.serve<WsClientData, never>({
-    hostname: config.host,
-    port: config.port,
-    fetch(req, srv) {
-      const url = new URL(req.url);
+  const server = serveWithPortRetry(config.port, (port) =>
+    Bun.serve<WsClientData, never>({
+      hostname: config.host,
+      port,
+      fetch(req, srv) {
+        const url = new URL(req.url);
 
-      // WebSocket upgrade routing
-      if (url.pathname.startsWith("/ws/")) {
-        const plan = planWsUpgrade(req, buildCtx(req));
-        if (plan.kind === "deny") {
-          return new Response(plan.reason, { status: plan.status });
+        // WebSocket upgrade routing
+        if (url.pathname.startsWith("/ws/")) {
+          const plan = planWsUpgrade(req, buildCtx(req));
+          if (plan.kind === "deny") {
+            return new Response(plan.reason, { status: plan.status });
+          }
+          if (plan.kind === "upgrade") {
+            const ok = srv.upgrade(req, { data: plan.data });
+            if (ok) return undefined;
+            return new Response("upgrade failed", { status: 500 });
+          }
         }
-        if (plan.kind === "upgrade") {
-          const ok = srv.upgrade(req, { data: plan.data });
-          if (ok) return undefined;
-          return new Response("upgrade failed", { status: 500 });
+
+        // tRPC router at /trpc/*
+        if (url.pathname.startsWith("/trpc/") || url.pathname === "/trpc") {
+          return fetchRequestHandler({
+            endpoint: "/trpc",
+            req,
+            router: appRouter,
+            createContext: () => buildCtx(req),
+            onError({ error, path }) {
+              console.error(`[trpc] ${path ?? "?"}: ${error.message}`);
+            },
+          });
         }
-      }
 
-      // tRPC router at /trpc/*
-      if (url.pathname.startsWith("/trpc/") || url.pathname === "/trpc") {
-        return fetchRequestHandler({
-          endpoint: "/trpc",
-          req,
-          router: appRouter,
-          createContext: () => buildCtx(req),
-          onError({ error, path }) {
-            console.error(`[trpc] ${path ?? "?"}: ${error.message}`);
-          },
-        });
-      }
+        // Tiny health endpoint that bypasses tRPC for ops checks.
+        if (url.pathname === "/health") {
+          return Response.json({ ok: true, ts: Date.now() });
+        }
 
-      // Tiny health endpoint that bypasses tRPC for ops checks.
-      if (url.pathname === "/health") {
-        return Response.json({ ok: true, ts: Date.now() });
-      }
+        // Static SPA — serves the built PWA when present.
+        const staticResponse = serveStatic(req);
+        if (staticResponse) return staticResponse;
 
-      // Static SPA — serves the built PWA when present.
-      const staticResponse = serveStatic(req);
-      if (staticResponse) return staticResponse;
-
-      return new Response("Not Found", { status: 404 });
-    },
-    websocket: {
-      open(ws) {
-        const ctx = {
-          config,
-          db,
-          events,
-          runs,
-          pool,
-          authorized: true,
-        } satisfies DaemonContext;
-        attachWsChannel(ws, ctx);
+        return new Response("Not Found", { status: 404 });
       },
-      message(ws, msg) {
-        // Pane channel: forward inbound bytes/strings to a tmux send-keys hook.
-        // M4 keeps the inbound side as a no-op; the daemon already drives runs
-        // via tRPC. The PWA will use this channel for keystrokes in M6.
-        if (ws.data.channel !== "pane") return;
-        // For now, silently accept and discard.
-        void msg;
+      websocket: {
+        open(ws) {
+          const ctx = {
+            config,
+            db,
+            events,
+            runs,
+            pool,
+            authorized: true,
+          } satisfies DaemonContext;
+          attachWsChannel(ws, ctx);
+        },
+        message(ws, msg) {
+          // Pane channel: forward inbound bytes/strings to a tmux send-keys hook.
+          // M4 keeps the inbound side as a no-op; the daemon already drives runs
+          // via tRPC. The PWA will use this channel for keystrokes in M6.
+          if (ws.data.channel !== "pane") return;
+          // For now, silently accept and discard.
+          void msg;
+        },
+        close(ws) {
+          detachWsChannel(ws);
+        },
       },
-      close(ws) {
-        detachWsChannel(ws);
-      },
-    },
-  });
+    }),
+  );
 
-  console.log(`[factoryd] listening on http://${config.host}:${config.port}`);
+  const boundPort = server.port ?? config.port;
+  if (boundPort !== config.port) {
+    console.log(`[factoryd] port ${config.port} unavailable — bound ${boundPort} instead`);
+  }
+  console.log(`[factoryd] listening on http://${config.host}:${boundPort}`);
   console.log(`[factoryd] tRPC endpoint:   /trpc`);
   console.log(`[factoryd] WS channels:     /ws/events  /ws/pane  /ws/inbox`);
   console.log(`[factoryd] workdir:         ${config.workdir}`);
@@ -139,7 +179,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     console.log("[factoryd] shutdown complete.");
   };
 
-  return { config, port: server.port ?? config.port, stop };
+  return { config, port: boundPort, stop };
 }
 
 if (import.meta.main) {
