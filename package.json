@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
+    "dev": "bun run --filter '@factory/daemon' --filter '@factory/pwa' dev",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "check": "biome check .",
