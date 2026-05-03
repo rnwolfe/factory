@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.factory/runs/
+worktrees/
+data.db
+data.db-journal
+data.db-wal
+data.db-shm
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+.vite/
+.turbo/
+coverage/
