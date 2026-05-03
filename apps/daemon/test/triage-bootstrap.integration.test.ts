@@ -19,6 +19,7 @@ function makeTempConfig(): { config: FactoryConfig; cleanup: () => void } {
       host: "127.0.0.1",
       auth: { token: "t-test" },
       workdir: root,
+      worktreesRoot: path.join(root, "worktrees"),
       dbPath,
       maxConcurrentRuns: 1,
       defaultRunBudgetSeconds: 60,

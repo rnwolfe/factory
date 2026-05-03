@@ -77,6 +77,8 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
     const result = await runtime.spawn({
       runId,
       projectPath: project.workdirPath,
+      worktreePath: row.worktreePath,
+      gitAuthor: config.gitAuthor,
       task: { id: row.taskId ?? "ad-hoc", prompt },
       agent: claudeCodeAgent,
       sandbox: hostSandbox,

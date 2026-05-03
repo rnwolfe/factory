@@ -19,6 +19,7 @@ const TREE_IGNORE = new Set([
   ".git",
   "node_modules",
   ".factory",
+  "worktrees", // legacy in-project location; new runs go to <workdir>/worktrees
   "dist",
   "build",
   ".next",

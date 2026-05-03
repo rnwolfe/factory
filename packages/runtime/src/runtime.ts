@@ -2,12 +2,15 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { RunResult, RunSpec, Runtime, StreamEvent } from "./types.ts";
 import {
+  commitAllChanges,
   ensureWorktree,
   getHeadRef,
   isWorktreeClean,
   listCommitsSince,
   removeWorktree,
 } from "./worktree.ts";
+
+const DEFAULT_GIT_AUTHOR = { name: "Factory", email: "factory@localhost" };
 
 function deriveBranch(spec: RunSpec): string {
   if (spec.strategy.type === "branch") return spec.strategy.name;
@@ -43,6 +46,7 @@ class HostRuntime implements Runtime {
       projectPath: spec.projectPath,
       branch,
       baseRef,
+      worktreePath: spec.worktreePath,
     });
 
     const iteration = 1;
@@ -108,6 +112,40 @@ class HostRuntime implements Runtime {
       runId: spec.runId,
     });
 
+    // Auto-commit residual dirty state before snapshotting commits. Without
+    // this, an agent that edited files but didn't run `git commit` itself
+    // leaves the worktree dirty — and the cleanup below would either preserve
+    // a stranded directory or, if commits were also empty, throw the work away
+    // entirely. The operator should always have a reviewable commit.
+    const dirty = !(await isWorktreeClean(wt.worktreePath));
+    if (dirty && !aborted) {
+      try {
+        const auto = await commitAllChanges(
+          wt.worktreePath,
+          `factory: ${spec.task.id} · run ${spec.runId.slice(0, 8)} (auto)`,
+          spec.gitAuthor ?? DEFAULT_GIT_AUTHOR,
+        );
+        if (auto) {
+          spec.onEvent({
+            kind: "commit",
+            sha: auto.sha,
+            subject: auto.subject,
+            runId: spec.runId,
+            iteration,
+          });
+        }
+      } catch (err) {
+        // Don't let a commit failure (e.g., missing identity, hooks) sink the
+        // run — surface it on the timeline and continue.
+        spec.onEvent({
+          kind: "raw",
+          line: `[runtime] auto-commit failed: ${err instanceof Error ? err.message : String(err)}`,
+          runId: spec.runId,
+          iteration,
+        });
+      }
+    }
+
     const commits = await listCommitsSince(wt.worktreePath, wt.baseHead);
     for (const c of commits) {
       spec.onEvent({
@@ -119,13 +157,16 @@ class HostRuntime implements Runtime {
       });
     }
 
-    // Cleanup worktree if clean and not preserved.
-    const dirty = !(await isWorktreeClean(wt.worktreePath));
-    if (!spec.preserveWorktree && !dirty && commits.length === 0) {
-      await removeWorktree({
-        projectPath: spec.projectPath,
-        worktreePath: wt.worktreePath,
-      });
+    // Cleanup worktree only when the run produced nothing — preserve any run
+    // that has commits so the operator can browse the diff later.
+    if (!spec.preserveWorktree && commits.length === 0) {
+      const stillDirty = !(await isWorktreeClean(wt.worktreePath));
+      if (!stillDirty) {
+        await removeWorktree({
+          projectPath: spec.projectPath,
+          worktreePath: wt.worktreePath,
+        });
+      }
     }
 
     return {

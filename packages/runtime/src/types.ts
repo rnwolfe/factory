@@ -78,6 +78,10 @@ export interface RunSpec {
   logSocketPath?: string;
   /** When true, leave the worktree on disk after the run finishes. Default: remove if clean. */
   preserveWorktree?: boolean;
+  /** Absolute path for the worktree. Defaults to `<projectPath>/worktrees/<branch>`. */
+  worktreePath?: string;
+  /** Author identity used when the runtime auto-commits residual dirty state. */
+  gitAuthor?: { name: string; email: string };
 }
 
 export interface RunResult {

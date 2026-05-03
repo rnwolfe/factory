@@ -13,6 +13,8 @@ export interface FactoryConfig {
   auth: { token: string };
   /** Absolute path to the workdir root. Projects live under `<workdir>/projects/`. */
   workdir: string;
+  /** Where run worktrees are created. Defaults to `<workdir>/worktrees/`. */
+  worktreesRoot: string;
   /** Path to the SQLite database. */
   dbPath: string;
   /** Maximum concurrent runs in the worker pool. */
@@ -43,6 +45,7 @@ interface PartialConfig {
   host?: string;
   auth?: { token?: string };
   workdir?: string;
+  worktreesRoot?: string;
   dbPath?: string;
   maxConcurrentRuns?: number;
   defaultRunBudgetSeconds?: number;
@@ -56,6 +59,8 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
     host: p.host ?? process.env.FACTORY_HOST ?? "0.0.0.0",
     auth: { token: p.auth?.token ?? process.env.FACTORY_TOKEN ?? generateToken() },
     workdir,
+    worktreesRoot:
+      p.worktreesRoot ?? process.env.FACTORY_WORKTREES ?? path.join(workdir, "worktrees"),
     dbPath: p.dbPath ?? process.env.FACTORY_DB ?? path.join(workdir, "data.db"),
     maxConcurrentRuns: p.maxConcurrentRuns ?? Number(process.env.FACTORY_MAX_RUNS ?? 4),
     defaultRunBudgetSeconds:
@@ -96,6 +101,7 @@ export async function writeInitialConfig(configPath: string = DEFAULT_CONFIG_PAT
     host: config.host,
     auth: { token: config.auth.token },
     workdir: config.workdir,
+    worktreesRoot: config.worktreesRoot,
     dbPath: config.dbPath,
     maxConcurrentRuns: config.maxConcurrentRuns,
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,

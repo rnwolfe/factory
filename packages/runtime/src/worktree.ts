@@ -11,13 +11,14 @@ export interface GitOk {
 async function git(
   args: string[],
   cwd: string,
-  opts: { check?: boolean } = {},
+  opts: { check?: boolean; env?: Record<string, string> } = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = bunSpawn({
     cmd: ["git", ...args],
     cwd,
     stdout: "pipe",
     stderr: "pipe",
+    env: opts.env ? { ...process.env, ...opts.env } : undefined,
   });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -116,6 +117,38 @@ export async function ensureWorktree(opts: EnsureWorktreeOpts): Promise<EnsureWo
 export async function isWorktreeClean(worktreePath: string): Promise<boolean> {
   const r = await git(["status", "--porcelain"], worktreePath);
   return r.exitCode === 0 && r.stdout.trim() === "";
+}
+
+export interface GitAuthor {
+  name: string;
+  email: string;
+}
+
+/**
+ * Stage all pending changes and create a single commit. Returns the commit SHA,
+ * or null if there was nothing to commit. Bypasses pre-commit hooks because the
+ * agent runs in an isolated worktree where hooks may not be installed.
+ */
+export async function commitAllChanges(
+  worktreePath: string,
+  message: string,
+  author: GitAuthor,
+): Promise<{ sha: string; subject: string } | null> {
+  const status = await git(["status", "--porcelain"], worktreePath);
+  if (status.exitCode !== 0 || status.stdout.trim() === "") return null;
+
+  await git(["add", "-A"], worktreePath, { check: true });
+
+  const env: Record<string, string> = {
+    GIT_AUTHOR_NAME: author.name,
+    GIT_AUTHOR_EMAIL: author.email,
+    GIT_COMMITTER_NAME: author.name,
+    GIT_COMMITTER_EMAIL: author.email,
+  };
+  await git(["commit", "-m", message, "--no-verify"], worktreePath, { check: true, env });
+
+  const head = await git(["rev-parse", "HEAD"], worktreePath, { check: true });
+  return { sha: head.stdout.trim(), subject: message };
 }
 
 export interface RemoveWorktreeOpts {

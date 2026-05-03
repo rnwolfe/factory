@@ -20,6 +20,15 @@ interface TickerEvent {
   ts?: number;
 }
 
+interface RunDiff {
+  base: string | null;
+  branch: string;
+  files: Array<{ path: string; additions: number; deletions: number; renamed: boolean }>;
+  totalAdditions: number;
+  totalDeletions: number;
+  commits: Array<{ sha: string; subject: string; ts: number; author: string }>;
+}
+
 export function LivePane() {
   const { id = "", runId = "" } = useParams<{ id: string; runId: string }>();
   const qc = useQueryClient();
@@ -44,6 +53,17 @@ export function LivePane() {
     queryFn: () => trpc.runs.events.query({ runId }),
     enabled: runId.length > 0 && !seeded,
     staleTime: Number.POSITIVE_INFINITY,
+  });
+
+  const diff = useQuery({
+    queryKey: ["runs.diff", runId],
+    queryFn: () => trpc.runs.diff.query({ runId }) as unknown as Promise<RunDiff>,
+    enabled: runId.length > 0,
+    refetchInterval: (query) => {
+      // Once the run is settled, the diff doesn't change. Stop polling then.
+      const status = query.state.data?.commits?.length != null ? "settled" : "running";
+      return status === "settled" ? false : 5_000;
+    },
   });
 
   useEffect(() => {
@@ -217,6 +237,8 @@ export function LivePane() {
         <div ref={containerRef} className="h-full w-full" />
       </div>
 
+      {diff.data ? <DiffPanel diff={diff.data} /> : null}
+
       <div className="surface mt-2 p-0 overflow-hidden">
         <div className="px-3 py-1.5 border-b border-[var(--color-line)] mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
           events ({ticker.length})
@@ -247,6 +269,68 @@ export function LivePane() {
           <Square size={14} /> abort run
         </button>
       )}
+    </div>
+  );
+}
+
+function DiffPanel({ diff }: { diff: RunDiff }) {
+  const { files, totalAdditions, totalDeletions, commits } = diff;
+  if (files.length === 0 && commits.length === 0) {
+    return (
+      <div className="surface mt-2 px-3 py-2.5 mono text-[11px] text-[var(--color-fg-3)]">
+        no changes recorded — agent didn't commit anything on this branch.
+      </div>
+    );
+  }
+  return (
+    <div className="surface mt-2 p-0 overflow-hidden">
+      <div className="px-3 py-1.5 border-b border-[var(--color-line)] flex items-center gap-2">
+        <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          changes ({files.length})
+        </span>
+        <div className="flex-1" />
+        {totalAdditions > 0 ? (
+          <span className="mono text-[11px] text-[var(--color-verdict-greenlit)] tabular-nums">
+            +{totalAdditions}
+          </span>
+        ) : null}
+        {totalDeletions > 0 ? (
+          <span className="mono text-[11px] text-[var(--color-verdict-trashed)] tabular-nums">
+            −{totalDeletions}
+          </span>
+        ) : null}
+      </div>
+      {commits.length > 0 ? (
+        <ul className="divide-y divide-[var(--color-line)]">
+          {commits.map((c) => (
+            <li key={c.sha} className="px-3 py-1.5 text-[12.5px] leading-snug">
+              <span className="mono text-[11px] text-[var(--color-accent)] mr-2">
+                {c.sha.slice(0, 8)}
+              </span>
+              <span className="text-[var(--color-fg-1)]">{c.subject}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {files.length > 0 ? (
+        <ul className="divide-y divide-[var(--color-line)] max-h-[260px] overflow-y-auto">
+          {files.map((f) => (
+            <li key={f.path} className="px-3 py-1.5 mono text-[11.5px] flex items-center gap-2">
+              <span className="text-[var(--color-fg-1)] truncate flex-1">{f.path}</span>
+              {f.additions > 0 ? (
+                <span className="text-[var(--color-verdict-greenlit)] tabular-nums">
+                  +{f.additions}
+                </span>
+              ) : null}
+              {f.deletions > 0 ? (
+                <span className="text-[var(--color-verdict-trashed)] tabular-nums">
+                  −{f.deletions}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
