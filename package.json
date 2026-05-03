@@ -11,11 +11,18 @@
     "typecheck": "bun run --filter '*' typecheck",
     "format": "biome format --write .",
     "lint": "biome lint .",
-    "check": "biome check ."
+    "check": "biome check .",
+    "db:generate": "bun run --filter '@factory/db' db:generate",
+    "db:migrate": "bun run --filter '@factory/db' db:migrate",
+    "seed": "bun run --filter '@factory/db' db:seed"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.0",
+    "@factory/db": "workspace:*",
+    "@paralleldrive/cuid2": "^3.3.0",
     "@types/bun": "latest",
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.1.1",
     "typescript": "^5.7.0"
   }
 }
