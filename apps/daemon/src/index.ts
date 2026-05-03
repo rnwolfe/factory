@@ -5,9 +5,12 @@ import { type FactoryConfig, loadConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
 import { appRouter } from "./router.ts";
+import { makeStaticHandler } from "./static.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { RunRegistry } from "./workers/registry.ts";
 import { attachWsChannel, detachWsChannel, planWsUpgrade, type WsClientData } from "./ws/hub.ts";
+
+export type { AppRouter } from "./router.ts";
 
 interface DaemonHandle {
   config: FactoryConfig;
@@ -29,6 +32,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // DB
   runMigrations(config.dbPath);
   const db = createDb(config.dbPath);
+
+  // Static PWA (built by `bun run --filter @factory/pwa build`).
+  const pwaDist =
+    process.env.FACTORY_PWA_DIST ?? new URL("../../pwa/dist", import.meta.url).pathname;
+  const serveStatic = makeStaticHandler(pwaDist);
 
   // Worker pool + registry
   const pool = new WorkerPool(config.maxConcurrentRuns);
@@ -80,6 +88,10 @@ export async function startDaemon(): Promise<DaemonHandle> {
       if (url.pathname === "/health") {
         return Response.json({ ok: true, ts: Date.now() });
       }
+
+      // Static SPA — serves the built PWA when present.
+      const staticResponse = serveStatic(req);
+      if (staticResponse) return staticResponse;
 
       return new Response("Not Found", { status: 404 });
     },
