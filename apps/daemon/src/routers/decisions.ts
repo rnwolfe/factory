@@ -1,8 +1,9 @@
 import { schema } from "@factory/db";
-import { desc, eq, ne } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
+import { asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { bootstrapProject } from "../projects/bootstrap.ts";
-import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
+import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const ActionEnum = z.enum(["approve", "park", "trash", "decompose", "dismiss"]);
@@ -95,5 +96,94 @@ export const decisionsRouter = router({
       });
 
       return { ok: true, projectId };
+    }),
+
+  comments: protectedProcedure
+    .input(z.object({ decisionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db
+        .select()
+        .from(schema.decisionComments)
+        .where(eq(schema.decisionComments.decisionId, input.decisionId))
+        .orderBy(asc(schema.decisionComments.createdAt))
+        .all();
+    }),
+
+  comment: protectedProcedure
+    .input(
+      z.object({
+        decisionId: z.string(),
+        body: z.string().trim().min(1).max(4000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const decision = await ctx.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, input.decisionId))
+        .get();
+      if (!decision) throw new Error("decision not found");
+      if (decision.status !== "pending") {
+        throw new Error(`decision already ${decision.status} — cannot add comments`);
+      }
+      if (decision.kind !== "triage") {
+        throw new Error("comments are only supported on triage decisions");
+      }
+
+      const commentId = createId();
+      await ctx.db.insert(schema.decisionComments).values({
+        id: commentId,
+        decisionId: input.decisionId,
+        role: "operator",
+        body: input.body.trim(),
+        createdAt: Date.now(),
+      });
+
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "comment_added",
+        decisionId: input.decisionId,
+        role: "operator",
+      });
+
+      // Fire the follow-up triage in the background — the mutation returns
+      // immediately so the UI shows the operator's message instantly. The
+      // agent's reply is broadcast over /ws/inbox when it lands.
+      void (async () => {
+        try {
+          await runFollowupTriage(ctx.db, input.decisionId);
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "comment_added",
+            decisionId: input.decisionId,
+            role: "agent",
+          });
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "decision_updated",
+            decisionId: input.decisionId,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[triage-followup] ${input.decisionId}: ${message}`);
+          // Surface the error in the thread so the operator isn't left waiting
+          // on a silent failure.
+          await ctx.db.insert(schema.decisionComments).values({
+            id: createId(),
+            decisionId: input.decisionId,
+            role: "agent",
+            body: `(follow-up triage failed: ${message.slice(0, 240)})`,
+            createdAt: Date.now(),
+          });
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "comment_added",
+            decisionId: input.decisionId,
+            role: "agent",
+          });
+        }
+      })();
+
+      return { commentId };
     }),
 });

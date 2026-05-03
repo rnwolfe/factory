@@ -1,8 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
+
+interface DecisionComment {
+  id: string;
+  decisionId: string;
+  role: "operator" | "agent";
+  body: string;
+  createdAt: number;
+}
 
 interface DecisionPayload {
   outcome?: string;
@@ -69,6 +79,54 @@ export function DecisionDetail() {
       }
     },
   });
+
+  const comments = useQuery({
+    queryKey: ["decisions.comments", id],
+    queryFn: () =>
+      trpc.decisions.comments.query({ decisionId: id }) as unknown as Promise<DecisionComment[]>,
+    enabled: id.length > 0,
+  });
+
+  const sendComment = useMutation({
+    mutationFn: (body: string) => trpc.decisions.comment.mutate({ decisionId: id, body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["decisions.comments", id] });
+    },
+  });
+
+  const [draft, setDraft] = useState("");
+
+  // /ws/inbox carries comment_added and decision_updated. Filter to this
+  // decisionId and invalidate so the thread + header pick up agent replies
+  // without the operator refreshing.
+  useEffect(() => {
+    const token = getToken();
+    if (!token || !id) return;
+    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/inbox?token=${encodeURIComponent(token)}`;
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(url);
+      ws.onmessage = (msg) => {
+        try {
+          const evt = JSON.parse(msg.data) as { kind?: string; decisionId?: string };
+          if (evt.decisionId !== id) return;
+          if (evt.kind === "comment_added") {
+            qc.invalidateQueries({ queryKey: ["decisions.comments", id] });
+          }
+          if (evt.kind === "decision_updated") {
+            qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+          }
+        } catch {
+          // non-JSON frame; ignore
+        }
+      };
+    } catch {
+      // socket unavailable — query refetches still cover us
+    }
+    return () => {
+      ws?.close();
+    };
+  }, [id, qc]);
 
   if (decision.isLoading) return <DecisionSkeleton />;
   if (!decision.data) {
@@ -205,6 +263,95 @@ export function DecisionDetail() {
               <li key={i}>{q}</li>
             ))}
           </ol>
+        </Section>
+      ) : null}
+
+      {isTriage && (isPending || (comments.data && comments.data.length > 0)) ? (
+        <Section title="thread">
+          {comments.data && comments.data.length > 0 ? (
+            <ul className="divide-y divide-[var(--color-line)]">
+              {comments.data.map((c) => (
+                <li key={c.id} className="px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-3 mb-1">
+                    <span
+                      className={cn(
+                        "mono text-[10.5px] uppercase tracking-[0.18em]",
+                        c.role === "operator"
+                          ? "text-[var(--color-fg-1)]"
+                          : "text-[var(--color-accent)]",
+                      )}
+                    >
+                      {c.role}
+                    </span>
+                    <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                      {fmtDate(c.createdAt)}
+                    </span>
+                  </div>
+                  <p className="text-[14px] leading-relaxed text-[var(--color-fg)] whitespace-pre-wrap">
+                    {c.body}
+                  </p>
+                </li>
+              ))}
+              {sendComment.isPending ||
+              (comments.data.length > 0 &&
+                comments.data[comments.data.length - 1]?.role === "operator") ? (
+                <li className="px-4 py-3">
+                  <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+                    agent · thinking
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="skel h-2.5 w-2.5 rounded-full" />
+                    <span className="skel h-2.5 w-2.5 rounded-full" />
+                    <span className="skel h-2.5 w-2.5 rounded-full" />
+                  </div>
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
+          {isPending ? (
+            <form
+              className={cn(
+                "px-4 py-3 space-y-2",
+                comments.data && comments.data.length > 0
+                  ? "border-t border-[var(--color-line)]"
+                  : "",
+              )}
+              onSubmit={(e) => {
+                e.preventDefault();
+                const body = draft.trim();
+                if (!body) return;
+                sendComment.mutate(body, {
+                  onSuccess: () => setDraft(""),
+                });
+              }}
+            >
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="reply to the agent — answer questions, push back, add context…"
+                rows={3}
+                className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)] resize-y"
+                disabled={sendComment.isPending}
+              />
+              <div className="flex justify-between items-center gap-2">
+                <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                  the agent will re-score using the rubric
+                </span>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={sendComment.isPending || draft.trim().length === 0}
+                >
+                  {sendComment.isPending ? "sending…" : "send"}
+                </button>
+              </div>
+              {sendComment.isError ? (
+                <p className="mono text-[11px] text-[var(--color-verdict-trashed)]">
+                  {(sendComment.error as Error).message}
+                </p>
+              ) : null}
+            </form>
+          ) : null}
         </Section>
       ) : null}
 

@@ -11,6 +11,8 @@ const repoRoot = path.resolve(import.meta.dir, "../../..");
 
 const RUBRIC_FILE = path.join(repoRoot, "rubrics/rubric-me-tinker.yaml");
 const PROMPT_FILE = path.join(repoRoot, "prompts/triage-prompt-v1.md");
+const FOLLOWUP_PROMPT_FILE = path.join(repoRoot, "prompts/triage-followup-v1.md");
+const FOLLOWUP_PROMPT_KEY = "triage-followup-v1";
 
 interface RubricYaml {
   id: string;
@@ -26,9 +28,10 @@ async function main() {
 
   const db = createDb(target);
 
-  const [rubricRaw, promptContent] = await Promise.all([
+  const [rubricRaw, promptContent, followupContent] = await Promise.all([
     readFile(RUBRIC_FILE, "utf8"),
     readFile(PROMPT_FILE, "utf8"),
+    readFile(FOLLOWUP_PROMPT_FILE, "utf8"),
   ]);
 
   const parsed = yaml.load(rubricRaw) as RubricYaml;
@@ -66,6 +69,37 @@ async function main() {
     .set({ active: true })
     .where(
       sql`${prompts.promptKey} = ${promptKey} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${promptKey})`,
+    );
+
+  // Follow-up prompt: same shape as the triage prompt — its own key, one active
+  // version. Re-triage runs after operator comments use this template.
+  const existingFollowup = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(eq(prompts.promptKey, FOLLOWUP_PROMPT_KEY))
+    .all();
+
+  if (existingFollowup.length === 0) {
+    await db.insert(prompts).values({
+      id: createId(),
+      promptKey: FOLLOWUP_PROMPT_KEY,
+      version: 1,
+      content: followupContent,
+      active: true,
+      createdAt: now,
+    });
+    console.log(`  + prompt ${FOLLOWUP_PROMPT_KEY}@1`);
+  } else {
+    console.log(
+      `  · prompt ${FOLLOWUP_PROMPT_KEY} already present (${existingFollowup.length} row(s))`,
+    );
+  }
+  await db.update(prompts).set({ active: false }).where(eq(prompts.promptKey, FOLLOWUP_PROMPT_KEY));
+  await db
+    .update(prompts)
+    .set({ active: true })
+    .where(
+      sql`${prompts.promptKey} = ${FOLLOWUP_PROMPT_KEY} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${FOLLOWUP_PROMPT_KEY})`,
     );
 
   // Rubric: same shape.
@@ -119,9 +153,17 @@ async function main() {
   console.log(`active prompts: ${activePrompts.length}`);
   for (const p of activePrompts) console.log(`  - ${p.key}@${p.version}`);
 
-  if (activeRubrics.length !== 1 || activePrompts.length !== 1) {
+  // One active rubric; one active prompt per key (triage + follow-up).
+  const expectedPromptKeys = new Set([promptKey, FOLLOWUP_PROMPT_KEY]);
+  const activePromptKeys = new Set(activePrompts.map((p) => p.key));
+  const missingKeys = [...expectedPromptKeys].filter((k) => !activePromptKeys.has(k));
+  if (
+    activeRubrics.length !== 1 ||
+    activePrompts.length !== expectedPromptKeys.size ||
+    missingKeys.length > 0
+  ) {
     throw new Error(
-      "seed acceptance failed: expected exactly one active rubric and one active prompt",
+      `seed acceptance failed: expected one active rubric and one active prompt for each of [${[...expectedPromptKeys].join(", ")}]`,
     );
   }
 }

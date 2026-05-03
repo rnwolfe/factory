@@ -8,6 +8,13 @@
       "when": 1777821317851,
       "tag": "0000_overjoyed_ben_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1777826799454,
+      "tag": "0001_gorgeous_sprite",
+      "breakpoints": true
     }
   ]
 }

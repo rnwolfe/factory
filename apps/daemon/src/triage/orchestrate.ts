@@ -28,7 +28,11 @@ export interface TriageDecisionPayload {
   };
   clarifying_questions?: string[];
   what_would_change_verdict?: string;
+  /** Conversational reply to the operator. Only present on follow-up runs. */
+  reply?: string;
 }
+
+const FOLLOWUP_PROMPT_KEY = "triage-followup-v1";
 
 export interface TriageOptions {
   /**
@@ -183,4 +187,135 @@ export async function runTriage(
   await db.update(schema.ideas).set({ triagedAt: now }).where(eq(schema.ideas.id, input.ideaId));
 
   return { decisionId, payload };
+}
+
+export interface FollowupTriageOptions extends TriageOptions {
+  /** Override the source of "now" for testing. */
+  now?: () => number;
+}
+
+export interface FollowupTriageResult {
+  decisionId: string;
+  payload: TriageDecisionPayload;
+  /** ID of the agent comment row appended to the thread. */
+  agentCommentId: string;
+  /** True if the verdict (`outcome`) changed from the prior decision. */
+  verdictChanged: boolean;
+}
+
+/**
+ * Re-run triage for an existing decision after the operator has added a
+ * follow-up comment. Loads the decision, idea, and full thread; renders the
+ * follow-up prompt; calls the agent; persists the new payload in place; and
+ * appends an `agent`-role comment carrying the conversational reply.
+ *
+ * The decision row is updated rather than versioned: the operator sees the
+ * verdict shift on the same card. The thread captures how it got there.
+ */
+export async function runFollowupTriage(
+  db: Db,
+  decisionId: string,
+  opts: FollowupTriageOptions = {},
+): Promise<FollowupTriageResult> {
+  const now = (opts.now ?? Date.now)();
+
+  const decision = await db
+    .select()
+    .from(schema.decisions)
+    .where(eq(schema.decisions.id, decisionId))
+    .get();
+  if (!decision) throw new Error(`decision ${decisionId} not found`);
+  if (decision.kind !== "triage") {
+    throw new Error(`follow-up triage only supports triage decisions (got ${decision.kind})`);
+  }
+  if (!decision.ideaId) throw new Error(`decision ${decisionId} has no ideaId`);
+
+  const idea = await db
+    .select()
+    .from(schema.ideas)
+    .where(eq(schema.ideas.id, decision.ideaId))
+    .get();
+  if (!idea) throw new Error(`idea ${decision.ideaId} not found`);
+
+  const rubric = decision.rubricVersionId
+    ? await db
+        .select()
+        .from(schema.rubricVersions)
+        .where(eq(schema.rubricVersions.id, decision.rubricVersionId))
+        .get()
+    : await db
+        .select()
+        .from(schema.rubricVersions)
+        .where(eq(schema.rubricVersions.active, true))
+        .get();
+  if (!rubric) throw new Error("no rubric available for follow-up triage");
+
+  const promptRow = await db
+    .select()
+    .from(schema.prompts)
+    .where(and(eq(schema.prompts.promptKey, FOLLOWUP_PROMPT_KEY), eq(schema.prompts.active, true)))
+    .get();
+  if (!promptRow) {
+    throw new Error(`no active prompt for ${FOLLOWUP_PROMPT_KEY} — re-run \`bun run seed\`?`);
+  }
+
+  const thread = await db
+    .select()
+    .from(schema.decisionComments)
+    .where(eq(schema.decisionComments.decisionId, decisionId))
+    .orderBy(schema.decisionComments.createdAt)
+    .all();
+
+  const threadText = thread
+    .map((c) => `[${c.role} · ${new Date(c.createdAt).toISOString()}]\n${c.body}`)
+    .join("\n\n");
+
+  const priorPayload = decision.payload as TriageDecisionPayload;
+
+  const rendered = renderPrompt(promptRow.content, {
+    IDEA_TEXT: idea.rawText,
+    GOAL_HINT: idea.goalHint ?? "null",
+    RUBRIC_YAML: rubric.yaml,
+    PRIOR_DECISION_JSON: JSON.stringify(priorPayload, null, 2),
+    THREAD: threadText.length > 0 ? threadText : "(no prior messages)",
+  });
+
+  const budget = Math.min(
+    opts.budgetSeconds ?? TRIAGE_MAX_BUDGET_SECONDS,
+    TRIAGE_MAX_BUDGET_SECONDS,
+  );
+  const responseText = opts.agentInvoker
+    ? await opts.agentInvoker(rendered)
+    : await invokeClaudeJson(rendered, budget);
+
+  const payload = extractJson(responseText);
+  const verdictChanged = payload.outcome !== priorPayload.outcome;
+
+  // Persist the updated payload + score + uncertainty + (possibly) outcome on
+  // the existing decision row. Status stays `pending` until the operator acts.
+  await db
+    .update(schema.decisions)
+    .set({
+      outcome: payload.outcome,
+      payload,
+      uncertainty: payload.uncertainty ?? null,
+      weightedScore: payload.weighted_score ?? null,
+    })
+    .where(eq(schema.decisions.id, decisionId));
+
+  // The conversational reply is what the operator reads in the thread.
+  // Fall back to rationale if the agent didn't emit `reply` (defensive).
+  const replyBody =
+    payload.reply?.trim() || payload.rationale?.trim() || `Updated verdict: ${payload.outcome}.`;
+
+  const agentCommentId = createId();
+  await db.insert(schema.decisionComments).values({
+    id: agentCommentId,
+    decisionId,
+    role: "agent",
+    body: replyBody,
+    createdAt: now,
+  });
+
+  return { decisionId, payload, agentCommentId, verdictChanged };
 }

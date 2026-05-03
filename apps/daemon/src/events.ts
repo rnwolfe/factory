@@ -4,6 +4,13 @@ export type DaemonEvent =
   | ({ channel: "events" } & RuntimeEvent)
   | { channel: "inbox"; kind: "decision_created"; decisionId: string }
   | { channel: "inbox"; kind: "decision_actioned"; decisionId: string }
+  | { channel: "inbox"; kind: "decision_updated"; decisionId: string }
+  | {
+      channel: "inbox";
+      kind: "comment_added";
+      decisionId: string;
+      role: "operator" | "agent";
+    }
   | { channel: "pane"; runId: string; bytes: Uint8Array };
 
 type Listener = (e: DaemonEvent) => void;

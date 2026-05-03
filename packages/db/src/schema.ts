@@ -5,6 +5,7 @@ export const tierEnum = ["tinker", "personal", "share", "productize"] as const;
 export const tagEnum = ["active", "background", "past"] as const;
 export const decisionKindEnum = ["triage", "tag_change"] as const;
 export const decisionStatusEnum = ["pending", "actioned", "dismissed"] as const;
+export const decisionCommentRoleEnum = ["operator", "agent"] as const;
 export const runStatusEnum = ["queued", "running", "completed", "failed", "aborted"] as const;
 export const taskStatusEnum = [
   "ready",
@@ -20,6 +21,7 @@ export type Tier = (typeof tierEnum)[number];
 export type Tag = (typeof tagEnum)[number];
 export type DecisionKind = (typeof decisionKindEnum)[number];
 export type DecisionStatus = (typeof decisionStatusEnum)[number];
+export type DecisionCommentRole = (typeof decisionCommentRoleEnum)[number];
 export type RunStatus = (typeof runStatusEnum)[number];
 export type TaskStatus = (typeof taskStatusEnum)[number];
 
@@ -76,6 +78,16 @@ export const decisions = sqliteTable("decisions", {
   actionedAt: integer("actioned_at"),
 });
 
+export const decisionComments = sqliteTable("decision_comments", {
+  id: text("id").primaryKey(),
+  decisionId: text("decision_id")
+    .references(() => decisions.id)
+    .notNull(),
+  role: text("role", { enum: decisionCommentRoleEnum }).notNull(),
+  body: text("body").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const runs = sqliteTable("runs", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -125,6 +137,8 @@ export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type Decision = typeof decisions.$inferSelect;
 export type NewDecision = typeof decisions.$inferInsert;
+export type DecisionComment = typeof decisionComments.$inferSelect;
+export type NewDecisionComment = typeof decisionComments.$inferInsert;
 export type Run = typeof runs.$inferSelect;
 export type NewRun = typeof runs.$inferInsert;
 export type Event = typeof events.$inferSelect;
