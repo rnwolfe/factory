@@ -1,0 +1,129 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { createId } from "@paralleldrive/cuid2";
+import { eq, sql } from "drizzle-orm";
+import yaml from "js-yaml";
+import { createDb, getDefaultDbPath } from "./client.ts";
+import { runMigrations } from "./migrate.ts";
+import { prompts, rubricVersions } from "./schema.ts";
+
+const repoRoot = path.resolve(import.meta.dir, "../../..");
+
+const RUBRIC_FILE = path.join(repoRoot, "rubrics/rubric-me-tinker.yaml");
+const PROMPT_FILE = path.join(repoRoot, "prompts/triage-prompt-v1.md");
+
+interface RubricYaml {
+  id: string;
+  version: number;
+  agent_invocation?: { prompt_key?: string };
+}
+
+async function main() {
+  const target = process.env.FACTORY_DB ?? getDefaultDbPath();
+  console.log(`seeding → ${target}`);
+
+  runMigrations(target);
+
+  const db = createDb(target);
+
+  const [rubricRaw, promptContent] = await Promise.all([
+    readFile(RUBRIC_FILE, "utf8"),
+    readFile(PROMPT_FILE, "utf8"),
+  ]);
+
+  const parsed = yaml.load(rubricRaw) as RubricYaml;
+  if (!parsed?.id || typeof parsed.version !== "number") {
+    throw new Error(`invalid rubric: missing id or version (${RUBRIC_FILE})`);
+  }
+  const promptKey = parsed.agent_invocation?.prompt_key ?? "triage-prompt-v1";
+  const now = Date.now();
+
+  // Prompt: insert if missing, then set as the only active row for this key.
+  const existingPrompt = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(eq(prompts.promptKey, promptKey))
+    .all();
+
+  if (existingPrompt.length === 0) {
+    await db.insert(prompts).values({
+      id: createId(),
+      promptKey,
+      version: 1,
+      content: promptContent,
+      active: true,
+      createdAt: now,
+    });
+    console.log(`  + prompt ${promptKey}@1`);
+  } else {
+    console.log(`  · prompt ${promptKey} already present (${existingPrompt.length} row(s))`);
+  }
+
+  // Ensure exactly one active prompt per key.
+  await db.update(prompts).set({ active: false }).where(eq(prompts.promptKey, promptKey));
+  await db
+    .update(prompts)
+    .set({ active: true })
+    .where(
+      sql`${prompts.promptKey} = ${promptKey} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${promptKey})`,
+    );
+
+  // Rubric: same shape.
+  const existingRubric = await db
+    .select({ id: rubricVersions.id })
+    .from(rubricVersions)
+    .where(eq(rubricVersions.rubricKey, parsed.id))
+    .all();
+
+  if (existingRubric.length === 0) {
+    await db.insert(rubricVersions).values({
+      id: createId(),
+      rubricKey: parsed.id,
+      version: parsed.version,
+      yaml: rubricRaw,
+      promptKey,
+      active: true,
+      createdAt: now,
+      message: "seed: initial import",
+    });
+    console.log(`  + rubric ${parsed.id}@${parsed.version}`);
+  } else {
+    console.log(`  · rubric ${parsed.id} already present (${existingRubric.length} row(s))`);
+  }
+
+  await db
+    .update(rubricVersions)
+    .set({ active: false })
+    .where(eq(rubricVersions.rubricKey, parsed.id));
+  await db
+    .update(rubricVersions)
+    .set({ active: true })
+    .where(
+      sql`${rubricVersions.rubricKey} = ${parsed.id} AND ${rubricVersions.version} = (SELECT MAX(${rubricVersions.version}) FROM ${rubricVersions} WHERE ${rubricVersions.rubricKey} = ${parsed.id})`,
+    );
+
+  // Verify acceptance: exactly one active rubric and one active prompt
+  const activeRubrics = await db
+    .select({ key: rubricVersions.rubricKey, version: rubricVersions.version })
+    .from(rubricVersions)
+    .where(eq(rubricVersions.active, true))
+    .all();
+  const activePrompts = await db
+    .select({ key: prompts.promptKey, version: prompts.version })
+    .from(prompts)
+    .where(eq(prompts.active, true))
+    .all();
+
+  console.log(`\nactive rubrics: ${activeRubrics.length}`);
+  for (const r of activeRubrics) console.log(`  - ${r.key}@${r.version}`);
+  console.log(`active prompts: ${activePrompts.length}`);
+  for (const p of activePrompts) console.log(`  - ${p.key}@${p.version}`);
+
+  if (activeRubrics.length !== 1 || activePrompts.length !== 1) {
+    throw new Error(
+      "seed acceptance failed: expected exactly one active rubric and one active prompt",
+    );
+  }
+}
+
+await main();
