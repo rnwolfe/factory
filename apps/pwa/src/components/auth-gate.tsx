@@ -8,8 +8,8 @@ export function AuthGate() {
 
   async function check() {
     setErr(null);
-    if (v.trim().length < 8) {
-      setErr("token looks too short");
+    if (v.trim().length === 0) {
+      setErr("token required");
       return;
     }
     // probe /trpc/health.ping; not strictly required but a friendlier check.
