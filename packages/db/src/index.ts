@@ -1,2 +1,3 @@
-// @factory/db — Drizzle schema, migrations, query helpers. Implementation lands in M2.
-export {};
+export * from "./client.ts";
+export { runMigrations } from "./migrate.ts";
+export * from "./schema.ts";
