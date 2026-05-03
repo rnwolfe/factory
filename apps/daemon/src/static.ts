@@ -43,6 +43,16 @@ export function makeStaticHandler(distRoot: string): (req: Request) => Response 
       return new Response("Forbidden", { status: 403 });
     }
 
+    // Browsers ask for /favicon.ico unconditionally regardless of the SVG link
+    // tag in index.html. Reply with a 204 instead of letting it 404 and bloat
+    // the daemon log.
+    if (url.pathname === "/favicon.ico") {
+      return new Response(null, {
+        status: 204,
+        headers: { "cache-control": "public, max-age=86400" },
+      });
+    }
+
     const candidate = path.join(distRoot, decodeURIComponent(url.pathname));
     const safeRoot = path.resolve(distRoot);
     const resolved = path.resolve(candidate);

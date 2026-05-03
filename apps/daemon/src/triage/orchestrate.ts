@@ -73,7 +73,9 @@ async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<
     await proc.stdin.end();
   }
 
-  const lines: string[] = [];
+  // Concatenate every text event — assistant blocks and the final result
+  // envelope. Duplicates are harmless: the JSON extractor finds the first
+  // balanced object regardless of surrounding noise.
   let resultText = "";
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
@@ -87,18 +89,16 @@ async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<
       while (idx !== -1) {
         const line = buf.slice(0, idx);
         buf = buf.slice(idx + 1);
-        lines.push(line);
         const events: readonly StreamEvent[] = claudeCodeAgent.parseLine(line);
         for (const e of events) {
-          if (e.kind === "text") resultText = e.text;
+          if (e.kind === "text") resultText += e.text;
         }
         idx = buf.indexOf("\n");
       }
     }
     if (buf.length > 0) {
-      lines.push(buf);
       const events = claudeCodeAgent.parseLine(buf);
-      for (const e of events) if (e.kind === "text") resultText = e.text;
+      for (const e of events) if (e.kind === "text") resultText += e.text;
     }
   } finally {
     clearTimeout(timer);
@@ -113,18 +113,77 @@ async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<
   return resultText;
 }
 
-function extractJson(text: string): TriageDecisionPayload {
-  // Strip Markdown code fences if Claude emitted them despite our instructions.
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const candidate = fenced?.[1] ?? text;
-  // Find the outermost {...} block.
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error(`no JSON object found in agent output (len=${text.length})`);
+/**
+ * Walk `text` and return the first balanced `{...}` object as a string.
+ * Tracks string boundaries and escapes so braces inside JSON string values
+ * don't throw the depth count off. Returns null if no balanced object is
+ * found — handles the case where the agent emitted prose containing braces
+ * before the JSON, or wrapped its answer in a Markdown fence we missed.
+ */
+function findBalancedJsonObject(text: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      if (depth > 0) {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          return text.slice(start, i + 1);
+        }
+      }
+    }
   }
-  const slice = candidate.slice(start, end + 1);
-  return JSON.parse(slice) as TriageDecisionPayload;
+  return null;
+}
+
+function extractJson(text: string): TriageDecisionPayload {
+  // Try the raw text first — bracket-walking handles prose-around-JSON.
+  // Fall back to fenced-block extraction if the raw text doesn't yield a
+  // balanced object (some agents wrap the JSON in ```json … ``` despite the
+  // prompt's instructions).
+  const candidates: string[] = [text];
+  const fence = /```(?:json)?\s*([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iter
+  while ((match = fence.exec(text)) !== null) {
+    candidates.push(match[1] ?? "");
+  }
+
+  let firstParseError: string | null = null;
+  for (const candidate of candidates) {
+    const slice = findBalancedJsonObject(candidate);
+    if (!slice) continue;
+    try {
+      return JSON.parse(slice) as TriageDecisionPayload;
+    } catch (err) {
+      if (firstParseError === null) {
+        firstParseError = err instanceof Error ? err.message : String(err);
+      }
+    }
+  }
+
+  const head = text.slice(0, 240).replace(/\s+/g, " ").trim();
+  const detail = firstParseError ? `JSON parse error: ${firstParseError}` : "no balanced JSON";
+  throw new Error(`${detail} (agent output len=${text.length}, head: ${head})`);
 }
 
 export async function runTriage(
