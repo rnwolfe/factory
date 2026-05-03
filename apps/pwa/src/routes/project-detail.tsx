@@ -50,6 +50,13 @@ export function ProjectDetail() {
     },
   });
 
+  const setAutoAdvance = useMutation({
+    mutationFn: (autoAdvance: boolean) => trpc.projects.setAutoAdvance.mutate({ id, autoAdvance }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
   if (project.isLoading) return <ProjectSkeleton />;
   if (!project.data) {
     return (
@@ -105,6 +112,17 @@ export function ProjectDetail() {
             {(start.error as Error).message}
           </div>
         ) : null}
+
+        <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--color-fg-2)] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={p.autoAdvance ?? true}
+            onChange={(e) => setAutoAdvance.mutate(e.target.checked)}
+            disabled={setAutoAdvance.isPending}
+            className="accent-[var(--color-accent)]"
+          />
+          <span>auto-advance to next ready task on success</span>
+        </label>
       </header>
 
       <section>

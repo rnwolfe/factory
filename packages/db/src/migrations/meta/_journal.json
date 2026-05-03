@@ -15,6 +15,13 @@
       "when": 1777826799454,
       "tag": "0001_gorgeous_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777834344221,
+      "tag": "0002_black_forgotten_one",
+      "breakpoints": true
     }
   ]
 }

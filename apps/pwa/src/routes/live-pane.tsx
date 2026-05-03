@@ -29,6 +29,8 @@ interface RunDiff {
   commits: Array<{ sha: string; subject: string; ts: number; author: string }>;
 }
 
+const MAX_RAW_LOG_BYTES = 256 * 1024;
+
 export function LivePane() {
   const { id = "", runId = "" } = useParams<{ id: string; runId: string }>();
   const qc = useQueryClient();
@@ -38,6 +40,10 @@ export function LivePane() {
   const [ticker, setTicker] = useState<TickerEvent[]>([]);
   const [seeded, setSeeded] = useState(false);
   const [paneStatus, setPaneStatus] = useState<"connecting" | "open" | "closed">("connecting");
+  // Bytes already written to xterm from the persisted log. The pane WS only
+  // delivers new bytes after subscription, so without this we'd duplicate any
+  // overlap when both sources land on the screen.
+  const replayedRef = useRef(false);
 
   const run = useQuery({
     queryKey: ["runs.get", runId],
@@ -65,6 +71,34 @@ export function LivePane() {
       return status === "settled" ? false : 5_000;
     },
   });
+
+  // Replay the persisted tmux log on mount so revisiting a run shows what
+  // actually happened. Runs once per mount; the live WS picks up afterwards.
+  const rawLog = useQuery({
+    queryKey: ["runs.rawLog", runId],
+    queryFn: () => trpc.runs.rawLog.query({ runId }),
+    enabled: runId.length > 0 && !replayedRef.current,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+  useEffect(() => {
+    if (!rawLog.data || replayedRef.current) return;
+    const term = termRef.current;
+    if (!term) return;
+    if (rawLog.data.truncated) {
+      term.write(
+        `\x1b[2m[truncated — showing last ${Math.round(MAX_RAW_LOG_BYTES / 1024)}KB of log]\x1b[22m\r\n`,
+      );
+    }
+    if (rawLog.data.content.length > 0) {
+      // Stream lines so xterm renders incrementally rather than blocking on
+      // one massive write.
+      for (const line of rawLog.data.content.split("\n")) {
+        term.write(`${line}\r\n`);
+      }
+    }
+    replayedRef.current = true;
+  }, [rawLog.data]);
 
   useEffect(() => {
     if (!persistedEvents.data || seeded) return;
@@ -233,6 +267,21 @@ export function LivePane() {
         </div>
       </div>
 
+      {run.data?.summary ? (
+        <div className="surface mb-2 px-3 py-2.5">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1">
+            summary
+          </div>
+          <p className="text-[14px] leading-relaxed text-[var(--color-fg)] whitespace-pre-wrap">
+            {run.data.summary}
+          </p>
+        </div>
+      ) : null}
+
+      {status === "blocked" && run.data?.blockerQuestions ? (
+        <BlockerPanel rawQuestions={run.data.blockerQuestions} />
+      ) : null}
+
       <div className="surface p-0 overflow-hidden flex-1 min-h-[280px]">
         <div ref={containerRef} className="h-full w-full" />
       </div>
@@ -269,6 +318,31 @@ export function LivePane() {
           <Square size={14} /> abort run
         </button>
       )}
+    </div>
+  );
+}
+
+function BlockerPanel({ rawQuestions }: { rawQuestions: string }) {
+  let questions: string[] = [];
+  try {
+    const parsed = JSON.parse(rawQuestions);
+    if (Array.isArray(parsed)) {
+      questions = parsed.filter((q): q is string => typeof q === "string");
+    }
+  } catch {
+    // raw was malformed; show it as-is
+    questions = [rawQuestions];
+  }
+  return (
+    <div className="surface mb-2 overflow-hidden border-l-2 border-[var(--color-verdict-trashed)]">
+      <div className="px-3 py-1.5 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-verdict-trashed)]">
+        agent is blocked
+      </div>
+      <ul className="px-3 pb-3 space-y-1.5 list-decimal list-inside text-[14px] leading-relaxed text-[var(--color-fg-1)]">
+        {questions.map((q) => (
+          <li key={q}>{q}</li>
+        ))}
+      </ul>
     </div>
   );
 }

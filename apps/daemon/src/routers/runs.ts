@@ -1,10 +1,14 @@
+import { existsSync, statSync } from "node:fs";
+import { open } from "node:fs/promises";
+import path from "node:path";
 import { schema } from "@factory/db";
-import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../trpc.ts";
-import { executeRun } from "../workers/runner.ts";
+import { submitRun } from "../workers/submit.ts";
+
+const MAX_RAW_LOG_BYTES = 256 * 1024;
 
 async function runGit(args: string[], cwd: string): Promise<{ exitCode: number; stdout: string }> {
   const proc = bunSpawn({ cmd: ["git", ...args], cwd, stdout: "pipe", stderr: "pipe" });
@@ -57,40 +61,16 @@ export const runsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await ctx.db
-        .select()
-        .from(schema.projects)
-        .where(eq(schema.projects.id, input.projectId))
-        .get();
-      if (!project) throw new Error("project not found");
-
-      const runId = createId();
-      const now = Date.now();
-      const branch = `factory/run-${runId}`;
-      // Worktrees live outside the project workdir so `git status` on the
-      // canonical project stays clean. One subdir per project keeps the layout
-      // browsable.
-      const worktreePath = `${ctx.config.worktreesRoot}/${project.slug}/${runId}`;
-      await ctx.db.insert(schema.runs).values({
-        id: runId,
-        projectId: project.id,
-        taskId: input.taskId ?? null,
-        status: "queued",
-        agentName: "claude-code",
-        branch,
-        worktreePath,
-        startedAt: now,
-        budgetSeconds: input.budgetSeconds ?? ctx.config.defaultRunBudgetSeconds,
-      });
-
-      void ctx.pool.submit(async () => {
-        await executeRun(
-          { config: ctx.config, db: ctx.db, events: ctx.events, runs: ctx.runs },
-          runId,
-        );
-      });
-
-      return { runId };
+      return submitRun(
+        {
+          config: ctx.config,
+          db: ctx.db,
+          events: ctx.events,
+          runs: ctx.runs,
+          pool: ctx.pool,
+        },
+        input,
+      );
     }),
 
   abort: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
@@ -171,6 +151,52 @@ export const runsRouter = router({
         totalDeletions,
         commits,
       };
+    }),
+
+  rawLog: protectedProcedure
+    .input(
+      z.object({
+        runId: z.string(),
+        offset: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const run = await ctx.db
+        .select()
+        .from(schema.runs)
+        .where(eq(schema.runs.id, input.runId))
+        .get();
+      if (!run) return { content: "", offset: 0, size: 0, truncated: false };
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, run.projectId))
+        .get();
+      if (!project) return { content: "", offset: 0, size: 0, truncated: false };
+
+      const logPath = path.join(project.workdirPath, ".factory", "runs", input.runId, "log.txt");
+      if (!existsSync(logPath)) {
+        return { content: "", offset: 0, size: 0, truncated: false };
+      }
+      const size = statSync(logPath).size;
+      const start = input.offset ?? Math.max(0, size - MAX_RAW_LOG_BYTES);
+      const length = Math.min(MAX_RAW_LOG_BYTES, Math.max(0, size - start));
+      if (length === 0) {
+        return { content: "", offset: size, size, truncated: false };
+      }
+      const fh = await open(logPath, "r");
+      try {
+        const buf = Buffer.alloc(length);
+        await fh.read(buf, 0, length, start);
+        return {
+          content: buf.toString("utf8"),
+          offset: start + length,
+          size,
+          truncated: start > 0,
+        };
+      } finally {
+        await fh.close();
+      }
     }),
 
   events: protectedProcedure

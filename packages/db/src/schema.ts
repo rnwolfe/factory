@@ -6,7 +6,14 @@ export const tagEnum = ["active", "background", "past"] as const;
 export const decisionKindEnum = ["triage", "tag_change"] as const;
 export const decisionStatusEnum = ["pending", "actioned", "dismissed"] as const;
 export const decisionCommentRoleEnum = ["operator", "agent"] as const;
-export const runStatusEnum = ["queued", "running", "completed", "failed", "aborted"] as const;
+export const runStatusEnum = [
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "aborted",
+  "blocked",
+] as const;
 export const taskStatusEnum = [
   "ready",
   "in_progress",
@@ -45,6 +52,8 @@ export const projects = sqliteTable("projects", {
   workdirPath: text("workdir_path").notNull(),
   createdAt: integer("created_at").notNull(),
   lastActivityAt: integer("last_activity_at").notNull(),
+  /** When true, runs auto-submit the next ready task on success. Default: on. */
+  autoAdvance: integer("auto_advance", { mode: "boolean" }).notNull().default(true),
 });
 
 export const rubricVersions = sqliteTable(
@@ -105,6 +114,10 @@ export const runs = sqliteTable("runs", {
   exitCode: integer("exit_code"),
   iterationCount: integer("iteration_count").notNull().default(0),
   budgetSeconds: integer("budget_seconds").notNull(),
+  /** Operator-facing wrap-up extracted from the agent's factory-status block. */
+  summary: text("summary"),
+  /** When status='blocked', the JSON-stringified array of agent questions. */
+  blockerQuestions: text("blocker_questions"),
 });
 
 export const events = sqliteTable("events", {

@@ -5,7 +5,9 @@ import { claudeCodeAgent, hostSandbox, type RuntimeEvent, runtime } from "@facto
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
-import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
+import { listTasks, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
+import { type FactoryStatus, parseFactoryStatus, wrapPrompt } from "./factory-status.ts";
+import type { WorkerPool } from "./pool.ts";
 import type { RunRegistry } from "./registry.ts";
 
 export interface RunnerDeps {
@@ -13,10 +15,46 @@ export interface RunnerDeps {
   db: Db;
   events: EventBus;
   runs: RunRegistry;
+  /** Used by auto-advance to submit the next ready task on success. */
+  pool: WorkerPool;
+}
+
+type RunStatus = (typeof schema.runStatusEnum)[number] extends string
+  ? "queued" | "running" | "completed" | "failed" | "aborted" | "blocked"
+  : never;
+
+/**
+ * Map a parsed factory-status to the run row's terminal status. The agent's
+ * declaration is authoritative — we never assume "done" when it didn't say so.
+ */
+function runStatusFor(parsed: FactoryStatus | null, aborted: boolean): RunStatus {
+  if (aborted) return "aborted";
+  if (!parsed) return "failed";
+  switch (parsed.status) {
+    case "done":
+      return "completed";
+    case "blocked":
+      return "blocked";
+    case "failed":
+      return "failed";
+  }
+}
+
+function taskStatusFor(runStatus: RunStatus): "ready" | "in_progress" | "done" | "blocked" {
+  switch (runStatus) {
+    case "completed":
+      return "done";
+    case "aborted":
+      return "ready";
+    case "blocked":
+      return "blocked";
+    default:
+      return "blocked";
+  }
 }
 
 export async function executeRun(deps: RunnerDeps, runId: string): Promise<void> {
-  const { db, events, runs, config } = deps;
+  const { db, events, runs, config, pool } = deps;
 
   const row = await db.select().from(schema.runs).where(eq(schema.runs.id, runId)).get();
   if (!row) throw new Error(`run not found: ${runId}`);
@@ -36,18 +74,16 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
     .set({ status: "running", startedAt: Date.now(), iterationCount: 0 })
     .where(eq(schema.runs.id, runId));
 
-  // Reflect run lifecycle in the task file's frontmatter so the project view
-  // shows the right chip without the operator refreshing manually. We tolerate
-  // failures here — a missing task file shouldn't break the run.
   if (row.taskId) {
     try {
       await updateTaskStatus(project.workdirPath, row.taskId, "in_progress");
     } catch {
-      // task file may not exist yet (ad-hoc invocations, deleted file)
+      // task file may not exist (ad-hoc, deleted)
     }
   }
 
   const paneEncoder = new TextEncoder();
+  let agentText = "";
 
   const persistEvent = async (e: RuntimeEvent) => {
     try {
@@ -63,15 +99,15 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
     }
   };
 
-  let prompt = row.taskId
+  const taskBody = row.taskId
     ? ((await readTaskFile(project.workdirPath, row.taskId))?.body ?? "")
     : "";
-  if (!prompt) {
-    prompt = `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`;
-  }
+  const baseTaskBody =
+    taskBody ||
+    `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`;
+  const prompt = wrapPrompt(baseTaskBody);
 
   let lastSessionId: string | undefined;
-  let exitCode = 0;
 
   try {
     const result = await runtime.spawn({
@@ -88,7 +124,6 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
       abort: ac.signal,
       onEvent: (e) => {
         if (e.kind === "raw") {
-          // raw lines are high-volume — fan out to pane subscribers only.
           events.publish({
             channel: "pane",
             runId: e.runId,
@@ -96,6 +131,7 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
           });
           return;
         }
+        if (e.kind === "text") agentText += e.text;
         events.publish({ channel: "events", ...e });
         void persistEvent(e);
         if (e.kind === "session") lastSessionId = e.id;
@@ -104,18 +140,37 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
       tmuxSessionName: `factory-${project.slug}-${runId}`.slice(0, 60),
     });
 
-    exitCode = result.exitCode;
-    const finalStatus = ac.signal.aborted ? "aborted" : exitCode === 0 ? "completed" : "failed";
+    const aborted = ac.signal.aborted;
+    const parsed = parseFactoryStatus(agentText);
+    const finalStatus = runStatusFor(parsed, aborted);
+
+    // If parsing returned null and the runtime spawn nonetheless emitted commits,
+    // that's *some* signal of work done — but we deliberately keep this as
+    // failed. The operator should see a blank status block as a bug to fix in
+    // the prompt, not as a silent pass.
+    const summary =
+      parsed?.summary ||
+      (finalStatus === "completed"
+        ? "Run completed without an explicit summary."
+        : finalStatus === "aborted"
+          ? "Run was aborted by the operator."
+          : "Run ended without a status block — the agent may have stopped early.");
+
     await db
       .update(schema.runs)
       .set({
         status: finalStatus,
         endedAt: Date.now(),
-        exitCode,
+        exitCode: result.exitCode,
         sessionId: result.sessionId ?? lastSessionId ?? null,
         worktreePath: result.worktreePath,
         branch: result.branch,
         iterationCount: result.iterationsCompleted,
+        summary,
+        blockerQuestions:
+          parsed?.questions && parsed.questions.length > 0
+            ? JSON.stringify(parsed.questions)
+            : null,
       })
       .where(eq(schema.runs.id, runId));
 
@@ -125,12 +180,31 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
       .where(eq(schema.projects.id, project.id));
 
     if (row.taskId) {
-      const nextStatus =
-        finalStatus === "completed" ? "done" : finalStatus === "aborted" ? "ready" : "blocked";
       try {
-        await updateTaskStatus(project.workdirPath, row.taskId, nextStatus);
+        await updateTaskStatus(project.workdirPath, row.taskId, taskStatusFor(finalStatus));
       } catch {
-        // file may have been deleted during the run; ignore
+        // ignore
+      }
+    }
+
+    events.publish({
+      channel: "inbox",
+      kind: "decision_updated", // reused — UI just invalidates queries
+      decisionId: runId,
+    });
+
+    // Auto-advance: pick the next ready task and submit it. We dynamically
+    // import to avoid a circular module dep with submit.ts (which imports
+    // runner.ts).
+    if (finalStatus === "completed" && project.autoAdvance) {
+      const tasks = await listTasks(project.workdirPath);
+      const next = tasks.find((t) => t.frontmatter.status === "ready");
+      if (next) {
+        const { submitRun } = await import("./submit.ts");
+        await submitRun(
+          { config, db, events, runs, pool },
+          { projectId: project.id, taskId: next.id },
+        );
       }
     }
   } catch (err) {
@@ -140,6 +214,7 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
         status: "failed",
         endedAt: Date.now(),
         exitCode: 1,
+        summary: err instanceof Error ? err.message : String(err),
       })
       .where(eq(schema.runs.id, runId));
     if (row.taskId) {
