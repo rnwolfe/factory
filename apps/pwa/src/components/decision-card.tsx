@@ -68,8 +68,8 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     startX.current = e.clientX;
-    cardRef.current?.setPointerCapture(e.pointerId);
     longPressTimer.current = setTimeout(() => setMenuOpen(true), 520);
+    void e;
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (startX.current == null) return;
@@ -85,11 +85,18 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
-    cardRef.current?.releasePointerCapture(e.pointerId);
     if (dx > SWIPE_THRESHOLD) {
       onAction("approve");
     } else if (dx < -SWIPE_THRESHOLD) {
       onAction("dismiss");
+    } else if (!menuOpen && Math.abs(dx) < 6) {
+      // Quick tap with no swipe — open the detail page. We do this here
+      // (rather than relying on the inner <button onClick={onOpen}>) so the
+      // entire card surface is tappable and so pointer-capture quirks
+      // don't swallow the click.
+      const target = e.target as HTMLElement | null;
+      const isInteractive = target?.closest("button, a, input, [data-card-skip-open]");
+      if (!isInteractive) onOpen();
     }
     setDx(0);
     startX.current = null;

@@ -2,6 +2,7 @@ import type { RuntimeEvent } from "@factory/runtime";
 
 export type DaemonEvent =
   | ({ channel: "events" } & RuntimeEvent)
+  | { channel: "inbox"; kind: "idea_captured"; ideaId: string }
   | { channel: "inbox"; kind: "decision_created"; decisionId: string }
   | { channel: "inbox"; kind: "decision_actioned"; decisionId: string }
   | { channel: "inbox"; kind: "decision_updated"; decisionId: string }

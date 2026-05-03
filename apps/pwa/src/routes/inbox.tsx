@@ -6,6 +6,14 @@ import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx"
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
 
+interface TriagingIdea {
+  id: string;
+  rawText: string;
+  goalHint: string | null;
+  source: string;
+  createdAt: number;
+}
+
 export function Inbox() {
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -13,6 +21,12 @@ export function Inbox() {
   const inbox = useQuery({
     queryKey: ["decisions.inbox"],
     queryFn: () => trpc.decisions.inbox.query() as unknown as Promise<DecisionRow[]>,
+    refetchInterval: 6_000,
+  });
+
+  const triaging = useQuery({
+    queryKey: ["ideas.triaging"],
+    queryFn: () => trpc.ideas.triaging.query() as unknown as Promise<TriagingIdea[]>,
     refetchInterval: 6_000,
   });
 
@@ -31,7 +45,10 @@ export function Inbox() {
     try {
       ws = new WebSocket(url);
       ws.onmessage = () => {
+        // Coarse invalidation — inbox + triaging both refetch on any inbox-
+        // channel event. The set is small and these are cheap queries.
         qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+        qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
       };
     } catch {
       // ignore — polling still covers us
@@ -63,7 +80,9 @@ export function Inbox() {
     },
   });
 
-  if (inbox.isLoading) return <InboxSkeleton />;
+  const triagingRows = triaging.data ?? [];
+
+  if (inbox.isLoading && triagingRows.length === 0) return <InboxSkeleton />;
   if (inbox.isError) {
     return (
       <div className="surface p-4 text-sm">
@@ -78,7 +97,7 @@ export function Inbox() {
   const rows = inbox.data ?? [];
   const ideasById = new Map(ideasList.data?.map((i) => [i.id, i.rawText]) ?? []);
 
-  if (rows.length === 0) {
+  if (rows.length === 0 && triagingRows.length === 0) {
     return (
       <div className="px-2 pt-8">
         <div className="text-center">
@@ -96,6 +115,9 @@ export function Inbox() {
 
   return (
     <div className="space-y-2.5">
+      {triagingRows.map((idea) => (
+        <TriagingRow key={idea.id} idea={idea} />
+      ))}
       {rows.map((d, i) => (
         <DecisionCard
           key={d.id}
@@ -106,6 +128,28 @@ export function Inbox() {
           onOpen={() => nav(`/decisions/${d.id}`)}
         />
       ))}
+    </div>
+  );
+}
+
+function TriagingRow({ idea }: { idea: TriagingIdea }) {
+  const elapsed = Math.max(0, Math.floor((Date.now() - idea.createdAt) / 1000));
+  const elapsedLabel = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m`;
+  return (
+    <div className="surface drop-in px-4 py-3 border-l-2 border-[var(--color-accent)]">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="chip chip-accent flex items-center gap-1.5">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
+          triaging
+        </span>
+        {idea.goalHint ? <span className="chip">goal {idea.goalHint}</span> : null}
+        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+          {elapsedLabel} ago
+        </span>
+      </div>
+      <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)] line-clamp-3">
+        {idea.rawText}
+      </p>
     </div>
   );
 }

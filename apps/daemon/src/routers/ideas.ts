@@ -1,6 +1,6 @@
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { runTriage } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
@@ -26,6 +26,9 @@ export const ideasRouter = router({
         createdAt: now,
       });
 
+      // Surface immediately so the inbox can render a "triaging" row.
+      ctx.events.publish({ channel: "inbox", kind: "idea_captured", ideaId });
+
       // Fire-and-forget triage. Surfaces as a decisions row + WS push.
       void (async () => {
         try {
@@ -36,8 +39,10 @@ export const ideasRouter = router({
           });
           ctx.events.publish({ channel: "inbox", kind: "decision_created", decisionId });
         } catch (err) {
-          // Surface as a failure decision so nothing fails silently.
+          // Surface as a failure decision so nothing fails silently. Stamp
+          // triagedAt on the idea so it stops appearing in the triaging list.
           const decisionId = createId();
+          const now = Date.now();
           await ctx.db.insert(schema.decisions).values({
             id: decisionId,
             kind: "triage",
@@ -49,14 +54,27 @@ export const ideasRouter = router({
               what_would_change_verdict: "Re-run triage after the underlying error is fixed.",
             },
             status: "pending",
-            createdAt: Date.now(),
+            createdAt: now,
           });
+          await ctx.db
+            .update(schema.ideas)
+            .set({ triagedAt: now })
+            .where(eq(schema.ideas.id, ideaId));
           ctx.events.publish({ channel: "inbox", kind: "decision_created", decisionId });
         }
       })();
 
       return { ideaId };
     }),
+
+  triaging: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db
+      .select()
+      .from(schema.ideas)
+      .where(isNull(schema.ideas.triagedAt))
+      .orderBy(desc(schema.ideas.createdAt))
+      .all();
+  }),
 
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db
