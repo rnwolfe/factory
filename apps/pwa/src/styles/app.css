@@ -1,0 +1,270 @@
+@import "tailwindcss";
+
+/*
+ * factory · single-operator console · v0.1
+ *
+ * aesthetic notes:
+ *   - "dispatcher's console" — dense, warm-dark, terminal-adjacent
+ *   - amber accent reserved for the operator's attention surface (the inbox)
+ *   - decision verdicts get muted color tags, never garish
+ *   - typography: fraunces for moments, geist for chrome, geist mono for ids
+ *   - no gradient bullshit, no purple, no blur-glass
+ */
+
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", "Geist", ui-serif, serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+
+  /* base palette — warm-dark, slightly off-black */
+  --color-bg: hsl(30 10% 5%);
+  --color-bg-1: hsl(30 9% 8%);
+  --color-bg-2: hsl(30 8% 11%);
+  --color-bg-3: hsl(30 7% 15%);
+  --color-line: hsl(30 5% 22%);
+  --color-line-bright: hsl(30 5% 32%);
+  --color-fg: hsl(40 14% 88%);
+  --color-fg-1: hsl(40 12% 78%);
+  --color-fg-2: hsl(35 10% 60%);
+  --color-fg-3: hsl(30 8% 42%);
+
+  /* one accent. used sparingly. */
+  --color-accent: hsl(22 88% 60%);
+  --color-accent-soft: hsl(22 65% 50% / 0.18);
+  --color-accent-line: hsl(22 65% 50% / 0.40);
+
+  /* verdict tags */
+  --color-verdict-greenlit: hsl(140 42% 58%);
+  --color-verdict-greenlit-soft: hsl(140 42% 30% / 0.20);
+  --color-verdict-parked: hsl(40 70% 60%);
+  --color-verdict-parked-soft: hsl(40 70% 35% / 0.20);
+  --color-verdict-trashed: hsl(0 55% 58%);
+  --color-verdict-trashed-soft: hsl(0 55% 35% / 0.20);
+  --color-verdict-decompose: hsl(220 55% 70%);
+  --color-verdict-decompose-soft: hsl(220 55% 40% / 0.20);
+
+  --shadow-card: 0 1px 0 0 hsl(30 5% 22%) inset, 0 1px 0 0 hsl(0 0% 0% / 0.40);
+  --shadow-elev: 0 12px 30px -10px hsl(0 0% 0% / 0.6);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+body {
+  /* graph-paper grain — barely visible, gives surfaces tooth */
+  background-image:
+    linear-gradient(to bottom, var(--color-bg) 0%, hsl(30 11% 4%) 100%),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 27px,
+      hsl(30 5% 9% / 0.5) 27px,
+      hsl(30 5% 9% / 0.5) 28px
+    );
+  background-attachment: fixed;
+}
+
+/* selection */
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-fg);
+}
+
+/* tighten focus visibility — keyboard-only ring */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* shared bits */
+.mono { font-family: var(--font-mono); font-feature-settings: "ss03", "tnum"; }
+.display { font-family: var(--font-display); font-optical-sizing: auto; letter-spacing: -0.01em; }
+
+/* "rule" — a thin tonal divider with a small gap that reads as a stitch */
+.hairline {
+  height: 1px;
+  background: var(--color-line);
+}
+.hairline-strong { background: var(--color-line-bright); }
+
+/* card surface — flat, no rounded-glassmorphism */
+.surface {
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  box-shadow: var(--shadow-card);
+}
+.surface-2 {
+  background: var(--color-bg-2);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+}
+
+/* small caps chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-line);
+  background: var(--color-bg-2);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-1);
+  line-height: 1;
+}
+.chip-accent {
+  color: var(--color-accent);
+  border-color: var(--color-accent-line);
+  background: var(--color-accent-soft);
+}
+.chip-greenlit {
+  color: var(--color-verdict-greenlit);
+  border-color: var(--color-verdict-greenlit);
+  background: var(--color-verdict-greenlit-soft);
+}
+.chip-parked {
+  color: var(--color-verdict-parked);
+  border-color: var(--color-verdict-parked);
+  background: var(--color-verdict-parked-soft);
+}
+.chip-trashed {
+  color: var(--color-verdict-trashed);
+  border-color: var(--color-verdict-trashed);
+  background: var(--color-verdict-trashed-soft);
+}
+.chip-decompose {
+  color: var(--color-verdict-decompose);
+  border-color: var(--color-verdict-decompose);
+  background: var(--color-verdict-decompose-soft);
+}
+
+/* button reset, small-caps emphasis on primary buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--color-line);
+  background: var(--color-bg-2);
+  color: var(--color-fg);
+  border-radius: 3px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 90ms ease, border-color 90ms ease, transform 60ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:hover { background: var(--color-bg-3); border-color: var(--color-line-bright); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: hsl(30 30% 8%);
+  font-weight: 500;
+}
+.btn-primary:hover { background: hsl(22 88% 65%); border-color: hsl(22 88% 65%); }
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-fg-1);
+}
+.btn-ghost:hover { background: var(--color-bg-2); color: var(--color-fg); border-color: var(--color-line); }
+.btn-danger {
+  border-color: var(--color-verdict-trashed);
+  color: var(--color-verdict-trashed);
+}
+.btn-danger:hover { background: var(--color-verdict-trashed-soft); }
+
+/* input */
+.input {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  background: var(--color-bg-1);
+  color: var(--color-fg);
+  border-radius: 3px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+.input:focus { border-color: var(--color-accent); outline: none; }
+.textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px;
+  border: 1px solid var(--color-line);
+  background: var(--color-bg-1);
+  color: var(--color-fg);
+  border-radius: 3px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.textarea:focus { border-color: var(--color-accent); outline: none; }
+
+/* skeleton — avoids spinners */
+.skel {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-2) 0%,
+    var(--color-bg-3) 50%,
+    var(--color-bg-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: skel 1.6s ease-in-out infinite;
+  border-radius: 2px;
+}
+@keyframes skel {
+  0% { background-position: 0% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* small staggered card-in animation */
+@keyframes drop-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.drop-in { animation: drop-in 280ms ease-out backwards; }
+
+/* swipe affordance background — appears under the card as it drags */
+.swipe-tray {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.swipe-tray-approve {
+  background: var(--color-verdict-greenlit-soft);
+  color: var(--color-verdict-greenlit);
+  justify-content: flex-start;
+}
+.swipe-tray-trash {
+  background: var(--color-verdict-trashed-soft);
+  color: var(--color-verdict-trashed);
+  justify-content: flex-end;
+}
