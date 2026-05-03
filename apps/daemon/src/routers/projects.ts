@@ -3,6 +3,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { listTasks, updateTaskStatus } from "../projects/tasks.ts";
+import { snapshotWorkdir } from "../projects/workdir.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const TagEnum = z.enum(["active", "background", "past"]);
@@ -103,6 +104,16 @@ export const projectsRouter = router({
 
       return { ok: true, tag: input.tag };
     }),
+
+  workdir: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+    const project = await ctx.db
+      .select()
+      .from(schema.projects)
+      .where(eq(schema.projects.id, input.id))
+      .get();
+    if (!project) return null;
+    return snapshotWorkdir(project.workdirPath);
+  }),
 
   tasks: tasksRouter,
 });

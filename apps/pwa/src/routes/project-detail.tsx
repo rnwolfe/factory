@@ -1,8 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Play } from "lucide-react";
+import { ArrowLeft, FileText, Folder, GitBranch, Play } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { trpc } from "../lib/trpc.ts";
+
+interface WorkdirSnapshot {
+  exists: boolean;
+  branch: string | null;
+  headSha: string | null;
+  dirty: boolean;
+  status: Array<{ code: string; path: string }>;
+  commits: Array<{ sha: string; subject: string; ts: number; author: string }>;
+  worktrees: Array<{ path: string; branch: string | null; head: string | null }>;
+  tree: Array<{ path: string; type: "file" | "dir"; size: number | null }>;
+}
 
 export function ProjectDetail() {
   const { id = "" } = useParams<{ id: string }>();
@@ -13,6 +24,7 @@ export function ProjectDetail() {
     queryKey: ["projects.get", id],
     queryFn: () => trpc.projects.get.query({ id }),
     enabled: id.length > 0,
+    refetchInterval: 4_000,
   });
 
   const runs = useQuery({
@@ -20,6 +32,13 @@ export function ProjectDetail() {
     queryFn: () => trpc.runs.list.query({ projectId: id }),
     enabled: id.length > 0,
     refetchInterval: 4_000,
+  });
+
+  const workdir = useQuery({
+    queryKey: ["projects.workdir", id],
+    queryFn: () => trpc.projects.workdir.query({ id }) as unknown as Promise<WorkdirSnapshot>,
+    enabled: id.length > 0,
+    refetchInterval: 8_000,
   });
 
   const start = useMutation({
@@ -121,6 +140,18 @@ export function ProjectDetail() {
       </section>
 
       <section>
+        <SectionHeader
+          title="workdir"
+          count={
+            workdir.data?.exists
+              ? (workdir.data.status.length ?? 0) + (workdir.data.tree.length ?? 0)
+              : 0
+          }
+        />
+        <WorkdirPanel data={workdir.data} loading={workdir.isLoading} />
+      </section>
+
+      <section>
         <SectionHeader title="runs" count={runs.data?.length ?? 0} />
         <div className="surface divide-y divide-[var(--color-line)]">
           {runs.isLoading ? (
@@ -155,6 +186,144 @@ export function ProjectDetail() {
       </section>
     </div>
   );
+}
+
+function WorkdirPanel({
+  data,
+  loading,
+}: {
+  data: WorkdirSnapshot | null | undefined;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="surface px-3 py-3">
+        <div className="skel h-3 w-1/3 mb-2" />
+        <div className="skel h-3 w-2/3 mb-1.5" />
+        <div className="skel h-3 w-1/2" />
+      </div>
+    );
+  }
+  if (!data?.exists) {
+    return (
+      <div className="surface px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
+        workdir not found on disk.
+      </div>
+    );
+  }
+  const { branch, headSha, dirty, status, commits, worktrees, tree } = data;
+  return (
+    <div className="surface divide-y divide-[var(--color-line)]">
+      <div className="px-3 py-2.5 flex items-center gap-2 flex-wrap">
+        <GitBranch size={12} className="text-[var(--color-fg-3)]" />
+        <span className="mono text-[12px] text-[var(--color-fg-1)] truncate">
+          {branch ?? "(detached)"}
+        </span>
+        {headSha ? (
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{headSha.slice(0, 8)}</span>
+        ) : null}
+        <span
+          className={`chip ${dirty ? "chip-trashed" : "chip-greenlit"} ml-auto`}
+          title={dirty ? `${status.length} change(s)` : "clean"}
+        >
+          {dirty ? `dirty · ${status.length}` : "clean"}
+        </span>
+      </div>
+
+      {dirty ? (
+        <div className="px-3 py-2.5">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+            git status
+          </div>
+          <ul className="space-y-0.5 max-h-[140px] overflow-y-auto">
+            {status.slice(0, 80).map((s) => (
+              <li
+                key={`${s.code}-${s.path}`}
+                className="mono text-[11.5px] flex gap-2 leading-snug"
+              >
+                <span className="text-[var(--color-accent)] w-6 shrink-0">{s.code.trim()}</span>
+                <span className="text-[var(--color-fg-1)] truncate">{s.path}</span>
+              </li>
+            ))}
+            {status.length > 80 ? (
+              <li className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                +{status.length - 80} more
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      ) : null}
+
+      {commits.length > 0 ? (
+        <div className="px-3 py-2.5">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+            recent commits
+          </div>
+          <ul className="space-y-1">
+            {commits.slice(0, 10).map((c) => (
+              <li key={c.sha} className="text-[12.5px] leading-snug">
+                <span className="mono text-[11px] text-[var(--color-accent)] mr-2">
+                  {c.sha.slice(0, 8)}
+                </span>
+                <span className="text-[var(--color-fg-1)]">{c.subject}</span>
+                <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-2">{c.author}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {worktrees.length > 1 ? (
+        <div className="px-3 py-2.5">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+            worktrees
+          </div>
+          <ul className="space-y-0.5">
+            {worktrees.map((w) => (
+              <li key={w.path} className="mono text-[11.5px] truncate">
+                <span className="text-[var(--color-accent)] mr-2">{w.branch ?? "(detached)"}</span>
+                <span className="text-[var(--color-fg-3)]">{w.path}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {tree.length > 0 ? (
+        <div className="px-3 py-2.5">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+            tree
+          </div>
+          <ul className="space-y-0.5">
+            {tree.map((entry) => (
+              <li key={entry.path} className="mono text-[12px] flex items-center gap-2">
+                {entry.type === "dir" ? (
+                  <Folder size={11} className="text-[var(--color-accent)] shrink-0" />
+                ) : (
+                  <FileText size={11} className="text-[var(--color-fg-3)] shrink-0" />
+                )}
+                <span className="text-[var(--color-fg-1)] truncate">
+                  {entry.path}
+                  {entry.type === "dir" ? "/" : ""}
+                </span>
+                {entry.size != null ? (
+                  <span className="text-[var(--color-fg-3)] ml-auto tabular-nums">
+                    {fmtSize(entry.size)}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
 }
 
 function SectionHeader({ title, count }: { title: string; count: number }) {

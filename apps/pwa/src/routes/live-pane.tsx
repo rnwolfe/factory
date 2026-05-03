@@ -27,6 +27,7 @@ export function LivePane() {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [ticker, setTicker] = useState<TickerEvent[]>([]);
+  const [seeded, setSeeded] = useState(false);
   const [paneStatus, setPaneStatus] = useState<"connecting" | "open" | "closed">("connecting");
 
   const run = useQuery({
@@ -35,6 +36,25 @@ export function LivePane() {
     enabled: runId.length > 0,
     refetchInterval: 3_000,
   });
+
+  // Seed the ticker from persisted events so completed runs aren't blank.
+  // Only runs once per mount — after that, the live WS feed is authoritative.
+  const persistedEvents = useQuery({
+    queryKey: ["runs.events", runId],
+    queryFn: () => trpc.runs.events.query({ runId }),
+    enabled: runId.length > 0 && !seeded,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+  useEffect(() => {
+    if (!persistedEvents.data || seeded) return;
+    // DB rows are asc by id; ticker renders newest-first, so reverse.
+    const events = persistedEvents.data
+      .map((row) => row.payload as unknown as TickerEvent)
+      .reverse();
+    setTicker(events);
+    setSeeded(true);
+  }, [persistedEvents.data, seeded]);
 
   // Boot the terminal once.
   useEffect(() => {
@@ -135,10 +155,11 @@ export function LivePane() {
     ws.onmessage = (ev) => {
       try {
         const data = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-        setTicker((cur) => [data, ...cur].slice(0, 12));
+        setTicker((cur) => [data, ...cur].slice(0, 500));
         if (data.kind === "iteration_end" || data.kind === "agent_exit") {
           qc.invalidateQueries({ queryKey: ["runs.get", runId] });
           qc.invalidateQueries({ queryKey: ["runs.list", id] });
+          qc.invalidateQueries({ queryKey: ["projects.get", id] });
         }
       } catch {
         // ignore
@@ -200,7 +221,7 @@ export function LivePane() {
         <div className="px-3 py-1.5 border-b border-[var(--color-line)] mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
           events ({ticker.length})
         </div>
-        <ul className="divide-y divide-[var(--color-line)] max-h-[180px] overflow-y-auto">
+        <ul className="divide-y divide-[var(--color-line)] max-h-[420px] overflow-y-auto">
           {ticker.length === 0 ? (
             <li className="px-3 py-2 text-[12px] text-[var(--color-fg-3)]">waiting for events…</li>
           ) : (

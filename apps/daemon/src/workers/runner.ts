@@ -5,7 +5,7 @@ import { claudeCodeAgent, hostSandbox, type RuntimeEvent, runtime } from "@facto
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
-import { readTaskFile } from "../projects/tasks.ts";
+import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import type { RunRegistry } from "./registry.ts";
 
 export interface RunnerDeps {
@@ -35,6 +35,17 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
     .update(schema.runs)
     .set({ status: "running", startedAt: Date.now(), iterationCount: 0 })
     .where(eq(schema.runs.id, runId));
+
+  // Reflect run lifecycle in the task file's frontmatter so the project view
+  // shows the right chip without the operator refreshing manually. We tolerate
+  // failures here — a missing task file shouldn't break the run.
+  if (row.taskId) {
+    try {
+      await updateTaskStatus(project.workdirPath, row.taskId, "in_progress");
+    } catch {
+      // task file may not exist yet (ad-hoc invocations, deleted file)
+    }
+  }
 
   const paneEncoder = new TextEncoder();
 
@@ -92,10 +103,11 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
     });
 
     exitCode = result.exitCode;
+    const finalStatus = ac.signal.aborted ? "aborted" : exitCode === 0 ? "completed" : "failed";
     await db
       .update(schema.runs)
       .set({
-        status: ac.signal.aborted ? "aborted" : exitCode === 0 ? "completed" : "failed",
+        status: finalStatus,
         endedAt: Date.now(),
         exitCode,
         sessionId: result.sessionId ?? lastSessionId ?? null,
@@ -109,6 +121,16 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
       .update(schema.projects)
       .set({ lastActivityAt: Date.now() })
       .where(eq(schema.projects.id, project.id));
+
+    if (row.taskId) {
+      const nextStatus =
+        finalStatus === "completed" ? "done" : finalStatus === "aborted" ? "ready" : "blocked";
+      try {
+        await updateTaskStatus(project.workdirPath, row.taskId, nextStatus);
+      } catch {
+        // file may have been deleted during the run; ignore
+      }
+    }
   } catch (err) {
     await db
       .update(schema.runs)
@@ -118,6 +140,13 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
         exitCode: 1,
       })
       .where(eq(schema.runs.id, runId));
+    if (row.taskId) {
+      try {
+        await updateTaskStatus(project.workdirPath, row.taskId, "blocked");
+      } catch {
+        // ignore
+      }
+    }
     throw err;
   } finally {
     runs.unregister(runId);
