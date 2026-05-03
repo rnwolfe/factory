@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
 
 export function Inbox() {
   const qc = useQueryClient();
+  const nav = useNavigate();
 
   const inbox = useQuery({
     queryKey: ["decisions.inbox"],
@@ -102,11 +103,7 @@ export function Inbox() {
           ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
           index={i}
           onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
-          onOpen={() => {
-            // detail sheet: M5 keeps it inline; M6 may add a dedicated route.
-            const message = JSON.stringify(d.payload, null, 2);
-            alert(message.slice(0, 4000));
-          }}
+          onOpen={() => nav(`/decisions/${d.id}`)}
         />
       ))}
     </div>
