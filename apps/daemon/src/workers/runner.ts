@@ -115,6 +115,7 @@ export async function executeRun(deps: RunnerDeps, runId: string): Promise<void>
       projectPath: project.workdirPath,
       worktreePath: row.worktreePath,
       gitAuthor: config.gitAuthor,
+      model: project.model,
       task: { id: row.taskId ?? "ad-hoc", prompt },
       agent: claudeCodeAgent,
       sandbox: hostSandbox,

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, FileText, Folder, GitBranch, Play } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ModelPicker } from "../components/model-picker.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { trpc } from "../lib/trpc.ts";
 
@@ -52,6 +53,13 @@ export function ProjectDetail() {
 
   const setAutoAdvance = useMutation({
     mutationFn: (autoAdvance: boolean) => trpc.projects.setAutoAdvance.mutate({ id, autoAdvance }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
+  const setModel = useMutation({
+    mutationFn: (model: string | null) => trpc.projects.setModel.mutate({ id, model }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects.get", id] });
     },
@@ -123,6 +131,17 @@ export function ProjectDetail() {
           />
           <span>auto-advance to next ready task on success</span>
         </label>
+
+        <div className="mt-3">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+            model
+          </div>
+          <ModelPicker
+            value={p.model ?? null}
+            onChange={(m) => setModel.mutate(m)}
+            disabled={setModel.isPending}
+          />
+        </div>
       </header>
 
       <section>

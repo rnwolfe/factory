@@ -54,6 +54,8 @@ export const projects = sqliteTable("projects", {
   lastActivityAt: integer("last_activity_at").notNull(),
   /** When true, runs auto-submit the next ready task on success. Default: on. */
   autoAdvance: integer("auto_advance", { mode: "boolean" }).notNull().default(true),
+  /** Claude model id used for runs in this project. Null = CLI default. */
+  model: text("model"),
 });
 
 export const rubricVersions = sqliteTable(

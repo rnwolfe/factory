@@ -82,6 +82,8 @@ export interface RunSpec {
   worktreePath?: string;
   /** Author identity used when the runtime auto-commits residual dirty state. */
   gitAuthor?: { name: string; email: string };
+  /** Claude model id forwarded to the agent's CLI. Null/undefined = CLI default. */
+  model?: string | null;
 }
 
 export interface RunResult {

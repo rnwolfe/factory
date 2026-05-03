@@ -42,6 +42,8 @@ export const decisionsRouter = router({
         decisionId: z.string(),
         action: ActionEnum,
         note: z.string().optional(),
+        /** Claude model id for the project's runs. Approve-only; ignored otherwise. */
+        model: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -75,6 +77,7 @@ export const decisionsRouter = router({
           ideaText: idea.rawText,
           goal,
           tier: "tinker",
+          model: input.model ?? null,
         });
         projectId = result.projectId;
       }

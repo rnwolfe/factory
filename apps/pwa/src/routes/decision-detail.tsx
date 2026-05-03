@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ModelPicker } from "../components/model-picker.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -65,9 +66,18 @@ export function DecisionDetail() {
     enabled: !!decision.data?.rubricVersionId,
   });
 
+  const [model, setModel] = useState<string | null>(null);
+
   const action = useMutation({
     mutationFn: (vars: { action: Action }) =>
-      trpc.decisions.action.mutate({ decisionId: id, action: vars.action }),
+      trpc.decisions.action.mutate({
+        decisionId: id,
+        action: vars.action,
+        // Model is only meaningful for approve (it stamps the project); the
+        // server ignores it for park/trash/decompose/dismiss but sending it
+        // anyway keeps the call site simple.
+        model: vars.action === "approve" ? model : undefined,
+      }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
       qc.invalidateQueries({ queryKey: ["decisions.get", id] });
@@ -380,6 +390,17 @@ export function DecisionDetail() {
         <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
           rubric · {rubric.data.rubricKey}@{rubric.data.version}
         </p>
+      ) : null}
+
+      {isPending && isTriage ? (
+        <Section title="model · for runs in this project">
+          <div className="px-4 py-3 space-y-1.5">
+            <ModelPicker value={model} onChange={setModel} disabled={action.isPending} />
+            <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+              applied on approve; can be changed later from the project page.
+            </p>
+          </div>
+        </Section>
       ) : null}
 
       {isPending ? (

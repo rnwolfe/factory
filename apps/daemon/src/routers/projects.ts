@@ -115,6 +115,16 @@ export const projectsRouter = router({
       return { ok: true, autoAdvance: input.autoAdvance };
     }),
 
+  setModel: protectedProcedure
+    .input(z.object({ id: z.string(), model: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(schema.projects)
+        .set({ model: input.model })
+        .where(eq(schema.projects.id, input.id));
+      return { ok: true, model: input.model };
+    }),
+
   workdir: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const project = await ctx.db
       .select()

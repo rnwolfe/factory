@@ -59,6 +59,7 @@ class HostRuntime implements Runtime {
 
     const { argv, stdin, env } = spec.agent.buildArgv(spec.task.prompt, {
       resumeSessionId: spec.resume?.sessionId,
+      model: spec.model ?? undefined,
     });
 
     let agentExitCode = 0;

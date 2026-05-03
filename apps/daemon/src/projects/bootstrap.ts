@@ -17,6 +17,8 @@ export interface BootstrapInput {
   ideaText: string;
   goal: "me" | "learn" | "share" | "productize";
   tier: "tinker" | "personal" | "share" | "productize";
+  /** Claude model id stored on the project; runs in this project will use it. */
+  model?: string | null;
 }
 
 export interface BootstrapResult {
@@ -167,6 +169,7 @@ export async function bootstrapProject(
       workdirPath,
       createdAt: now,
       lastActivityAt: now,
+      model: input.model ?? null,
     });
 
     return { projectId, slug, workdirPath, taskIds };
