@@ -40,7 +40,12 @@ export function PromptsViewer() {
       ) : list.data && list.data.length > 0 ? (
         <div className="space-y-2">
           {list.data.map((p) => (
-            <PromptCard key={p.id} promptKey={p.promptKey} version={p.version} />
+            <PromptCard
+              key={p.id}
+              promptKey={p.promptKey}
+              version={p.version}
+              lineCount={p.lineCount}
+            />
           ))}
         </div>
       ) : (
@@ -50,7 +55,15 @@ export function PromptsViewer() {
   );
 }
 
-function PromptCard({ promptKey, version }: { promptKey: string; version: number }) {
+function PromptCard({
+  promptKey,
+  version,
+  lineCount,
+}: {
+  promptKey: string;
+  version: number;
+  lineCount: number;
+}) {
   const [open, setOpen] = useState(false);
   const detail = useQuery({
     queryKey: ["prompts.get", promptKey, version],
@@ -73,7 +86,10 @@ function PromptCard({ promptKey, version }: { promptKey: string; version: number
           )}
           <span className="mono text-[12.5px] text-[var(--color-fg-1)] truncate">{promptKey}</span>
         </div>
-        <span className="mono text-[11px] text-[var(--color-fg-3)] flex-shrink-0">v{version}</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{lineCount} lines</span>
+          <span className="mono text-[11px] text-[var(--color-fg-3)]">v{version}</span>
+        </div>
       </button>
       {open ? (
         <div className="border-t border-[var(--color-line)] p-3">
