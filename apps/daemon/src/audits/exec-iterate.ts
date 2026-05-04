@@ -4,6 +4,7 @@ import { schema } from "@factory/db";
 import { ensureWorktree, removeWorktree } from "@factory/runtime";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
+import { recordClaudeMetrics } from "../metrics/record.ts";
 import { invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { readAuditSkill } from "../projects/audit-skills.ts";
 import { parseAuditResponse, writeFindings } from "./findings.ts";
@@ -111,6 +112,17 @@ export async function runExecAudit(
         claudeSessionId: invocation.sessionId,
       })
       .where(eq(schema.audits.id, audit.id));
+
+    if (invocation.metrics) {
+      await recordClaudeMetrics({
+        db,
+        ownerKind: "audit_exec",
+        ownerId: audit.id,
+        projectId: project.id,
+        metrics: invocation.metrics,
+        now,
+      });
+    }
 
     // Audits don't preserve commits. Tear down the worktree on success.
     await tryRemoveWorktree(project.workdirPath, worktreePath);

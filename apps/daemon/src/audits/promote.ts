@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Audit, AuditFinding, Db, Project } from "@factory/db";
 import { schema } from "@factory/db";
 import { and, eq } from "drizzle-orm";
+import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { extractJsonObject } from "../plans/json-extract.ts";
 
@@ -81,6 +82,16 @@ export async function bridgePromoteFindings(
   const invocation = opts.agentInvoker
     ? await opts.agentInvoker({ prompt })
     : await invokeClaudeJson(prompt, { budgetSeconds: budget });
+
+  if (invocation.metrics) {
+    await recordClaudeMetrics({
+      db,
+      ownerKind: "audit_promote",
+      ownerId: audit.id,
+      projectId: project.id,
+      metrics: invocation.metrics,
+    });
+  }
 
   const parsed = extractJsonObject<Record<string, unknown>>(invocation.text);
   return coerceRecommendation(parsed);

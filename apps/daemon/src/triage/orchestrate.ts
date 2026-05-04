@@ -4,6 +4,7 @@ import { claudeCodeAgent, type StreamEvent } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, eq } from "drizzle-orm";
+import { recordClaudeMetrics } from "../metrics/record.ts";
 
 export interface TriageInput {
   ideaId: string;
@@ -54,7 +55,12 @@ function renderPrompt(template: string, vars: Record<string, string>): string {
   return out;
 }
 
-async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<string> {
+interface TriageInvocation {
+  text: string;
+  metrics: import("@factory/runtime").AgentMetrics | null;
+}
+
+async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<TriageInvocation> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), budgetSeconds * 1000);
 
@@ -77,9 +83,16 @@ async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<
   // envelope. Duplicates are harmless: the JSON extractor finds the first
   // balanced object regardless of surrounding noise.
   let resultText = "";
+  let metrics: import("@factory/runtime").AgentMetrics | null = null;
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buf = "";
+  const handleEvents = (events: readonly StreamEvent[]) => {
+    for (const e of events) {
+      if (e.kind === "text") resultText += e.text;
+      else if (e.kind === "metrics") metrics = e.metrics;
+    }
+  };
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -89,16 +102,12 @@ async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<
       while (idx !== -1) {
         const line = buf.slice(0, idx);
         buf = buf.slice(idx + 1);
-        const events: readonly StreamEvent[] = claudeCodeAgent.parseLine(line);
-        for (const e of events) {
-          if (e.kind === "text") resultText += e.text;
-        }
+        handleEvents(claudeCodeAgent.parseLine(line));
         idx = buf.indexOf("\n");
       }
     }
     if (buf.length > 0) {
-      const events = claudeCodeAgent.parseLine(buf);
-      for (const e of events) if (e.kind === "text") resultText += e.text;
+      handleEvents(claudeCodeAgent.parseLine(buf));
     }
   } finally {
     clearTimeout(timer);
@@ -110,7 +119,7 @@ async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`claude exited ${exitCode}: ${stderr.trim().slice(0, 200)}`);
   }
-  return resultText;
+  return { text: resultText, metrics };
 }
 
 /**
@@ -220,9 +229,15 @@ export async function runTriage(
     opts.budgetSeconds ?? TRIAGE_MAX_BUDGET_SECONDS,
     TRIAGE_MAX_BUDGET_SECONDS,
   );
-  const responseText = opts.agentInvoker
-    ? await opts.agentInvoker(rendered)
-    : await invokeClaudeJson(rendered, budget);
+  let responseText: string;
+  let metrics: import("@factory/runtime").AgentMetrics | null = null;
+  if (opts.agentInvoker) {
+    responseText = await opts.agentInvoker(rendered);
+  } else {
+    const inv = await invokeClaudeJson(rendered, budget);
+    responseText = inv.text;
+    metrics = inv.metrics;
+  }
 
   // 4. Parse JSON payload.
   const payload = extractJson(responseText);
@@ -244,6 +259,17 @@ export async function runTriage(
   });
 
   await db.update(schema.ideas).set({ triagedAt: now }).where(eq(schema.ideas.id, input.ideaId));
+
+  if (metrics) {
+    await recordClaudeMetrics({
+      db,
+      ownerKind: "triage",
+      ownerId: decisionId,
+      projectId: null,
+      metrics,
+      now,
+    });
+  }
 
   return { decisionId, payload };
 }
@@ -343,9 +369,15 @@ export async function runFollowupTriage(
     opts.budgetSeconds ?? TRIAGE_MAX_BUDGET_SECONDS,
     TRIAGE_MAX_BUDGET_SECONDS,
   );
-  const responseText = opts.agentInvoker
-    ? await opts.agentInvoker(rendered)
-    : await invokeClaudeJson(rendered, budget);
+  let responseText: string;
+  let metrics: import("@factory/runtime").AgentMetrics | null = null;
+  if (opts.agentInvoker) {
+    responseText = await opts.agentInvoker(rendered);
+  } else {
+    const inv = await invokeClaudeJson(rendered, budget);
+    responseText = inv.text;
+    metrics = inv.metrics;
+  }
 
   const payload = extractJson(responseText);
   const verdictChanged = payload.outcome !== priorPayload.outcome;
@@ -375,6 +407,17 @@ export async function runFollowupTriage(
     body: replyBody,
     createdAt: now,
   });
+
+  if (metrics) {
+    await recordClaudeMetrics({
+      db,
+      ownerKind: "triage",
+      ownerId: decisionId,
+      projectId: null,
+      metrics,
+      now,
+    });
+  }
 
   return { decisionId, payload, agentCommentId, verdictChanged };
 }

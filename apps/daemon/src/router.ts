@@ -2,6 +2,7 @@ import { auditsRouter } from "./routers/audits.ts";
 import { decisionsRouter } from "./routers/decisions.ts";
 import { healthRouter } from "./routers/health.ts";
 import { ideasRouter } from "./routers/ideas.ts";
+import { metricsRouter } from "./routers/metrics.ts";
 import { plansRouter } from "./routers/plans.ts";
 import { projectsRouter } from "./routers/projects.ts";
 import { promptsRouter } from "./routers/prompts.ts";
@@ -19,6 +20,7 @@ export const appRouter = router({
   runs: runsRouter,
   rubrics: rubricsRouter,
   audits: auditsRouter,
+  metrics: metricsRouter,
 });
 
 export type AppRouter = typeof appRouter;

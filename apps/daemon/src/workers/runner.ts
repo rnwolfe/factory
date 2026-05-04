@@ -13,6 +13,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import { recordClaudeMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
 import { listTasks, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import {
@@ -207,6 +208,15 @@ export async function executeRun(
           return;
         }
         if (e.kind === "text") agentText += e.text;
+        if (e.kind === "metrics") {
+          void recordClaudeMetrics({
+            db,
+            ownerKind: "run",
+            ownerId: e.runId,
+            projectId: project.id,
+            metrics: e.metrics,
+          });
+        }
         events.publish({ channel: "events", ...e });
         void persistEvent(e);
         if (e.kind === "session") lastSessionId = e.id;

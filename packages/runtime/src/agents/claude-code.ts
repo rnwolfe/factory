@@ -1,4 +1,4 @@
-import type { AgentSpec, StreamEvent } from "../types.ts";
+import type { AgentMetrics, AgentModelUsage, AgentSpec, StreamEvent } from "../types.ts";
 
 const STALENESS_PATTERNS = [
   /Resume conversation\? \(y\/N\)/i,
@@ -7,6 +7,21 @@ const STALENESS_PATTERNS = [
   /Authentication failed/i,
   /Run `claude login` to authenticate/i,
 ];
+
+interface ClaudeUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
+interface ClaudeModelUsage {
+  costUSD?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+}
 
 interface ClaudeStreamLine {
   type?: string;
@@ -21,6 +36,49 @@ interface ClaudeStreamLine {
     >;
   };
   result?: string;
+  total_cost_usd?: number;
+  duration_ms?: number;
+  duration_api_ms?: number;
+  num_turns?: number;
+  usage?: ClaudeUsage;
+  modelUsage?: Record<string, ClaudeModelUsage>;
+}
+
+function num(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+function buildMetrics(parsed: ClaudeStreamLine): AgentMetrics {
+  const usage = parsed.usage ?? {};
+  const modelUsage: Record<string, AgentModelUsage> = {};
+  let primaryModel: string | null = null;
+  if (parsed.modelUsage && typeof parsed.modelUsage === "object") {
+    for (const [name, mu] of Object.entries(parsed.modelUsage)) {
+      modelUsage[name] = {
+        costUSD: num(mu.costUSD),
+        inputTokens: num(mu.inputTokens),
+        outputTokens: num(mu.outputTokens),
+        cacheReadInputTokens: num(mu.cacheReadInputTokens),
+        cacheCreationInputTokens: num(mu.cacheCreationInputTokens),
+      };
+      if (!primaryModel) primaryModel = name;
+    }
+  }
+  return {
+    totalCostUsd: num(parsed.total_cost_usd),
+    durationMs: num(parsed.duration_ms),
+    durationApiMs: num(parsed.duration_api_ms),
+    numTurns: num(parsed.num_turns),
+    inputTokens: num(usage.input_tokens),
+    outputTokens: num(usage.output_tokens),
+    cacheCreationTokens: num(usage.cache_creation_input_tokens),
+    cacheReadTokens: num(usage.cache_read_input_tokens),
+    model: primaryModel,
+    modelUsage,
+    isError: parsed.is_error === true,
+    subtype: typeof parsed.subtype === "string" ? parsed.subtype : null,
+    sessionId: typeof parsed.session_id === "string" ? parsed.session_id : null,
+  };
 }
 
 function summarizeToolInput(input: unknown): string {
@@ -108,6 +166,7 @@ export const claudeCodeAgent: AgentSpec = {
       if (typeof parsed.result === "string" && parsed.result.length > 0) {
         events.push({ kind: "text", text: parsed.result });
       }
+      events.push({ kind: "metrics", metrics: buildMetrics(parsed) });
       events.push({
         kind: "agent_exit",
         exitCode: parsed.is_error ? 1 : 0,

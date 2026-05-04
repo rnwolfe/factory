@@ -1,3 +1,37 @@
+/**
+ * Per-model usage breakdown captured from the CLI's result envelope. Field
+ * names mirror the CLI's camelCase output (`modelUsage`).
+ */
+export interface AgentModelUsage {
+  costUSD: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+}
+
+/**
+ * Final-result metrics extracted from `claude --print --output-format
+ * stream-json`'s `result` envelope. Aggregate fields are summed across all
+ * models the session used; `modelUsage` keeps the per-model breakdown for
+ * later analysis. Carrier of cost/cache visibility for runtime ROI tracking.
+ */
+export interface AgentMetrics {
+  totalCostUsd: number;
+  durationMs: number;
+  durationApiMs: number;
+  numTurns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  model: string | null;
+  modelUsage: Record<string, AgentModelUsage>;
+  isError: boolean;
+  subtype: string | null;
+  sessionId: string | null;
+}
+
 export type StreamEvent =
   | { kind: "text"; text: string }
   | { kind: "tool"; name: string; argSummary: string }
@@ -8,6 +42,7 @@ export type StreamEvent =
   | { kind: "idle_timeout"; ts: number }
   | { kind: "agent_exit"; exitCode: number; ts: number }
   | { kind: "decision_required"; question: string; options?: string[] }
+  | { kind: "metrics"; metrics: AgentMetrics }
   /**
    * One newline-terminated line of raw pane output as captured by `pipe-pane`.
    * Emitted in addition to any parsed events the agent extracts. Consumers

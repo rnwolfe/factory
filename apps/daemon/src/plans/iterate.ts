@@ -16,6 +16,7 @@ import {
 } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
+import { recordClaudeMetrics } from "../metrics/record.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "./invoke-claude.ts";
@@ -592,6 +593,16 @@ export async function runPlanIteration(
       sessionId: null,
       usedResume,
     };
+  }
+  if (invocation.metrics) {
+    await recordClaudeMetrics({
+      db,
+      ownerKind: "plan_iteration",
+      ownerId: planId,
+      projectId: plan.projectId ?? null,
+      metrics: invocation.metrics,
+      now,
+    });
   }
   const responseText = invocation.text;
   const newSessionId = invocation.sessionId;

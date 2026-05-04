@@ -1,4 +1,4 @@
-import { claudeCodeAgent, type StreamEvent } from "@factory/runtime";
+import { type AgentMetrics, claudeCodeAgent, type StreamEvent } from "@factory/runtime";
 import { spawn as bunSpawn } from "bun";
 
 export interface InvokeClaudeOptions {
@@ -29,6 +29,13 @@ export interface InvokeClaudeResult {
    * the CLI may rotate, so callers should always store the latest value).
    */
   sessionId: string | null;
+  /**
+   * Final-result metrics from the CLI's stream-json `result` envelope (cost,
+   * tokens, duration, per-model usage). Null/undefined when the CLI exited
+   * before emitting a result event, or when the test seam mocks the invoker
+   * — callers should treat absence as "no metrics this turn" and continue.
+   */
+  metrics?: AgentMetrics | null;
 }
 
 /**
@@ -66,9 +73,17 @@ export async function invokeClaudeJson(
 
   let resultText = "";
   let sessionId: string | null = null;
+  let metrics: AgentMetrics | null = null;
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buf = "";
+  const handleEvents = (events: readonly StreamEvent[]) => {
+    for (const e of events) {
+      if (e.kind === "text") resultText += e.text;
+      else if (e.kind === "session") sessionId = e.id;
+      else if (e.kind === "metrics") metrics = e.metrics;
+    }
+  };
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -78,20 +93,12 @@ export async function invokeClaudeJson(
       while (idx !== -1) {
         const line = buf.slice(0, idx);
         buf = buf.slice(idx + 1);
-        const events: readonly StreamEvent[] = claudeCodeAgent.parseLine(line);
-        for (const e of events) {
-          if (e.kind === "text") resultText += e.text;
-          if (e.kind === "session") sessionId = e.id;
-        }
+        handleEvents(claudeCodeAgent.parseLine(line));
         idx = buf.indexOf("\n");
       }
     }
     if (buf.length > 0) {
-      const events = claudeCodeAgent.parseLine(buf);
-      for (const e of events) {
-        if (e.kind === "text") resultText += e.text;
-        if (e.kind === "session") sessionId = e.id;
-      }
+      handleEvents(claudeCodeAgent.parseLine(buf));
     }
   } finally {
     clearTimeout(timer);
@@ -103,5 +110,5 @@ export async function invokeClaudeJson(
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`claude exited ${exitCode}: ${stderr.trim().slice(0, 200)}`);
   }
-  return { text: resultText, sessionId };
+  return { text: resultText, sessionId, metrics };
 }

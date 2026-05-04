@@ -503,10 +503,20 @@ export const auditsRouter = router({
         void (async () => {
           try {
             const { invokeClaudeJson } = await import("../plans/invoke-claude.ts");
+            const { recordClaudeMetrics } = await import("../metrics/record.ts");
             const reply = await invokeClaudeJson(
               `Operator just asked a follow-up on the audit report:\n\n${input.body.trim()}\n\nReply in 1–3 short paragraphs of markdown. Do not re-emit the JSON envelope; just prose.`,
               { budgetSeconds: 120, resumeSessionId: audit.claudeSessionId ?? undefined },
             );
+            if (reply.metrics) {
+              await recordClaudeMetrics({
+                db: ctx.db,
+                ownerKind: "audit_comment",
+                ownerId: audit.id,
+                projectId: audit.projectId,
+                metrics: reply.metrics,
+              });
+            }
             const replyTs = Date.now();
             const fresh = await ctx.db
               .select()

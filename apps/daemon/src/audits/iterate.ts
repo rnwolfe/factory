@@ -1,6 +1,7 @@
 import type { Audit, Db } from "@factory/db";
 import { schema } from "@factory/db";
 import { eq } from "drizzle-orm";
+import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { readAuditSkill } from "../projects/audit-skills.ts";
 import { parseAuditResponse, writeFindings } from "./findings.ts";
@@ -103,6 +104,17 @@ export async function runAuditIteration(
       claudeSessionId: invocation.sessionId,
     })
     .where(eq(schema.audits.id, audit.id));
+
+  if (invocation.metrics) {
+    await recordClaudeMetrics({
+      db,
+      ownerKind: "audit",
+      ownerId: audit.id,
+      projectId: project.id,
+      metrics: invocation.metrics,
+      now,
+    });
+  }
 
   const refreshed = await db
     .select()
