@@ -29,7 +29,48 @@ export interface RefinementDraftView {
   followups?: Array<{ title: string; estimate: "small" | "medium" | "large" }>;
 }
 
-export type AnyDraftView = ProjectSpecDraftView | TaskPlanDraftView | RefinementDraftView;
+export interface FeaturePlanVisionFilterTestView {
+  passes: boolean;
+  reasoning: string;
+}
+
+export interface FeaturePlanDraftView {
+  kind: "feature_plan";
+  goal: string;
+  summary: string;
+  tasks: Array<{
+    title: string;
+    estimate: "small" | "medium" | "large";
+    acceptance: string[];
+  }>;
+  unknowns: string[];
+  risks: string[];
+  visionFilter: {
+    identity: FeaturePlanVisionFilterTestView;
+    principle: FeaturePlanVisionFilterTestView;
+    phase: FeaturePlanVisionFilterTestView;
+    replacement: FeaturePlanVisionFilterTestView;
+  };
+}
+
+export interface ProjectVisionDraftView {
+  kind: "project_vision";
+  identity: string;
+  audience: string;
+  problem: string;
+  designPrinciples: Array<{ name: string; meaning: string }>;
+  outOfScope: string[];
+  personality: string | null;
+  roadmap: Array<{ phase: string; bullets: string[] }>;
+  priorArt: string[];
+}
+
+export type AnyDraftView =
+  | ProjectSpecDraftView
+  | TaskPlanDraftView
+  | RefinementDraftView
+  | FeaturePlanDraftView
+  | ProjectVisionDraftView;
 
 interface Props {
   draft: AnyDraftView;
@@ -43,7 +84,212 @@ export function PlanDraftViewer({ draft }: Props) {
       return <TaskPlanView draft={draft} />;
     case "refinement":
       return <RefinementView draft={draft} />;
+    case "feature_plan":
+      return <FeaturePlanView draft={draft} />;
+    case "project_vision":
+      return <ProjectVisionView draft={draft} />;
   }
+}
+
+function FeaturePlanView({ draft }: { draft: FeaturePlanDraftView }) {
+  const tests = [
+    { name: "identity", value: draft.visionFilter.identity },
+    { name: "principle", value: draft.visionFilter.principle },
+    { name: "phase", value: draft.visionFilter.phase },
+    { name: "replacement", value: draft.visionFilter.replacement },
+  ];
+  const allPass = tests.every((t) => t.value.passes);
+  return (
+    <div className="space-y-3">
+      {draft.summary ? (
+        <p className="px-4 py-3 surface text-[14px] leading-relaxed text-[var(--color-fg)]">
+          {draft.summary}
+        </p>
+      ) : (
+        <DraftEmpty hint="no summary yet — comment to seed the feature." />
+      )}
+
+      <Section title="vision filter">
+        <ul className="surface divide-y divide-[var(--color-line)]">
+          {tests.map((t) => (
+            <li key={t.name} className="px-4 py-2.5 flex items-start gap-2">
+              <span
+                className={cn(
+                  "mono text-[11px] tabular-nums w-4 text-center shrink-0 mt-0.5",
+                  t.value.passes
+                    ? "text-[var(--color-verdict-greenlit)]"
+                    : "text-[var(--color-verdict-trashed)]",
+                )}
+              >
+                {t.value.passes ? "✓" : "✗"}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] text-[var(--color-fg)]">{t.name}</div>
+                <div className="text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
+                  {t.value.reasoning || "(no reasoning yet)"}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {!allPass ? (
+          <div className="mt-2 mono text-[11px] text-[var(--color-fg-3)]">
+            all four tests must pass to freeze on a personal+ tier project.
+          </div>
+        ) : null}
+      </Section>
+
+      <Section title="tasks" count={draft.tasks.length}>
+        {draft.tasks.length === 0 ? (
+          <DraftEmpty hint="no tasks yet." />
+        ) : (
+          <ul className="surface divide-y divide-[var(--color-line)]">
+            {draft.tasks.map((t, i) => (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                key={`${t.title}-${i}`}
+                className="px-4 py-3"
+              >
+                <div className="flex items-baseline justify-between gap-3 mb-1">
+                  <span className="text-[14px] text-[var(--color-fg)]">
+                    {String(i + 1).padStart(2, "0")} · {t.title}
+                  </span>
+                  <span className={cn("chip", estimateTone(t.estimate))}>{t.estimate}</span>
+                </div>
+                {t.acceptance.length > 0 ? (
+                  <ul className="mt-1 space-y-0.5 text-[13px] text-[var(--color-fg-2)]">
+                    {t.acceptance.map((line, j) => (
+                      <li
+                        // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                        key={`${i}-${j}`}
+                        className="leading-snug"
+                      >
+                        <span className="text-[var(--color-fg-3)]">▢</span> {line}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {draft.unknowns.length > 0 ? (
+        <Section title="unknowns" count={draft.unknowns.length}>
+          <ListBlock items={draft.unknowns} marker="?" tone="text-[var(--color-fg-2)]" />
+        </Section>
+      ) : null}
+
+      {draft.risks.length > 0 ? (
+        <Section title="risks" count={draft.risks.length}>
+          <ListBlock items={draft.risks} marker="!" tone="text-[var(--color-verdict-trashed)]" />
+        </Section>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectVisionView({ draft }: { draft: ProjectVisionDraftView }) {
+  return (
+    <div className="space-y-3">
+      <div className="surface px-4 py-3">
+        <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1">
+          identity
+        </div>
+        <p className="text-[14px] leading-relaxed text-[var(--color-fg)]">
+          {draft.identity || "(unspecified)"}
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="surface px-4 py-3">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1">
+            audience
+          </div>
+          <p className="text-[13px] text-[var(--color-fg-1)]">
+            {draft.audience || "(unspecified)"}
+          </p>
+        </div>
+        <div className="surface px-4 py-3">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1">
+            problem
+          </div>
+          <p className="text-[13px] text-[var(--color-fg-1)]">{draft.problem || "(unspecified)"}</p>
+        </div>
+      </div>
+
+      <Section title="design principles" count={draft.designPrinciples.length}>
+        {draft.designPrinciples.length === 0 ? (
+          <DraftEmpty hint="no principles yet." />
+        ) : (
+          <ul className="surface divide-y divide-[var(--color-line)]">
+            {draft.designPrinciples.map((p, i) => (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                key={`${p.name}-${i}`}
+                className="px-4 py-2.5"
+              >
+                <div className="text-[13.5px] text-[var(--color-fg)]">{p.name}</div>
+                <div className="text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
+                  {p.meaning}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {draft.outOfScope.length > 0 ? (
+        <Section title="out of scope" count={draft.outOfScope.length}>
+          <ListBlock items={draft.outOfScope} marker="—" tone="text-[var(--color-fg-3)]" />
+        </Section>
+      ) : null}
+
+      {draft.personality ? (
+        <Section title="personality">
+          <div className="surface px-4 py-2.5 text-[13px] leading-relaxed text-[var(--color-fg-1)]">
+            {draft.personality}
+          </div>
+        </Section>
+      ) : null}
+
+      {draft.roadmap.length > 0 ? (
+        <Section title="roadmap" count={draft.roadmap.length}>
+          <ul className="surface divide-y divide-[var(--color-line)]">
+            {draft.roadmap.map((r, i) => (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                key={`${r.phase}-${i}`}
+                className="px-4 py-2.5"
+              >
+                <div className="mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+                  {r.phase}
+                </div>
+                {r.bullets.length > 0 ? (
+                  <ul className="mt-1 space-y-0.5 text-[13px] text-[var(--color-fg-2)]">
+                    {r.bullets.map((b, j) => (
+                      <li
+                        // biome-ignore lint/suspicious/noArrayIndexKey: positional
+                        key={`${i}-${j}`}
+                      >
+                        <span className="text-[var(--color-fg-3)]">·</span> {b}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {draft.priorArt.length > 0 ? (
+        <Section title="prior art" count={draft.priorArt.length}>
+          <ListBlock items={draft.priorArt} marker="↩" tone="text-[var(--color-fg-3)]" />
+        </Section>
+      ) : null}
+    </div>
+  );
 }
 
 function ProjectSpecView({ draft }: { draft: ProjectSpecDraftView }) {

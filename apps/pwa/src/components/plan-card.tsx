@@ -1,7 +1,12 @@
 import { cn } from "../lib/cn.ts";
 
-export type PlanKind = "project_spec" | "task_plan" | "refinement" | "feature_plan";
-export type PlanStatus = "drafting" | "frozen" | "abandoned";
+export type PlanKind =
+  | "project_spec"
+  | "task_plan"
+  | "refinement"
+  | "feature_plan"
+  | "project_vision";
+export type PlanStatus = "drafting" | "frozen" | "abandoned" | "superseded";
 
 export interface PlanRow {
   id: string;
@@ -42,6 +47,8 @@ function kindLabel(kind: PlanKind): string {
       return "refinement";
     case "feature_plan":
       return "feature plan";
+    case "project_vision":
+      return "project vision";
   }
 }
 

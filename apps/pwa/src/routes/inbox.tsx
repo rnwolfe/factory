@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { AuditCard, type AuditRow } from "../components/audit-card.tsx";
 import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx";
 import { PlanCard, type PlanRow } from "../components/plan-card.tsx";
 import { getToken } from "../lib/auth.ts";
@@ -15,7 +16,15 @@ interface TriagingIdea {
   createdAt: number;
 }
 
-type InboxItem = { kind: "decision"; row: DecisionRow } | { kind: "plan"; row: PlanRow };
+interface ProjectRow {
+  id: string;
+  name: string;
+}
+
+type InboxItem =
+  | { kind: "decision"; row: DecisionRow }
+  | { kind: "plan"; row: PlanRow }
+  | { kind: "audit"; row: AuditRow };
 
 export function Inbox() {
   const qc = useQueryClient();
@@ -31,6 +40,18 @@ export function Inbox() {
     queryKey: ["plans.inbox"],
     queryFn: () => trpc.plans.inbox.query() as unknown as Promise<PlanRow[]>,
     refetchInterval: 6_000,
+  });
+
+  const auditInbox = useQuery({
+    queryKey: ["audits.inbox"],
+    queryFn: () => trpc.audits.inbox.query() as unknown as Promise<AuditRow[]>,
+    refetchInterval: 6_000,
+  });
+
+  const projectsList = useQuery({
+    queryKey: ["projects.list"],
+    queryFn: () => trpc.projects.list.query() as unknown as Promise<ProjectRow[]>,
+    enabled: (auditInbox.data?.length ?? 0) > 0,
   });
 
   const triaging = useQuery({
@@ -54,10 +75,12 @@ export function Inbox() {
     try {
       ws = new WebSocket(url);
       ws.onmessage = () => {
-        // Coarse invalidation — inbox + plan inbox + triaging all refetch on
-        // any inbox-channel event. The set is small and these are cheap queries.
+        // Coarse invalidation — inbox + plan inbox + triaging + audit inbox
+        // all refetch on any inbox-channel event. Set is small and queries
+        // are cheap.
         qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
         qc.invalidateQueries({ queryKey: ["plans.inbox"] });
+        qc.invalidateQueries({ queryKey: ["audits.inbox"] });
         qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
       };
     } catch {
@@ -116,14 +139,23 @@ export function Inbox() {
 
   const decisionRows = inbox.data ?? [];
   const planRows = planInbox.data ?? [];
+  const auditRows = auditInbox.data ?? [];
   const ideasById = new Map(ideasList.data?.map((i) => [i.id, i.rawText]) ?? []);
+  const projectNameById = new Map(projectsList.data?.map((p) => [p.id, p.name]) ?? []);
 
-  // Merge by createdAt descending. Each kind keeps its own renderer; the
-  // inbox is just a single chronological list of attention items.
+  // Merge by sortable timestamp descending. Audits sort by completedAt
+  // (falling back to startedAt) since that's when they entered the inbox.
   const merged: InboxItem[] = [
-    ...decisionRows.map((row) => ({ kind: "decision" as const, row })),
-    ...planRows.map((row) => ({ kind: "plan" as const, row })),
-  ].sort((a, b) => b.row.createdAt - a.row.createdAt);
+    ...decisionRows.map((row) => ({ kind: "decision" as const, row, ts: row.createdAt })),
+    ...planRows.map((row) => ({ kind: "plan" as const, row, ts: row.createdAt })),
+    ...auditRows.map((row) => ({
+      kind: "audit" as const,
+      row,
+      ts: row.completedAt ?? row.startedAt,
+    })),
+  ]
+    .sort((a, b) => b.ts - a.ts)
+    .map(({ ts: _ts, ...rest }) => rest as InboxItem);
 
   if (merged.length === 0 && triagingRows.length === 0) {
     return (
@@ -160,8 +192,20 @@ export function Inbox() {
             />
           );
         }
-        const p = item.row;
-        return <PlanCard key={p.id} plan={p} index={i} onOpen={() => nav(`/plans/${p.id}`)} />;
+        if (item.kind === "plan") {
+          const p = item.row;
+          return <PlanCard key={p.id} plan={p} index={i} onOpen={() => nav(`/plans/${p.id}`)} />;
+        }
+        const a = item.row;
+        return (
+          <AuditCard
+            key={a.id}
+            audit={a}
+            projectName={projectNameById.get(a.projectId) ?? null}
+            index={i}
+            onOpen={() => nav(`/projects/${a.projectId}/audits/${a.id}`)}
+          />
+        );
       })}
     </div>
   );

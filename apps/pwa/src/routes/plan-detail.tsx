@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   type AnyDraftView,
+  type FeaturePlanDraftView,
   PlanDraftViewer,
   type ProjectSpecDraftView,
+  type ProjectVisionDraftView,
   type RefinementDraftView,
   type TaskPlanDraftView,
 } from "../components/plan-draft-viewer.tsx";
@@ -24,8 +26,8 @@ interface PlanComment {
 
 interface PlanRow {
   id: string;
-  kind: "project_spec" | "task_plan" | "refinement" | "feature_plan";
-  status: "drafting" | "frozen" | "abandoned";
+  kind: "project_spec" | "task_plan" | "refinement" | "feature_plan" | "project_vision";
+  status: "drafting" | "frozen" | "abandoned" | "superseded";
   decisionId: string | null;
   projectId: string | null;
   taskId: string | null;
@@ -35,20 +37,18 @@ interface PlanRow {
   updatedAt: number;
   frozenAt: number | null;
   abandonedAt: number | null;
+  supersededBy?: string | null;
+  tier?: "tinker" | "personal" | "share" | "productize" | null;
 }
 
 function safeParseDraft(raw: string, kind: PlanRow["kind"]): AnyDraftView | null {
   try {
     const obj = JSON.parse(raw) as unknown;
-    if (kind === "project_spec") {
-      return obj as ProjectSpecDraftView;
-    }
-    if (kind === "task_plan") {
-      return obj as TaskPlanDraftView;
-    }
-    if (kind === "refinement") {
-      return obj as RefinementDraftView;
-    }
+    if (kind === "project_spec") return obj as ProjectSpecDraftView;
+    if (kind === "task_plan") return obj as TaskPlanDraftView;
+    if (kind === "refinement") return obj as RefinementDraftView;
+    if (kind === "feature_plan") return obj as FeaturePlanDraftView;
+    if (kind === "project_vision") return obj as ProjectVisionDraftView;
     return null;
   } catch {
     return null;
@@ -65,6 +65,8 @@ function kindLabel(kind: PlanRow["kind"]): string {
       return "refinement";
     case "feature_plan":
       return "feature plan";
+    case "project_vision":
+      return "project vision";
   }
 }
 
@@ -77,7 +79,9 @@ function freezeConsumerHint(kind: PlanRow["kind"]): string {
     case "refinement":
       return "freeze rewrites the task body with revised acceptance and emits any follow-up tasks.";
     case "feature_plan":
-      return "freeze: not implemented yet.";
+      return "freeze emits the planned tasks into the project.";
+    case "project_vision":
+      return "freeze writes docs/internal/VISION.md and supersedes any prior vision plan.";
   }
 }
 
@@ -229,7 +233,17 @@ export function PlanDetail() {
           created {fmtDate(p.createdAt)}
           {p.frozenAt ? ` · frozen ${fmtDate(p.frozenAt)}` : ""}
           {p.abandonedAt ? ` · abandoned ${fmtDate(p.abandonedAt)}` : ""}
+          {p.tier ? ` · tier ${p.tier}` : ""}
         </p>
+
+        {p.status === "superseded" && p.supersededBy ? (
+          <div className="mt-3 surface px-3 py-2 mono text-[11.5px] text-[var(--color-fg-2)]">
+            superseded by{" "}
+            <Link to={`/plans/${p.supersededBy}`} className="text-[var(--color-accent)] underline">
+              plan #{p.supersededBy.slice(0, 8)}
+            </Link>
+          </div>
+        ) : null}
       </header>
 
       <div className="px-1">
@@ -353,77 +367,75 @@ export function PlanDetail() {
       </section>
 
       {isDrafting ? (
-        <>
-          {confirmFreeze ? (
-            <div className="surface p-4 space-y-3">
-              <div className="display text-[15px] text-[var(--color-fg)]">freeze this plan?</div>
-              <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
-                {freezeConsumerHint(p.kind)} the plan becomes read-only.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setConfirmFreeze(false)}
-                  disabled={freeze.isPending}
-                >
-                  cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => freeze.mutate()}
-                  disabled={freeze.isPending}
-                >
-                  {freeze.isPending ? "freezing…" : "yes, freeze"}
-                </button>
-              </div>
-              {freeze.isError ? (
-                <p className="mono text-[11px] text-[var(--color-verdict-trashed)]">
-                  {(freeze.error as Error).message}
-                </p>
-              ) : null}
-            </div>
-          ) : confirmAbandon ? (
-            <div className="surface p-4 space-y-3">
-              <div className="display text-[15px] text-[var(--color-fg)]">abandon this plan?</div>
-              <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
-                this plan disappears from the inbox and cannot be resumed.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setConfirmAbandon(false)}
-                  disabled={abandon.isPending}
-                >
-                  cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={() => abandon.mutate()}
-                  disabled={abandon.isPending}
-                >
-                  {abandon.isPending ? "abandoning…" : "yes, abandon"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 sticky bottom-[calc(72px+env(safe-area-inset-bottom))]">
+        confirmFreeze ? (
+          <div className="surface p-4 space-y-3">
+            <div className="display text-[15px] text-[var(--color-fg)]">freeze this plan?</div>
+            <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
+              {freezeConsumerHint(p.kind)} the plan becomes read-only.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setConfirmFreeze(false)}
+                disabled={freeze.isPending}
+              >
+                cancel
+              </button>
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => setConfirmFreeze(true)}
+                onClick={() => freeze.mutate()}
+                disabled={freeze.isPending}
               >
-                <Snowflake size={14} /> freeze
-              </button>
-              <button type="button" className="btn" onClick={() => setConfirmAbandon(true)}>
-                <Trash2 size={14} /> abandon
+                {freeze.isPending ? "freezing…" : "yes, freeze"}
               </button>
             </div>
-          )}
-        </>
+            {freeze.isError ? (
+              <p className="mono text-[11px] text-[var(--color-verdict-trashed)]">
+                {(freeze.error as Error).message}
+              </p>
+            ) : null}
+          </div>
+        ) : confirmAbandon ? (
+          <div className="surface p-4 space-y-3">
+            <div className="display text-[15px] text-[var(--color-fg)]">abandon this plan?</div>
+            <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
+              this plan disappears from the inbox and cannot be resumed.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setConfirmAbandon(false)}
+                disabled={abandon.isPending}
+              >
+                cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => abandon.mutate()}
+                disabled={abandon.isPending}
+              >
+                {abandon.isPending ? "abandoning…" : "yes, abandon"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sticky bottom-[calc(72px+env(safe-area-inset-bottom))]">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setConfirmFreeze(true)}
+            >
+              <Snowflake size={14} /> freeze
+            </button>
+            <button type="button" className="btn" onClick={() => setConfirmAbandon(true)}>
+              <Trash2 size={14} /> abandon
+            </button>
+          </div>
+        )
       ) : (
         <div className="surface p-3 text-[12px] mono text-[var(--color-fg-3)]">
           this plan is {p.status}

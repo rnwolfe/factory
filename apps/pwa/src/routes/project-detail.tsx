@@ -10,9 +10,12 @@ import {
   Play,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { AuditsSection } from "../components/audits-section.tsx";
+import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
+import { type Tier, TierPicker } from "../components/tier-picker.tsx";
 import { trpc } from "../lib/trpc.ts";
 
 interface RunRow {
@@ -127,8 +130,12 @@ export function ProjectDetail() {
             <h1 className="display text-[22px] leading-tight text-[var(--color-fg)] truncate">
               {p.name}
             </h1>
-            <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 truncate">
-              {p.slug} · {p.tier} · goal {p.goal}
+            <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 truncate flex items-center gap-2">
+              <span>{p.slug}</span>
+              <span>·</span>
+              <TierPicker projectId={p.id} tier={p.tier as Tier} />
+              <span>·</span>
+              <span>goal {p.goal}</span>
             </div>
           </div>
           <TagChip projectId={p.id} tag={p.tag as Tag} />
@@ -163,6 +170,13 @@ export function ProjectDetail() {
             {(start.error as Error).message}
           </div>
         ) : null}
+
+        <div className="mt-3 flex items-center gap-2">
+          <FeaturePlanLaunch projectId={id} />
+          <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">
+            deepen
+          </Link>
+        </div>
 
         <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--color-fg-2)] cursor-pointer select-none">
           <input
@@ -280,6 +294,8 @@ export function ProjectDetail() {
           </div>
         </section>
       ) : null}
+
+      <AuditsSection projectId={id} />
 
       <section>
         <SectionHeader
