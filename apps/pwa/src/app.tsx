@@ -7,6 +7,7 @@ import { DecisionDetail } from "./routes/decision-detail.tsx";
 import { Deepen } from "./routes/deepen.tsx";
 import { Inbox } from "./routes/inbox.tsx";
 import { LivePane } from "./routes/live-pane.tsx";
+import { Metrics } from "./routes/metrics.tsx";
 import { NewIdea } from "./routes/new-idea.tsx";
 import { PlanDetail } from "./routes/plan-detail.tsx";
 import { ProjectDetail } from "./routes/project-detail.tsx";
@@ -33,6 +34,7 @@ export function App() {
         <Route path="/projects/:id/deepen" element={<Deepen />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/prompts" element={<PromptsViewer />} />
+        <Route path="/metrics" element={<Metrics />} />
         <Route path="*" element={<Inbox />} />
       </Routes>
     </Shell>

@@ -12,6 +12,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuditsSection } from "../components/audits-section.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
+import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
@@ -55,6 +56,29 @@ export function ProjectDetail() {
     queryFn: () => trpc.runs.list.query({ projectId: id }) as unknown as Promise<RunRow[]>,
     enabled: id.length > 0,
     refetchInterval: 4_000,
+  });
+
+  const runIds = (runs.data ?? []).map((r) => r.id);
+  const runMetrics = useQuery({
+    queryKey: ["metrics.forOwners.run", id, runIds.length],
+    queryFn: () =>
+      trpc.metrics.forOwners.query({
+        ownerKind: "run",
+        ownerIds: runIds,
+      }) as unknown as Promise<
+        Record<
+          string,
+          {
+            totalCostUsd: number;
+            inputTokens: number;
+            outputTokens: number;
+            durationMs: number;
+            invocations: number;
+          }
+        >
+      >,
+    enabled: runIds.length > 0,
+    staleTime: 30_000,
   });
 
   const workdir = useQuery({
@@ -130,12 +154,16 @@ export function ProjectDetail() {
             <h1 className="display text-[22px] leading-tight text-[var(--color-fg)] truncate">
               {p.name}
             </h1>
-            <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 truncate flex items-center gap-2">
+            <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 truncate flex items-center gap-2 flex-wrap">
               <span>{p.slug}</span>
               <span>·</span>
               <TierPicker projectId={p.id} tier={p.tier as Tier} />
               <span>·</span>
               <span>goal {p.goal}</span>
+              <ProjectMetricsChip
+                projectId={p.id}
+                className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)] before:content-['·'] before:mr-2"
+              />
             </div>
           </div>
           <TagChip projectId={p.id} tag={p.tag as Tag} />
@@ -320,6 +348,13 @@ export function ProjectDetail() {
           ) : runs.data && runs.data.length > 0 ? (
             runs.data.map((r) => {
               const isActive = ACTIVE_RUN_STATUSES.has(r.status);
+              const m = runMetrics.data?.[r.id];
+              const costLabel =
+                m && m.totalCostUsd > 0
+                  ? m.totalCostUsd < 0.01
+                    ? "<$0.01"
+                    : `$${m.totalCostUsd.toFixed(2)}`
+                  : null;
               return (
                 <Link
                   key={r.id}
@@ -335,9 +370,16 @@ export function ProjectDetail() {
                         {r.id.slice(0, 8)} · {r.taskId ?? "ad-hoc"}
                       </span>
                     </div>
-                    <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
-                      {timeAgo(r.startedAt)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {costLabel ? (
+                        <span className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)]">
+                          {costLabel}
+                        </span>
+                      ) : null}
+                      <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                        {timeAgo(r.startedAt)}
+                      </span>
+                    </div>
                   </div>
                 </Link>
               );

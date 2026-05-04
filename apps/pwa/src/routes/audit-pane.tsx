@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { AuditFinding, AuditRow } from "../components/audit-card.tsx";
 import { FindingCard } from "../components/finding-card.tsx";
+import { AuditMetricsChip } from "../components/metrics-chip.tsx";
 import { PromoteFindingsModal } from "../components/promote-findings-modal.tsx";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -142,6 +143,7 @@ export function AuditPane() {
         </div>
         <div className="flex-1" />
         <span className="chip">{a.status}</span>
+        <AuditMetricsChip auditId={a.id} />
         <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
           {timeAgo(a.completedAt ?? a.startedAt)} ago
         </span>

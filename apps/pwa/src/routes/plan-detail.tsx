@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Snowflake, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { MetricsChip } from "../components/metrics-chip.tsx";
 import {
   type AnyDraftView,
   type FeaturePlanDraftView,
@@ -220,6 +221,7 @@ export function PlanDetail() {
           <span className="chip">{p.status}</span>
           {projectLink}
           {p.taskId ? <span className="mono text-[11px]">· {p.taskId}</span> : null}
+          <MetricsChip ownerKind="plan_iteration" ownerId={p.id} />
           <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
             {fmtDate(p.updatedAt)}
           </span>

@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn.ts";
+import { AuditMetricsChip } from "./metrics-chip.tsx";
 
 export type AuditStatus = "running" | "completed" | "reviewed" | "approved" | "rejected" | "failed";
 
@@ -79,9 +80,11 @@ export function AuditCard({ audit, projectName, index = 0, onOpen }: Props) {
           {findings.length > 0 ? (
             <span className="mono text-[10.5px] text-[var(--color-fg-2)]">{histogram}</span>
           ) : null}
-          <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
-            · {timeAgo(ts)} ago
-          </span>
+          <AuditMetricsChip
+            auditId={audit.id}
+            className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)] ml-auto whitespace-nowrap"
+          />
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">· {timeAgo(ts)} ago</span>
         </div>
         <div className="px-4 pb-3">
           <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2">

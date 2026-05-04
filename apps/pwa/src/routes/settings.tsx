@@ -59,6 +59,13 @@ export function Settings() {
           <span className="text-[13px] text-[var(--color-fg-1)]">prompts</span>
           <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
         </Link>
+        <Link
+          to="/metrics"
+          className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
+        >
+          <span className="text-[13px] text-[var(--color-fg-1)]">runtime metrics</span>
+          <MetricsTotalChip />
+        </Link>
       </Section>
 
       <Section title="active rubric">
@@ -99,6 +106,26 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0">
       <span className="text-[13px] text-[var(--color-fg-1)]">{label}</span>
       {children}
+    </div>
+  );
+}
+
+function MetricsTotalChip() {
+  const summary = useQuery({
+    queryKey: ["metrics.summary"],
+    queryFn: () =>
+      trpc.metrics.summary.query() as unknown as Promise<{
+        totals: { totalCostUsd: number; invocations: number };
+      }>,
+    refetchInterval: 60_000,
+  });
+  const cost = summary.data?.totals.totalCostUsd ?? 0;
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="mono text-[12px] tabular-nums text-[var(--color-fg-2)]">
+        {cost > 0 ? `$${cost < 0.01 ? "<0.01" : cost.toFixed(2)}` : "—"}
+      </span>
+      <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
     </div>
   );
 }
