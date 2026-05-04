@@ -17,10 +17,29 @@
 
 export type FactoryStatusKind = "done" | "blocked" | "failed";
 
+/**
+ * Optional per-criterion result the agent may emit when a frozen task_plan
+ * was attached to the run. `met=true` should carry an `evidence` string
+ * (commit sha, file path, behavior); `met=false` should carry a `reason`.
+ * Both are optional — the runner renders whatever the agent provides.
+ */
+export interface AcceptanceResult {
+  criterion: string;
+  met: boolean;
+  evidence?: string;
+  reason?: string;
+}
+
 export interface FactoryStatus {
   status: FactoryStatusKind;
   summary: string;
   questions: string[];
+  /**
+   * Per-criterion results. Optional even on plan-attached runs — null parse
+   * does NOT fail the overall status block. Empty array when the agent did
+   * not emit acceptance results at all.
+   */
+  acceptance: AcceptanceResult[];
 }
 
 const FENCE_RE = /```\s*factory-status\s*\n([\s\S]*?)```/i;
@@ -29,6 +48,30 @@ interface MaybeStatus {
   status?: unknown;
   summary?: unknown;
   questions?: unknown;
+  acceptance?: unknown;
+}
+
+interface MaybeAcceptanceResult {
+  criterion?: unknown;
+  met?: unknown;
+  evidence?: unknown;
+  reason?: unknown;
+}
+
+function coerceAcceptance(raw: unknown): AcceptanceResult[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AcceptanceResult[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as MaybeAcceptanceResult;
+    const criterion = typeof r.criterion === "string" ? r.criterion.trim() : "";
+    if (!criterion) continue;
+    const met = r.met === true; // anything non-true is treated as not met
+    const evidence = typeof r.evidence === "string" ? r.evidence.trim() : undefined;
+    const reason = typeof r.reason === "string" ? r.reason.trim() : undefined;
+    out.push({ criterion, met, evidence, reason });
+  }
+  return out;
 }
 
 function findBalancedJsonObject(text: string): string | null {
@@ -75,7 +118,8 @@ function coerce(raw: unknown): FactoryStatus | null {
   const questions = Array.isArray(obj.questions)
     ? obj.questions.filter((q): q is string => typeof q === "string" && q.trim().length > 0)
     : [];
-  return { status: status as FactoryStatusKind, summary, questions };
+  const acceptance = coerceAcceptance(obj.acceptance);
+  return { status: status as FactoryStatusKind, summary, questions, acceptance };
 }
 
 /**
@@ -147,6 +191,80 @@ Rules:
 /** Append the completion-protocol instructions to the operator's task body. */
 export function wrapPrompt(taskBody: string): string {
   return `${taskBody.trimEnd()}${COMPLETION_FOOTER}`;
+}
+
+interface FrozenTaskPlanForPrompt {
+  goal: string;
+  steps: Array<{ order: number; title: string; detail: string }>;
+  acceptance: string[];
+  touches: string[];
+  risks: string[];
+}
+
+/**
+ * Wrap a task body with a frozen `task_plan` block before appending the
+ * completion-protocol footer. Used by the runner when the run row's
+ * `task_plan_id` resolves to a frozen plan: the agent reads the plan as
+ * authoritative context alongside the raw task body.
+ *
+ * The plan section is fenced with explicit "do not deviate" framing so the
+ * agent treats it as binding rather than advisory. Empty arrays are dropped
+ * to keep the prompt tight.
+ */
+export function wrapPromptWithPlan(
+  taskId: string,
+  taskBody: string,
+  plan: FrozenTaskPlanForPrompt,
+): string {
+  const stepsBlock =
+    plan.steps.length > 0
+      ? plan.steps
+          .map((s) => `${String(s.order).padStart(2, "0")}. ${s.title}\n    ${s.detail}`)
+          .join("\n")
+      : "(none recorded)";
+  const acceptanceBlock =
+    plan.acceptance.length > 0
+      ? plan.acceptance.map((a) => `- ${a}`).join("\n")
+      : "(none recorded)";
+  const touchesBlock =
+    plan.touches.length > 0
+      ? plan.touches.map((t) => `- ${t}`).join("\n")
+      : "(no specific paths called out)";
+  const risksBlock =
+    plan.risks.length > 0 ? plan.risks.map((r) => `- ${r}`).join("\n") : "(no risks called out)";
+
+  const planBlock = `
+
+---
+
+## Frozen plan (authoritative)
+
+This plan was iterated on with the operator and frozen. Treat its scope as
+binding — do not extend the work beyond what's listed. If a step proves
+impossible or the plan is wrong, declare \`blocked\` in the factory-status
+block with a question rather than improvising.
+
+Goal: ${plan.goal || "(restated below in the task body)"}
+
+Steps:
+${stepsBlock}
+
+Acceptance criteria:
+${acceptanceBlock}
+
+Files expected to be touched:
+${touchesBlock}
+
+Risks called out:
+${risksBlock}
+
+If the factory-status block supports it, set \`acceptance\` to a list of
+\`{criterion, met, evidence?, reason?}\` objects so the operator can see
+which acceptance items the run actually satisfied.
+`;
+
+  const taskHeader = `You are working on task ${taskId}.\n\n## Task body\n\n`;
+  return `${taskHeader}${taskBody.trim()}${planBlock}${COMPLETION_FOOTER}`;
 }
 
 const RESUME_PREFIX = `The factory daemon was restarted while you were working on this task. The previous Claude session has been resumed; you have full context of what you were doing. Pick up where you left off.

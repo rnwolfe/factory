@@ -13,14 +13,17 @@ import { createId } from "@paralleldrive/cuid2";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import { parseStoredDraft } from "../plans/iterate.ts";
 import { listTasks, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import {
   type FactoryStatus,
   parseFactoryStatus,
   wrapPrompt,
+  wrapPromptWithPlan,
   wrapResumePrompt,
 } from "./factory-status.ts";
 import type { WorkerPool } from "./pool.ts";
+import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
 
 export interface RunnerDeps {
@@ -142,7 +145,40 @@ export async function executeRun(
   const baseTaskBody =
     taskBody ||
     `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`;
-  const prompt = resuming ? wrapResumePrompt(baseTaskBody) : wrapPrompt(baseTaskBody);
+
+  // Plan-aware prompt: if the run has a frozen task_plan attached, fold its
+  // draft into the prompt as authoritative context. Resume prompts skip
+  // this — the agent already has prior conversation; we just nudge it to
+  // finish.
+  let prompt: string;
+  if (resuming) {
+    prompt = wrapResumePrompt(baseTaskBody);
+  } else if (row.taskPlanId) {
+    const planRow = await db
+      .select()
+      .from(schema.plans)
+      .where(eq(schema.plans.id, row.taskPlanId))
+      .get();
+    if (planRow && planRow.status === "frozen" && planRow.kind === "task_plan") {
+      try {
+        const draft = parseStoredDraft(planRow.draft);
+        if (draft.kind === "task_plan") {
+          prompt = wrapPromptWithPlan(row.taskId ?? "ad-hoc", baseTaskBody, draft);
+        } else {
+          prompt = wrapPrompt(baseTaskBody);
+        }
+      } catch {
+        // Plan draft unparseable — fall back to plan-less prompt rather than
+        // failing the run. The run summary will still mention the attached
+        // plan id for audit.
+        prompt = wrapPrompt(baseTaskBody);
+      }
+    } else {
+      prompt = wrapPrompt(baseTaskBody);
+    }
+  } else {
+    prompt = wrapPrompt(baseTaskBody);
+  }
 
   let lastSessionId: string | undefined;
 
@@ -210,6 +246,10 @@ export async function executeRun(
           parsed?.questions && parsed.questions.length > 0
             ? JSON.stringify(parsed.questions)
             : null,
+        acceptanceResults:
+          parsed?.acceptance && parsed.acceptance.length > 0
+            ? JSON.stringify(parsed.acceptance)
+            : null,
       })
       .where(eq(schema.runs.id, runId));
 
@@ -245,6 +285,58 @@ export async function executeRun(
       kind: "decision_updated", // reused — UI just invalidates queries
       decisionId: runId,
     });
+
+    // Quality signal: run lint/typecheck/test inside the worktree after the
+    // agent's auto-commit and before merging into main. Failures do NOT
+    // block the merge in v0.2 — the report is informational. Persisted on
+    // the run row + broadcast on /ws/events so the live pane re-renders.
+    let qualityReport: QualityReport | null = null;
+    if (finalStatus === "completed") {
+      try {
+        qualityReport = await runQualityChecks({
+          worktreePath: result.worktreePath,
+          configPath: path.join(project.workdirPath, ".factory", "quality.yaml"),
+        });
+        if (qualityReport.results.length > 0 || qualityReport.overall !== "skipped") {
+          await db
+            .update(schema.runs)
+            .set({ qualityReport: JSON.stringify(qualityReport) })
+            .where(eq(schema.runs.id, runId));
+          events.publish({
+            channel: "events",
+            kind: "quality_report",
+            runId,
+            iteration: 1,
+            overall: qualityReport.overall,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[runner] quality checks failed for ${runId}: ${message}`);
+        // Persist a minimal failure report so the operator sees the error
+        // without the run silently appearing pristine.
+        const report: QualityReport = {
+          ranAt: Date.now(),
+          results: [
+            {
+              name: "config",
+              command: "(loading quality.yaml)",
+              exitCode: 1,
+              durationMs: 0,
+              stdoutTail: "",
+              stderrTail: message,
+              timedOut: false,
+            },
+          ],
+          overall: "fail",
+        };
+        qualityReport = report;
+        await db
+          .update(schema.runs)
+          .set({ qualityReport: JSON.stringify(report) })
+          .where(eq(schema.runs.id, runId));
+      }
+    }
 
     // Merge the run's branch back into the project's main so subsequent
     // tasks compound on top of it. Without this, every run starts from the

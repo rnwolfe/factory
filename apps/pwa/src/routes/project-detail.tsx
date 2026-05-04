@@ -1,7 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronRight, Eye, FileText, Folder, GitBranch, Play } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  Eye,
+  FileText,
+  Folder,
+  GitBranch,
+  ListTree,
+  Play,
+} from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ModelPicker } from "../components/model-picker.tsx";
+import type { PlanRow } from "../components/plan-card.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { trpc } from "../lib/trpc.ts";
 
@@ -47,6 +57,13 @@ export function ProjectDetail() {
   const workdir = useQuery({
     queryKey: ["projects.workdir", id],
     queryFn: () => trpc.projects.workdir.query({ id }) as unknown as Promise<WorkdirSnapshot>,
+    enabled: id.length > 0,
+    refetchInterval: 8_000,
+  });
+
+  const projectPlans = useQuery({
+    queryKey: ["plans.list", id],
+    queryFn: () => trpc.plans.list.query({ projectId: id }) as unknown as Promise<PlanRow[]>,
     enabled: id.length > 0,
     refetchInterval: 8_000,
   });
@@ -226,6 +243,43 @@ export function ProjectDetail() {
           )}
         </div>
       </section>
+
+      {projectPlans.data && projectPlans.data.length > 0 ? (
+        <section>
+          <SectionHeader
+            title="plans"
+            count={projectPlans.data.filter((p) => p.status === "drafting").length}
+          />
+          <div className="surface divide-y divide-[var(--color-line)]">
+            {projectPlans.data.map((p) => (
+              <Link
+                key={p.id}
+                to={`/plans/${p.id}`}
+                className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
+              >
+                <ListTree size={12} className="text-[var(--color-fg-3)] shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] truncate">{p.goal || "(unnamed plan)"}</div>
+                  <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+                    {p.kind} · {p.taskId ?? "—"}
+                  </div>
+                </div>
+                <span
+                  className={`chip ${
+                    p.status === "drafting"
+                      ? "chip-decompose"
+                      : p.status === "frozen"
+                        ? "chip-greenlit"
+                        : ""
+                  }`}
+                >
+                  {p.status}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <SectionHeader

@@ -1,7 +1,7 @@
 import type { Db } from "@factory/db";
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import type { WorkerPool } from "./pool.ts";
@@ -46,6 +46,27 @@ export async function submitRun(
     .get();
   if (!project) throw new Error(`project not found: ${input.projectId}`);
 
+  // Resolve a frozen task_plan if one exists for this task. Picks the most
+  // recently frozen plan — operators can supersede a stale plan by freezing
+  // a new one, and the latest wins.
+  let taskPlanId: string | null = null;
+  if (input.taskId) {
+    const planRow = await db
+      .select({ id: schema.plans.id })
+      .from(schema.plans)
+      .where(
+        and(
+          eq(schema.plans.projectId, project.id),
+          eq(schema.plans.taskId, input.taskId),
+          eq(schema.plans.kind, "task_plan"),
+          eq(schema.plans.status, "frozen"),
+        ),
+      )
+      .orderBy(desc(schema.plans.frozenAt))
+      .get();
+    taskPlanId = planRow?.id ?? null;
+  }
+
   const runId = createId();
   const now = Date.now();
   const branch = `factory/run-${runId}`;
@@ -62,6 +83,7 @@ export async function submitRun(
     startedAt: now,
     budgetSeconds: input.budgetSeconds ?? config.defaultRunBudgetSeconds,
     baseRef: input.baseRef ?? null,
+    taskPlanId,
   });
 
   void pool.submit(async () => {

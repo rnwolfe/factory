@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Pencil, Play, X } from "lucide-react";
+import { ArrowLeft, ListTree, Pencil, Play, Snowflake, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import type { PlanRow } from "../components/plan-card.tsx";
 import { trpc } from "../lib/trpc.ts";
 
 interface RunRow {
@@ -11,7 +12,30 @@ interface RunRow {
   startedAt: number;
 }
 
+interface FrozenTaskPlanSummary {
+  steps: number;
+  acceptance: number;
+  touches: number;
+}
+
 const ACTIVE_STATUSES = new Set(["queued", "running"]);
+
+function summarizeTaskPlanDraft(raw: string): FrozenTaskPlanSummary | null {
+  try {
+    const obj = JSON.parse(raw) as {
+      steps?: unknown[];
+      acceptance?: unknown[];
+      touches?: unknown[];
+    };
+    return {
+      steps: Array.isArray(obj.steps) ? obj.steps.length : 0,
+      acceptance: Array.isArray(obj.acceptance) ? obj.acceptance.length : 0,
+      touches: Array.isArray(obj.touches) ? obj.touches.length : 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function TaskDetail() {
   const { id = "", taskId = "" } = useParams<{ id: string; taskId: string }>();
@@ -35,11 +59,36 @@ export function TaskDetail() {
   const taskRuns = (runs.data ?? []).filter((r) => r.taskId === taskId);
   const activeRun = taskRuns.find((r) => ACTIVE_STATUSES.has(r.status));
 
+  // Plans for this task: drafting (operator should iterate / freeze) and
+  // frozen (next run will fold it into the prompt). Refinement plans don't
+  // count here — they have their own affordance.
+  const plans = useQuery({
+    queryKey: ["plans.list", id],
+    queryFn: () => trpc.plans.list.query({ projectId: id }) as unknown as Promise<PlanRow[]>,
+    enabled: id.length > 0,
+    refetchInterval: 6_000,
+  });
+  const taskPlans = (plans.data ?? []).filter((p) => p.taskId === taskId && p.kind === "task_plan");
+  const draftingTaskPlan = taskPlans.find((p) => p.status === "drafting") ?? null;
+  const frozenTaskPlan =
+    taskPlans.filter((p) => p.status === "frozen").sort((a, b) => b.createdAt - a.createdAt)[0] ??
+    null;
+  const frozenSummary = frozenTaskPlan ? summarizeTaskPlanDraft(frozenTaskPlan.draft) : null;
+
   const start = useMutation({
     mutationFn: () => trpc.runs.start.mutate({ projectId: id, taskId }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["runs.list", id] });
       nav(`/projects/${id}/runs/${res.runId}`);
+    },
+  });
+
+  const startTaskPlan = useMutation({
+    mutationFn: () => trpc.plans.startTaskPlan.mutate({ projectId: id, taskId }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["plans.list", id] });
+      qc.invalidateQueries({ queryKey: ["plans.inbox"] });
+      nav(`/plans/${res.planId}`);
     },
   });
 
@@ -115,12 +164,97 @@ export function TaskDetail() {
             {start.isPending ? "starting…" : isDone ? "task done" : `run task · ${fm.id}`}
           </button>
         )}
+        {!activeRun && frozenTaskPlan ? (
+          <div className="mt-1.5 mono text-[10.5px] text-[var(--color-fg-3)]">
+            with frozen plan ·{" "}
+            <Link
+              to={`/plans/${frozenTaskPlan.id}`}
+              className="text-[var(--color-accent)] underline"
+            >
+              {frozenTaskPlan.id.slice(0, 8)}
+            </Link>
+          </div>
+        ) : null}
         {start.isError ? (
           <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
             {(start.error as Error).message}
           </div>
         ) : null}
       </header>
+
+      <section>
+        <div className="flex items-center gap-2 px-1 mb-1.5">
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            plan
+          </span>
+          <div className="hairline flex-1" />
+          {frozenTaskPlan ? (
+            <span className="chip chip-greenlit">frozen</span>
+          ) : draftingTaskPlan ? (
+            <span className="chip chip-decompose">drafting</span>
+          ) : null}
+        </div>
+        {draftingTaskPlan ? (
+          <Link
+            to={`/plans/${draftingTaskPlan.id}`}
+            className="surface block px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <ListTree size={12} className="text-[var(--color-accent)]" />
+              <span className="mono text-[11px] text-[var(--color-fg-2)]">
+                drafting · {draftingTaskPlan.id.slice(0, 8)}
+              </span>
+            </div>
+            <div className="text-[13px] text-[var(--color-fg-1)] line-clamp-2">
+              {draftingTaskPlan.goal || "(unnamed plan)"}
+            </div>
+            <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
+              tap to iterate with the agent and freeze.
+            </p>
+          </Link>
+        ) : frozenTaskPlan ? (
+          <Link
+            to={`/plans/${frozenTaskPlan.id}`}
+            className="surface block px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <Snowflake size={12} className="text-[var(--color-accent)]" />
+              <span className="mono text-[11px] text-[var(--color-fg-2)]">
+                frozen · {frozenTaskPlan.id.slice(0, 8)}
+              </span>
+            </div>
+            {frozenSummary ? (
+              <div className="mono text-[12px] text-[var(--color-fg-1)]">
+                {frozenSummary.steps} step{frozenSummary.steps === 1 ? "" : "s"} ·{" "}
+                {frozenSummary.acceptance} acceptance · {frozenSummary.touches} touch
+                {frozenSummary.touches === 1 ? "" : "es"}
+              </div>
+            ) : (
+              <div className="mono text-[12px] text-[var(--color-fg-3)]">
+                (draft details unavailable)
+              </div>
+            )}
+            <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
+              view the frozen plan.
+            </p>
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => startTaskPlan.mutate()}
+            disabled={startTaskPlan.isPending}
+            className="btn btn-ghost w-full"
+          >
+            <ListTree size={14} />
+            {startTaskPlan.isPending ? "creating plan…" : "expand task with a plan"}
+          </button>
+        )}
+        {startTaskPlan.isError ? (
+          <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+            {(startTaskPlan.error as Error).message}
+          </div>
+        ) : null}
+      </section>
 
       <section>
         <div className="flex items-center gap-2 px-1 mb-1.5">
