@@ -34,7 +34,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </span>
           </div>
           <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
-            v0.1
+            v0.2
           </span>
         </div>
       </header>

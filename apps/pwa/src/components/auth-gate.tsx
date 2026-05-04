@@ -31,7 +31,7 @@ export function AuthGate() {
       <div className="w-full max-w-[420px] surface p-6">
         <div className="flex items-baseline justify-between mb-6">
           <span className="display text-2xl text-[var(--color-fg)]">factory</span>
-          <span className="chip">v0.1</span>
+          <span className="chip">v0.2</span>
         </div>
         <p className="text-sm text-[var(--color-fg-2)] leading-relaxed mb-5">
           Paste the bearer token from your server's{" "}
