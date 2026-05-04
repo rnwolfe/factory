@@ -1,14 +1,16 @@
 # Factory — repo guide for Claude sessions
 
 This file is the on-arrival orientation. Read `docs/spec.md` once before any
-non-trivial change; come back here for conventions. For v0.2 work specifically,
-also read `docs/spec-v0.2.md` and `docs/adr/002-plan-primitive.md`.
+non-trivial change; come back here for conventions. For v0.2 work, also read
+`docs/spec-v0.2.md` and `docs/adr/002-plan-primitive.md`. For v0.3 work, also
+read `docs/spec-v0.3.md` and `docs/adr/003-audit-primitive.md`.
 
 - **v0.1 spec:** [`docs/spec.md`](./docs/spec.md) — frozen.
-- **v0.2 spec:** [`docs/spec-v0.2.md`](./docs/spec-v0.2.md) — implementation-ready delta. Plan primitive + quality signal.
-- **Post-v0.1 direction:** [`docs/vision.md`](./docs/vision.md) — what's next, informed by living with v0.1.
+- **v0.2 spec:** [`docs/spec-v0.2.md`](./docs/spec-v0.2.md) — implementation-ready delta. Plan primitive + quality signal. Shipped.
+- **v0.3 spec:** [`docs/spec-v0.3.md`](./docs/spec-v0.3.md) — implementation-ready delta. Audit primitive + Path-B unlock + tier-aware onboarding.
+- **Post-v0.1 direction:** [`docs/vision.md`](./docs/vision.md) — what's next, informed by living with each release.
 - **Milestone playbook:** [`docs/handoff.md`](./docs/handoff.md) — historical, kept for context.
-- **ADRs:** [`docs/adr/`](./docs/adr/) — non-obvious decisions. ADR-002 is the architectural commit underpinning v0.2.
+- **ADRs:** [`docs/adr/`](./docs/adr/) — non-obvious decisions. ADR-002 underpins v0.2 (plans). ADR-003 underpins v0.3 (audits).
 
 ## Quick orient
 

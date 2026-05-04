@@ -1,11 +1,13 @@
 # Factory — post-v0.1 direction
 
 > **Status:** living document. Started 2026-05-03 after v0.1 spine landed.
-> Last revised 2026-05-03 — v0.2 reframed around the Plan primitive (ADR-002).
+> Last revised 2026-05-04 — v0.2 shipped (Plan primitive + quality signal),
+> v0.3 reframed around the audit primitive (ADR-003) and Path-B unlock.
 > **Audience:** future Ryan, future Claude sessions.
 >
 > The spec's §13 backlog remains the authoritative seed. This doc records what
-> v0.1 actually taught us and re-prioritizes v0.2 against operator-lived signal.
+> living with each release actually taught us and re-prioritizes the next cut
+> against operator-lived signal.
 
 ---
 
@@ -225,55 +227,161 @@ Until then: skip-permissions + worktree isolation + `factory-status` honesty
 is the floor. Don't put runs on the host filesystem outside their worktree
 without a deliberate decision.
 
-## 6. v0.3 and beyond — what the spec already lists, lightly updated
+## 6. What v0.2 use surfaced (signals shaping v0.3)
 
-v0.3 verification theme is partly pulled into v0.2 (item #4 above) but
-the heavyweight scenario harness, promotion gates, and tier-promotion
-mechanics remain v0.3.
+v0.2 shipped the Plan primitive end-to-end + the quality signal subsystem
+(ADR-002, `docs/spec-v0.2.md`). Living with it for a short time produced
+these signals:
 
-v0.4 (compounding) and v0.5+ (self-iteration & scale) stand. Notes:
+- **Plans without session resume are quota arson.** v0.2 shipped fresh
+  `claude --print` per comment turn — every operator nudge replayed the
+  full template + thread. Fixed in a v0.2 follow-up: plan iteration now
+  threads a single claude session across comments via `--resume`,
+  invalidated on prompt-version drift. Spec stays the same; runtime
+  changed. **Lesson for v0.3:** any new agent-collaboration surface
+  (audits, vision iteration) is session-resumable from the start.
+- **"How do I update a frozen plan?" was unanswered.** v0.2 said
+  freeze is the terminal state. Operators want to amend frozen plans
+  when reality shifts. v0.3 introduces **plan supersession** — a new
+  plan can supersede a frozen one in the same kind+target. The
+  superseded plan stays as audit trail; the new one becomes
+  authoritative. First instance: `project_vision` plans (the doc grows
+  over time). Second instance covered by the same mechanic: any plan kind.
+- **The seeded prompts were invisible.** Operator could not see what
+  the agent was running until an agent turn happened. Fixed in a v0.2
+  follow-up: `/settings/prompts` lists active prompts with line counts
+  and content. **Lesson for v0.3:** Factory state should be inspectable,
+  not magic.
+- **CLAUDE.md is the agent's reading list, not a magic prepend.** Early
+  sketches for v0.3 had Factory auto-prepending VISION.md to run
+  prompts. Rejected — that is a class of "did I include the right
+  context?" bugs waiting to happen. Instead: CLAUDE.md (always
+  present) names what the agent should read, and the agent loads
+  doctrine by following references. v0.3's job is to make sure
+  CLAUDE.md content is good enough that following references is
+  sufficient.
+
+## 6.1 v0.3 — Living projects
+
+Projects live longer than the burst that creates them. v0.1 + v0.2
+optimized for "spawn a project from an idea." Every run after bootstrap
+is implicitly Path B (continuous execution on a long-lived codebase),
+and Path B is the gap v0.2 explicitly didn't fill. v0.3 closes it,
+together with the verification surfaces that make Path B safe.
+
+The theme: **projects accrue authored, versioned alignment artifacts
+that audits keep honest.**
+
+Four architectural commits in v0.3 (each warrants ADR-level care; the
+audit primitive gets ADR-003 explicitly):
+
+1. **Audit primitive.** Read-mostly agent invocations that produce
+   structured *reports*, not commits. Distinct lifecycle from runs
+   (running → completed → reviewed → approved | rejected). Skills
+   live at `<project>/.factory/audits/<name>/SKILL.md`, version-controlled
+   with the project. Reports start as Factory-internal DB rows; on
+   approval, they get committed to the project repo at
+   `docs/internal/audits/<date>-<slug>.md`. The repo file is canonical;
+   Factory's row is a fast index. See ADR-003.
+2. **Findings → action.** An audit report's findings are the new
+   "decision currency." The operator selects 1..N findings; one Claude
+   invocation evaluates tractable path forward and recommends either
+   "create a plan" (drafts a `task_plan` or `feature_plan` from the
+   findings, operator iterates as v0.2) or "create a bug" (drops a
+   minimal task with title + body, labeled `bug` + `needs-refinement`,
+   refined later via the existing `refinement` plan flow). The bug
+   path forces a small new primitive: direct task creation outside any
+   plan freeze. Useful well beyond audits.
+3. **`feature_plan` (Path B unlock).** Implements the kind reserved
+   in v0.2/ADR-002. Triggered from project page, from a Path-B idea
+   capture (idea attached to a project), or from audit-finding
+   promotion. Freeze emits tasks into the existing project — no
+   bootstrap. For tier ≥ personal, the **vision filter** (identity /
+   principle / phase / replacement, borrowed from forge's `/product`
+   skill) is a freeze precondition.
+4. **`project_vision` plan kind + tier-aware onboarding.** Authors
+   `docs/internal/VISION.md`. Auto-triggered after `project_spec`
+   freeze for tier ≥ personal; opt-in for tinker. `project_vision`
+   plans supersede prior frozen vision plans rather than replacing
+   them in place — the supersession chain is the project's
+   architectural diary. Tier (`tinker | personal | share | productize`)
+   graduates from a v0.1-vestigial axis to an actually-meaningful one
+   gating onboarding depth.
+
+Plus four smaller pulls that fit inside the existing envelope:
+
+- **Plan supersession.** Generic mechanic; first instance is
+  `project_vision`, immediately useful for `task_plan` / `refinement`
+  too.
+- **Drift detection.** Single shipped audit kind: takes a frozen
+  `task_plan`, compares actual run touches against `touches`, reports
+  drift.
+- **Task sweep.** Default audit kind: scores tasks against a project
+  quality checklist, flags `task/needs-refinement`, queues them for
+  `refinement` plans.
+- **Project deepening flow.** Operator-triggered on existing projects
+  to add VISION + initial audit skills post-bootstrap. Analog of
+  forge's `/onboard --verify` for a project that's grown past tinker.
+
+What's explicitly **not** in v0.3:
+
+- ~~Quality-as-merge-gate.~~ Audits are the v0.3 surface for "this
+  looks wrong"; gating is v0.4 once we have evidence audits actually
+  catch things.
+- ~~Auto-prepending doctrine to prompts.~~ Rejected — CLAUDE.md is
+  the canonical reference, runs follow it.
+- ~~Per-project rubric scoring as a separate thing.~~ Folded into
+  audits; rubrics are just a kind of audit.
+- ~~Push notifications, in-app prompt editor (Monaco), marinate
+  scheduler, weekly digest.~~ All v0.4 ergonomics. The marinate
+  scheduler does become v0.4's natural host for *audit cadence* — v0.3
+  ships on-demand audits, v0.4 schedules them.
+
+## 6.2 Architectural principle for v0.3 — Factory is a tool, not a gatekeeper of value
+
+Concretely: every per-project artifact (audit skills, audit reports,
+vision docs, task files) is reachable and useful **without Factory in
+the loop.** The repo is canonical; Factory state is a working surface.
+
+If `~/.factory/data.db` is wiped tomorrow, the project keeps:
+- its skills (in `<project>/.factory/audits/`),
+- its approved audit reports (in `docs/internal/audits/`),
+- its vision (in `docs/internal/VISION.md`),
+- its tasks (in `<project>/.factory/work/`),
+- its CLAUDE.md.
+
+Factory loses its working state — pending plans, unapproved reports,
+in-progress audits. The project does not lose value.
+
+This forces a related principle: **storage seams must remain
+extensible without acrobatics.** Tasks are local-md-with-frontmatter
+today; a future swap to GitHub Issues or beads should be a one-file
+change in `apps/daemon/src/projects/tasks.ts`, not a v0.4 refactor
+spread across every flow that creates tasks. v0.3 lands new flows
+(bug capture, audit-finding promotion, feature-plan freeze) — all
+of them route through the existing task-IO module. Same posture for
+audit reports (DB-row + repo-file split is the abstraction; future
+"commit to gist" or "post to external doc store" is a provider
+swap), audit skills (one loader), and ultimately runs (already done).
+
+## 6.3 v0.4 and beyond — lightly updated
 
 - **Spec foundry** moved from v0.4 to v0.2 as the project-foundry
-  instance of the Plan primitive (see §4 / ADR-002). v0.4's "compounding"
-  framing still applies to *cross-project* foundry concerns — templates,
+  instance of the Plan primitive (see ADR-002). v0.4's "compounding"
+  framing still applies to *cross-project* concerns — templates,
   reusable plan fragments, project-archetype detection.
-- **Cross-project memory** (v0.5) inherits the Plan primitive directly —
-  it is "structured back-and-forth that the agent reads on warmup,"
-  scoped above any single project. Designing the v0.5 memory layer on
-  top of v0.2's plan/comment substrate avoids a refactor.
-
-### 6.1 Path B — what continuous execution needs (v0.3+)
-
-Path B (continuous execution on long-lived projects) is currently a thin
-"submit a run on a task" layer. The Plan primitive in v0.2 is the
-substrate; Path B's specific concerns are v0.3+. Sketch:
-
-- **`feature_plan` Plan kind** — the Path B analog of `project_spec`.
-  Operator says "ship feature X into project Y"; the resulting plan
-  decomposes into tasks within an existing project (not a new
-  bootstrap). Reserved as a kind in ADR-002 so v0.2 doesn't paint
-  itself into a Path-A-only corner.
-- **Project-level vision/conventions doc that runs read.** Today the
-  agent reads `CLAUDE.md` and the project tree cold. A long-lived
-  project needs a curated, deliberately-shaped context pack: vision,
-  conventions, what's shipped, what's been rejected, who/what calls
-  this surface. Authored by the operator with agent help; consumed
-  on every run prompt. The Plan primitive can produce these too.
-- **Drift detection.** A run that touched files outside its plan's
-  declared `touches` should surface that as a warning, not a silent
-  scope expansion. Cheap once `task_plan.touches` is populated.
-- **Rubric per project, not just for triage.** Triage's rubric scores
-  ideas. Path B needs a per-project quality rubric — alignment with
-  vision, code-quality threshold, test coverage delta — that gates
-  whether a completed run merges or surfaces as a decision. Connects
-  to the v0.3 verification harness.
-- **Backlog hygiene as a first-class flow.** Long-lived projects
-  accumulate stale tasks, parked tasks, "wait for X before starting"
-  tasks. The marinate scheduler (v0.3) plus a backlog review surface
-  keep the project's work-graph honest.
-
-These are listed for awareness; the v0.2 Plan primitive must
-accommodate them, but no Path B work ships in v0.2.
+- **Audit cadence (marinate scheduler).** v0.3 audits are on-demand.
+  v0.4's marinate scheduler hosts cadence: weekly drift-check, monthly
+  vision-integrity, etc. Audit kind already wraps the work; the
+  scheduler just picks one and submits.
+- **Quality-as-gate.** v0.4 makes selected audit kinds (or quality
+  checks) blocking on merge for projects that opt in. Requires
+  audit-finding-severity to be reliable, which is what v0.3 use
+  validates.
+- **Cross-project memory** (v0.5) inherits the Plan primitive
+  directly — it is "structured back-and-forth that the agent reads on
+  warmup," scoped above any single project. Designing the v0.5 memory
+  layer on top of v0.2's plan/comment substrate avoids a refactor.
 
 ## 7. What's not on any list yet
 
@@ -310,7 +418,11 @@ Two anti-patterns worth refusing actively:
 
 ## Appendix — cross-references
 
-- Architectural contracts that v0.1 established: `CLAUDE.md`.
+- Architectural contracts that v0.1 + v0.2 established: `CLAUDE.md`.
 - Original spec backlog: `docs/spec.md` §13.
-- Spec §14 open questions and their dispositions: `docs/adr/001-v01-open-questions.md`.
+- v0.1 open questions and dispositions: `docs/adr/001-v01-open-questions.md`.
+- v0.2 architectural commit (Plan primitive): `docs/adr/002-plan-primitive.md`.
+- v0.2 implementation-ready spec: `docs/spec-v0.2.md`.
+- v0.3 architectural commit (Audit primitive): `docs/adr/003-audit-primitive.md`.
+- v0.3 implementation-ready spec: `docs/spec-v0.3.md`.
 - Milestone playbook (historical): `docs/handoff.md`.
