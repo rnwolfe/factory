@@ -9,6 +9,7 @@ import { runAuditIteration } from "../audits/iterate.ts";
 import { bridgePromoteFindings } from "../audits/promote.ts";
 import { computeSkillVersion } from "../audits/prompts.ts";
 import { commitApprovedAuditReport } from "../audits/report-commit.ts";
+import { installAuditTemplate, listAuditTemplates } from "../audits/templates.ts";
 import { seedTaskPlanDraft } from "../plans/iterate.ts";
 import { listAuditSkills, readAuditSkill } from "../projects/audit-skills.ts";
 import { createTask } from "../projects/tasks.ts";
@@ -77,6 +78,51 @@ export const auditsRouter = router({
         .get();
       if (!project) return [];
       return listAuditSkills(project.workdirPath);
+    }),
+
+  /**
+   * List audit skill templates shipped under `docs/audit-skill-templates/`.
+   * Used by the audits section to render install buttons. Returns name +
+   * frontmatter so the UI can render the same chips as installed skills.
+   */
+  listTemplates: protectedProcedure.query(async () => {
+    return listAuditTemplates();
+  }),
+
+  /**
+   * Copy a shipped template into a project's `.factory/audits/<name>/SKILL.md`
+   * and commit it on the project's main branch. Idempotent: re-installing a
+   * template that's already present is a no-op (we don't clobber operator
+   * customizations).
+   */
+  installTemplate: protectedProcedure
+    .input(z.object({ projectId: z.string(), templateName: z.string().min(1).max(60) }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+      try {
+        const result = await installAuditTemplate({
+          config: ctx.config,
+          workdirPath: project.workdirPath,
+          templateName: input.templateName,
+        });
+        await ctx.db
+          .update(schema.projects)
+          .set({ lastActivityAt: Date.now() })
+          .where(eq(schema.projects.id, project.id));
+        return {
+          name: result.frontmatter.name,
+          kind: result.frontmatter.kind,
+          alreadyInstalled: result.alreadyInstalled,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new TRPCError({ code: "BAD_REQUEST", message });
+      }
     }),
 
   submit: protectedProcedure

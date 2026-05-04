@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Play } from "lucide-react";
+import { Download, Loader2, Play } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 import type { AuditRow } from "./audit-card.tsx";
@@ -10,6 +10,11 @@ interface SkillFrontmatter {
   kind: "read-only" | "exec";
   needsWorktree: boolean;
   defaultSeverityGrade: "enabled" | "disabled";
+}
+
+interface TemplateSummary {
+  name: string;
+  frontmatter: SkillFrontmatter;
 }
 
 interface Props {
@@ -35,6 +40,11 @@ export function AuditsSection({ projectId }: Props) {
     enabled: projectId.length > 0,
   });
 
+  const templates = useQuery({
+    queryKey: ["audits.listTemplates"],
+    queryFn: () => trpc.audits.listTemplates.query() as unknown as Promise<TemplateSummary[]>,
+  });
+
   const audits = useQuery({
     queryKey: ["audits.list", projectId],
     queryFn: () => trpc.audits.list.query({ projectId }) as unknown as Promise<AuditRow[]>,
@@ -50,33 +60,21 @@ export function AuditsSection({ projectId }: Props) {
     },
   });
 
+  const install = useMutation({
+    mutationFn: (templateName: string) =>
+      trpc.audits.installTemplate.mutate({ projectId, templateName }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["audits.listSkills", projectId] });
+    },
+  });
+
   const skillRows = skills.data ?? [];
+  const templateRows = templates.data ?? [];
   const auditRows = audits.data ?? [];
   const recentAudits = auditRows.filter((a) => a.status !== "approved" && a.status !== "rejected");
   const approvedAudits = auditRows.filter((a) => a.status === "approved");
-
-  if (skillRows.length === 0 && auditRows.length === 0) {
-    return (
-      <section>
-        <div className="flex items-center gap-2 px-1 mb-1.5">
-          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
-            audits
-          </span>
-          <div className="hairline flex-1" />
-        </div>
-        <div className="surface px-3 py-3 text-[13px] text-[var(--color-fg-3)]">
-          no audit skills installed.{" "}
-          <Link
-            to={`/projects/${projectId}/deepen`}
-            className="text-[var(--color-accent)] underline"
-          >
-            run /deepen
-          </Link>{" "}
-          to add some.
-        </div>
-      </section>
-    );
-  }
+  const installedNames = new Set(skillRows.map((s) => s.name));
+  const availableTemplates = templateRows.filter((t) => !installedNames.has(t.name));
 
   return (
     <section>
@@ -85,10 +83,13 @@ export function AuditsSection({ projectId }: Props) {
           audits
         </span>
         <div className="hairline flex-1" />
-        <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
-          {skillRows.length} skill{skillRows.length === 1 ? "" : "s"}
-        </span>
+        {skillRows.length > 0 ? (
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            {skillRows.length} skill{skillRows.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
       </div>
+
       {skillRows.length > 0 ? (
         <div className="surface divide-y divide-[var(--color-line)]">
           {skillRows.map((s) => (
@@ -117,12 +118,61 @@ export function AuditsSection({ projectId }: Props) {
             </div>
           ))}
         </div>
-      ) : null}
+      ) : (
+        <div className="surface px-3 py-3 text-[13px] text-[var(--color-fg-3)]">
+          no audit skills installed yet — install one below to get started.
+        </div>
+      )}
+
       {submit.isError ? (
         <div className="mt-2 mono text-[11px] text-[var(--color-verdict-trashed)]">
           {(submit.error as Error).message}
         </div>
       ) : null}
+
+      {availableTemplates.length > 0 ? (
+        <details className="mt-3" open={skillRows.length === 0}>
+          <summary className="cursor-pointer mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]">
+            available templates ({availableTemplates.length})
+          </summary>
+          <div className="surface divide-y divide-[var(--color-line)] mt-2">
+            {availableTemplates.map((t) => (
+              <div key={t.name} className="flex items-stretch">
+                <div className="flex-1 min-w-0 px-3 py-2.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[14px] truncate">{t.name}</span>
+                    <span className="chip">{t.frontmatter.kind}</span>
+                  </div>
+                  <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+                    {t.frontmatter.description.slice(0, 100)}
+                  </div>
+                </div>
+                <div className="flex items-center px-2 border-l border-[var(--color-line)]">
+                  <button
+                    type="button"
+                    onClick={() => install.mutate(t.name)}
+                    disabled={install.isPending}
+                    className="btn btn-ghost text-[11px] !h-8 !px-2"
+                    aria-label={`install ${t.name}`}
+                  >
+                    {install.isPending && install.variables === t.name ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Download size={12} />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {install.isError ? (
+            <div className="mt-2 mono text-[11px] text-[var(--color-verdict-trashed)]">
+              {(install.error as Error).message}
+            </div>
+          ) : null}
+        </details>
+      ) : null}
+
       {recentAudits.length > 0 ? (
         <div className="mt-3">
           <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
@@ -148,6 +198,7 @@ export function AuditsSection({ projectId }: Props) {
           </ul>
         </div>
       ) : null}
+
       {approvedAudits.length > 0 ? (
         <details className="mt-3">
           <summary className="cursor-pointer mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">

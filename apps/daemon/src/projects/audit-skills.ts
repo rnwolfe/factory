@@ -13,7 +13,7 @@ export interface AuditSkillFile {
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
 
-function parseFrontmatter(raw: string, name: string): AuditSkillFrontmatter | null {
+export function parseFrontmatter(raw: string, name: string): AuditSkillFrontmatter | null {
   const m = FRONTMATTER_RE.exec(raw);
   if (!m) return null;
   const obj = YAML.parse(m[1] ?? "") as Record<string, unknown> | null;

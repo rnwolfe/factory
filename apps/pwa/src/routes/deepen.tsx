@@ -1,40 +1,38 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCheck, Loader2 } from "lucide-react";
+import { ArrowLeft, CheckCheck, Download, Loader2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { type Tier, TierPicker } from "../components/tier-picker.tsx";
 import { trpc } from "../lib/trpc.ts";
 
-const SHIPPED_TEMPLATES: Array<{
+interface TemplateSummary {
   name: string;
-  kind: "read-only" | "exec";
+  frontmatter: {
+    name: string;
+    description: string;
+    kind: "read-only" | "exec";
+    needsWorktree: boolean;
+    defaultSeverityGrade: "enabled" | "disabled";
+  };
+}
+
+interface InstalledSkill {
+  name: string;
   description: string;
-  recommendedFor: Tier[];
-}> = [
-  {
-    name: "docs-audit",
-    kind: "read-only",
-    description: "VISION/CLAUDE/README coherence; outdated references.",
-    recommendedFor: ["personal", "share", "productize"],
-  },
-  {
-    name: "task-sweep",
-    kind: "read-only",
-    description: "Score open tasks against a quality checklist.",
-    recommendedFor: ["personal", "share", "productize"],
-  },
-  {
-    name: "drift-check",
-    kind: "read-only",
-    description: "Compare last run's actual touches vs declared task_plan.touches.",
-    recommendedFor: ["personal", "share", "productize"],
-  },
-  {
-    name: "code-review",
-    kind: "exec",
-    description: "Read recent diffs; surface logic / security / convention findings.",
-    recommendedFor: ["share", "productize"],
-  },
-];
+  kind: "read-only" | "exec";
+}
+
+/**
+ * Tier-based recommendations are UI advice, not template metadata — they
+ * indicate which shipped templates a project at a given tier benefits most
+ * from. Templates not listed here aren't recommended for any tier and only
+ * show up under "other available."
+ */
+const RECOMMENDED_FOR: Record<string, Tier[]> = {
+  "docs-audit": ["personal", "share", "productize"],
+  "task-sweep": ["personal", "share", "productize"],
+  "drift-check": ["personal", "share", "productize"],
+  "code-review": ["share", "productize"],
+};
 
 export function Deepen() {
   const { id = "" } = useParams<{ id: string }>();
@@ -50,10 +48,13 @@ export function Deepen() {
   const installed = useQuery({
     queryKey: ["audits.listSkills", id],
     queryFn: () =>
-      trpc.audits.listSkills.query({ projectId: id }) as unknown as Promise<
-        { name: string; kind: "read-only" | "exec" }[]
-      >,
+      trpc.audits.listSkills.query({ projectId: id }) as unknown as Promise<InstalledSkill[]>,
     enabled: id.length > 0,
+  });
+
+  const templates = useQuery({
+    queryKey: ["audits.listTemplates"],
+    queryFn: () => trpc.audits.listTemplates.query() as unknown as Promise<TemplateSummary[]>,
   });
 
   const startVision = useMutation({
@@ -63,20 +64,17 @@ export function Deepen() {
     },
   });
 
+  const install = useMutation({
+    mutationFn: (templateName: string) =>
+      trpc.audits.installTemplate.mutate({ projectId: id, templateName }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["audits.listSkills", id] });
+    },
+  });
+
   const installedNames = new Set(installed.data?.map((s) => s.name) ?? []);
   const tier = (project.data?.project?.tier ?? "tinker") as Tier;
-  const visionPresent = false; // we don't have a query for VISION.md presence
-  // ^ We can detect presence by checking the workdir tree, but for simplicity
-  //   the start-vision button is always visible — the daemon's
-  //   startProjectVision is idempotent for drafting plans, so re-clicking
-  //   navigates to the existing draft.
-  void visionPresent;
-
-  // For now, "install template" is a manual operator step — Factory ships
-  // templates under `docs/audit-skill-templates/` and the operator copies the
-  // ones they want into `<project>/.factory/audits/<name>/`. v0.4 will add a
-  // one-click install action. The deepening flow surfaces the recommended
-  // set so the operator knows what to copy.
+  const tmplRows = templates.data ?? [];
 
   return (
     <div className="space-y-3 pb-4">
@@ -143,18 +141,17 @@ export function Deepen() {
         <SectionHeader title="3 · audit skills" />
         <div className="surface p-4 space-y-2">
           <p className="text-[13px] leading-relaxed text-[var(--color-fg-2)]">
-            Factory ships templates under{" "}
-            <span className="mono text-[12px]">docs/audit-skill-templates/</span>. Copy the ones
-            recommended for your tier into{" "}
+            Click install to copy a template into{" "}
             <span className="mono text-[12px]">
               &lt;project&gt;/.factory/audits/&lt;name&gt;/SKILL.md
             </span>{" "}
-            to enable them. (v0.4 will automate this with a one-click install.)
+            and commit it. Customize the file in the project repo afterward.
           </p>
           <ul className="divide-y divide-[var(--color-line)] surface">
-            {SHIPPED_TEMPLATES.map((t) => {
-              const recommended = t.recommendedFor.includes(tier);
+            {tmplRows.map((t) => {
+              const recommended = (RECOMMENDED_FOR[t.name] ?? []).includes(tier);
               const isInstalled = installedNames.has(t.name);
+              const isPending = install.isPending && install.variables === t.name;
               return (
                 <li key={t.name} className="px-3 py-2.5 flex items-start gap-3">
                   <span
@@ -171,18 +168,43 @@ export function Deepen() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[13.5px] text-[var(--color-fg)]">{t.name}</span>
-                      <span className="chip">{t.kind}</span>
+                      <span className="chip">{t.frontmatter.kind}</span>
                       {recommended ? <span className="chip chip-accent">recommended</span> : null}
                       {isInstalled ? <span className="chip chip-greenlit">installed</span> : null}
                     </div>
                     <div className="text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
-                      {t.description}
+                      {t.frontmatter.description}
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-[11px] !h-8 !px-2"
+                    disabled={isInstalled || isPending}
+                    onClick={() => install.mutate(t.name)}
+                    aria-label={`install ${t.name}`}
+                  >
+                    {isPending ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <>
+                        <Download size={12} /> install
+                      </>
+                    )}
+                  </button>
                 </li>
               );
             })}
+            {tmplRows.length === 0 && !templates.isLoading ? (
+              <li className="px-3 py-2.5 text-[12.5px] text-[var(--color-fg-3)]">
+                no audit skill templates available.
+              </li>
+            ) : null}
           </ul>
+          {install.isError ? (
+            <div className="mono text-[11px] text-[var(--color-verdict-trashed)]">
+              {(install.error as Error).message}
+            </div>
+          ) : null}
         </div>
       </section>
 
