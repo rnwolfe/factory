@@ -14,6 +14,12 @@ const PROMPT_FILE = path.join(repoRoot, "prompts/triage-prompt-v1.md");
 const FOLLOWUP_PROMPT_FILE = path.join(repoRoot, "prompts/triage-followup-v1.md");
 const FOLLOWUP_PROMPT_KEY = "triage-followup-v1";
 
+const PLAN_PROMPT_FILES: Array<{ key: string; file: string }> = [
+  { key: "plan-project-spec-v1", file: "prompts/plan-project-spec-v1.md" },
+  { key: "plan-task-plan-v1", file: "prompts/plan-task-plan-v1.md" },
+  { key: "plan-refinement-v1", file: "prompts/plan-refinement-v1.md" },
+];
+
 interface RubricYaml {
   id: string;
   version: number;
@@ -102,6 +108,37 @@ async function main() {
       sql`${prompts.promptKey} = ${FOLLOWUP_PROMPT_KEY} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${FOLLOWUP_PROMPT_KEY})`,
     );
 
+  // Plan-iteration prompts (one per kind). Same upsert shape as triage.
+  for (const { key, file } of PLAN_PROMPT_FILES) {
+    const filePath = path.join(repoRoot, file);
+    const content = await readFile(filePath, "utf8");
+    const existing = await db
+      .select({ id: prompts.id })
+      .from(prompts)
+      .where(eq(prompts.promptKey, key))
+      .all();
+    if (existing.length === 0) {
+      await db.insert(prompts).values({
+        id: createId(),
+        promptKey: key,
+        version: 1,
+        content,
+        active: true,
+        createdAt: now,
+      });
+      console.log(`  + prompt ${key}@1`);
+    } else {
+      console.log(`  · prompt ${key} already present (${existing.length} row(s))`);
+    }
+    await db.update(prompts).set({ active: false }).where(eq(prompts.promptKey, key));
+    await db
+      .update(prompts)
+      .set({ active: true })
+      .where(
+        sql`${prompts.promptKey} = ${key} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${key})`,
+      );
+  }
+
   // Rubric: same shape.
   const existingRubric = await db
     .select({ id: rubricVersions.id })
@@ -153,8 +190,12 @@ async function main() {
   console.log(`active prompts: ${activePrompts.length}`);
   for (const p of activePrompts) console.log(`  - ${p.key}@${p.version}`);
 
-  // One active rubric; one active prompt per key (triage + follow-up).
-  const expectedPromptKeys = new Set([promptKey, FOLLOWUP_PROMPT_KEY]);
+  // One active rubric; one active prompt per key (triage + follow-up + plan kinds).
+  const expectedPromptKeys = new Set([
+    promptKey,
+    FOLLOWUP_PROMPT_KEY,
+    ...PLAN_PROMPT_FILES.map((p) => p.key),
+  ]);
   const activePromptKeys = new Set(activePrompts.map((p) => p.key));
   const missingKeys = [...expectedPromptKeys].filter((k) => !activePromptKeys.has(k));
   if (
