@@ -1,9 +1,9 @@
 import { schema } from "@factory/db";
 import { mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
-import { asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
-import { bootstrapProject } from "../projects/bootstrap.ts";
+import { seedProjectSpecDraft } from "../plans/iterate.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import { submitRun } from "../workers/submit.ts";
@@ -79,6 +79,7 @@ export const decisionsRouter = router({
       let projectId: string | null = null;
       let retryRunId: string | null = null;
       let mergedSha: string | null = null;
+      let planId: string | null = null;
 
       if (input.action === "approve" && decision.kind === "merge_failure") {
         // Retry the merge of the run's branch into main. If main is still
@@ -148,25 +149,47 @@ export const decisionsRouter = router({
 
       if (input.action === "approve" && decision.kind === "triage") {
         if (!decision.ideaId) throw new Error("triage decision missing ideaId");
-        const idea = await ctx.db
-          .select()
-          .from(schema.ideas)
-          .where(eq(schema.ideas.id, decision.ideaId))
-          .get();
-        if (!idea) throw new Error("idea not found for decision");
 
-        const payload = decision.payload as TriageDecisionPayload;
-        const goal = (idea.goalHint ?? "me") as "me" | "learn" | "share" | "productize";
-        const result = await bootstrapProject(ctx.config, ctx.db, {
-          ideaId: idea.id,
-          decisionId: decision.id,
-          payload,
-          ideaText: idea.rawText,
-          goal,
-          tier: "tinker",
-          model: input.model ?? null,
-        });
-        projectId = result.projectId;
+        // v0.2: route triage approval through a project_spec foundry plan
+        // instead of bootstrapping immediately. The decision is marked
+        // actioned (the approval happened); the project materializes when
+        // the operator freezes the plan.
+        const existing = await ctx.db
+          .select()
+          .from(schema.plans)
+          .where(
+            and(eq(schema.plans.decisionId, decision.id), eq(schema.plans.kind, "project_spec")),
+          )
+          .get();
+        if (existing) {
+          planId = existing.id;
+        } else {
+          const payload = decision.payload as TriageDecisionPayload;
+          const seed = seedProjectSpecDraft(payload);
+          const id = createId();
+          const tnow = Date.now();
+          const goalText =
+            payload.title_suggestion ??
+            payload.spec_stub?.summary?.slice(0, 120) ??
+            "Refine project spec";
+          await ctx.db.insert(schema.plans).values({
+            id,
+            kind: "project_spec",
+            status: "drafting",
+            decisionId: decision.id,
+            goal: goalText,
+            draft: JSON.stringify(seed),
+            createdAt: tnow,
+            updatedAt: tnow,
+          });
+          planId = id;
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_created",
+            planId: id,
+            planKind: "project_spec",
+          });
+        }
       }
 
       const now = Date.now();
@@ -185,7 +208,7 @@ export const decisionsRouter = router({
         decisionId: input.decisionId,
       });
 
-      return { ok: true, projectId, retryRunId, mergedSha };
+      return { ok: true, projectId, retryRunId, mergedSha, planId };
     }),
 
   comments: protectedProcedure
