@@ -1,10 +1,11 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { ArrowLeft, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, ListTree, Pencil, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { QualityReportPanel, type QualityReportView } from "../components/quality-report.tsx";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -34,6 +35,7 @@ const MAX_RAW_LOG_BYTES = 256 * 1024;
 export function LivePane() {
   const { id = "", runId = "" } = useParams<{ id: string; runId: string }>();
   const qc = useQueryClient();
+  const nav = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -233,10 +235,45 @@ export function LivePane() {
     qc.invalidateQueries({ queryKey: ["runs.get", runId] });
   };
 
+  const startRefinement = useMutation({
+    mutationFn: () => {
+      if (!run.data?.taskId) throw new Error("ad-hoc runs cannot be refined");
+      return trpc.plans.startRefinement.mutate({
+        projectId: id,
+        taskId: run.data.taskId,
+        runId,
+      });
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["plans.inbox"] });
+      qc.invalidateQueries({ queryKey: ["plans.list", id] });
+      nav(`/plans/${res.planId}`);
+    },
+  });
+
   const status = run.data?.status ?? "queued";
   const elapsed = run.data
     ? Math.max(0, Math.floor(((run.data.endedAt ?? Date.now()) - run.data.startedAt) / 1000))
     : 0;
+
+  const qualityReport = useMemo<QualityReportView | null>(() => {
+    if (!run.data?.qualityReport) return null;
+    try {
+      return JSON.parse(run.data.qualityReport) as QualityReportView;
+    } catch {
+      return null;
+    }
+  }, [run.data?.qualityReport]);
+
+  const acceptanceResults = useMemo<AcceptanceResultView[] | null>(() => {
+    if (!run.data?.acceptanceResults) return null;
+    try {
+      const parsed = JSON.parse(run.data.acceptanceResults) as AcceptanceResultView[];
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, [run.data?.acceptanceResults]);
 
   return (
     <div
@@ -266,6 +303,15 @@ export function LivePane() {
           <div className="mono text-[11px] text-[var(--color-fg-3)] truncate flex-1 min-w-0">
             run {runId.slice(0, 12)} · task {run.data?.taskId ?? "ad-hoc"}
           </div>
+          {run.data?.taskPlanId ? (
+            <Link
+              to={`/plans/${run.data.taskPlanId}`}
+              className="chip chip-decompose flex items-center gap-1"
+              title="this run was prompted with a frozen task plan"
+            >
+              <ListTree size={11} /> plan
+            </Link>
+          ) : null}
           {status === "running" || status === "queued" ? (
             <button
               type="button"
@@ -292,6 +338,14 @@ export function LivePane() {
 
       {status === "blocked" && run.data?.blockerQuestions ? (
         <BlockerPanel rawQuestions={run.data.blockerQuestions} />
+      ) : null}
+
+      {acceptanceResults && acceptanceResults.length > 0 ? (
+        <AcceptancePanel results={acceptanceResults} />
+      ) : null}
+
+      {qualityReport || run.data?.status === "completed" ? (
+        <QualityReportPanel report={qualityReport} />
       ) : null}
 
       <div className="surface p-0 overflow-hidden flex-1 min-h-[280px]">
@@ -325,11 +379,85 @@ export function LivePane() {
         </ul>
       </div>
 
-      {(status === "running" || status === "queued") && (
+      {status === "running" || status === "queued" ? (
         <button type="button" onClick={abort} className="btn btn-danger w-full mt-2">
           <Square size={14} /> abort run
         </button>
-      )}
+      ) : run.data?.taskId &&
+        (status === "completed" || status === "failed" || status === "blocked") ? (
+        <button
+          type="button"
+          onClick={() => startRefinement.mutate()}
+          disabled={startRefinement.isPending}
+          className="btn w-full mt-2"
+        >
+          <Pencil size={14} />
+          {startRefinement.isPending ? "creating refinement…" : "refine this task"}
+        </button>
+      ) : null}
+      {startRefinement.isError ? (
+        <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+          {(startRefinement.error as Error).message}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+interface AcceptanceResultView {
+  criterion: string;
+  met: boolean;
+  evidence?: string;
+  reason?: string;
+}
+
+function AcceptancePanel({ results }: { results: AcceptanceResultView[] }) {
+  const metCount = results.filter((r) => r.met).length;
+  return (
+    <div className="surface mb-2 p-0 overflow-hidden">
+      <div className="px-3 py-1.5 border-b border-[var(--color-line)] flex items-center gap-2">
+        <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          plan acceptance ({metCount}/{results.length})
+        </span>
+        <div className="flex-1" />
+        <span className={`chip ${metCount === results.length ? "chip-greenlit" : "chip-trashed"}`}>
+          {metCount === results.length ? "all met" : "partial"}
+        </span>
+      </div>
+      <ul className="divide-y divide-[var(--color-line)]">
+        {results.map((r, i) => (
+          <li
+            // biome-ignore lint/suspicious/noArrayIndexKey: acceptance items are positional
+            key={`${r.criterion}-${i}`}
+            className="px-3 py-2"
+          >
+            <div className="flex items-baseline gap-2">
+              <span
+                className={`mono text-[11px] tabular-nums w-4 text-center shrink-0 ${
+                  r.met
+                    ? "text-[var(--color-verdict-greenlit)]"
+                    : "text-[var(--color-verdict-trashed)]"
+                }`}
+              >
+                {r.met ? "✓" : "✗"}
+              </span>
+              <span className="text-[13px] text-[var(--color-fg)] leading-snug flex-1">
+                {r.criterion}
+              </span>
+            </div>
+            {r.evidence ? (
+              <p className="mt-1 ml-6 mono text-[11px] text-[var(--color-fg-2)] break-words">
+                evidence · {r.evidence}
+              </p>
+            ) : null}
+            {r.reason ? (
+              <p className="mt-1 ml-6 mono text-[11px] text-[var(--color-verdict-trashed)] break-words">
+                reason · {r.reason}
+              </p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
