@@ -41,6 +41,15 @@ export const auditStatusEnum = [
 ] as const;
 export const auditFindingSeverityEnum = ["critical", "major", "minor", "enhancement"] as const;
 export const auditSkillKindEnum = ["read-only", "exec"] as const;
+export const claudeMetricsOwnerKindEnum = [
+  "run",
+  "audit",
+  "audit_exec",
+  "plan_iteration",
+  "triage",
+  "audit_promote",
+  "audit_comment",
+] as const;
 
 export type Goal = (typeof goalEnum)[number];
 export type Tier = (typeof tierEnum)[number];
@@ -56,6 +65,20 @@ export type PlanCommentRole = (typeof planCommentRoleEnum)[number];
 export type AuditStatus = (typeof auditStatusEnum)[number];
 export type AuditFindingSeverity = (typeof auditFindingSeverityEnum)[number];
 export type AuditSkillKind = (typeof auditSkillKindEnum)[number];
+export type ClaudeMetricsOwnerKind = (typeof claudeMetricsOwnerKindEnum)[number];
+
+/**
+ * Per-model usage breakdown lifted directly from `claude --print --output-format
+ * stream-json` final result envelope's `modelUsage` field. Stored as JSON in
+ * `claudeMetrics.modelUsage`. Field names mirror the CLI's camelCase output.
+ */
+export interface ClaudeMetricsModelUsage {
+  costUSD: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+}
 
 /** Discriminated PlanDraft union — kind-specific shapes carried in `plans.draft`. */
 export interface ProjectSpecDraft {
@@ -433,3 +456,47 @@ export const audits = sqliteTable(
 
 export type Audit = typeof audits.$inferSelect;
 export type NewAudit = typeof audits.$inferInsert;
+
+/**
+ * One row per terminating `claude --print` invocation, capturing the result
+ * envelope's cost + token + duration metrics. The (ownerKind, ownerId) tuple
+ * keys back to whichever Factory entity initiated the call (run, audit,
+ * plan_iteration, triage, etc.). `projectId` is denormalized so per-project
+ * roll-ups are a single index scan; null for top-level invocations that
+ * predate or sidestep a project (early triage). Source: ADR for runtime
+ * metrics — see docs/vision.md §7 (runtime metrics).
+ */
+export const claudeMetrics = sqliteTable(
+  "claude_metrics",
+  {
+    id: text("id").primaryKey(),
+    ownerKind: text("owner_kind", { enum: claudeMetricsOwnerKindEnum }).notNull(),
+    ownerId: text("owner_id").notNull(),
+    projectId: text("project_id").references(() => projects.id),
+    /** Primary model id from the result envelope's first modelUsage entry, when present. */
+    model: text("model"),
+    /** JSON-encoded ClaudeMetricsModelUsage map keyed by model id. */
+    modelUsage: text("model_usage"),
+    totalCostUsd: real("total_cost_usd").notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    cacheCreationTokens: integer("cache_creation_tokens").notNull(),
+    cacheReadTokens: integer("cache_read_tokens").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    durationApiMs: integer("duration_api_ms").notNull(),
+    numTurns: integer("num_turns").notNull(),
+    sessionId: text("session_id"),
+    isError: integer("is_error", { mode: "boolean" }).notNull().default(false),
+    /** result envelope subtype: success | error_max_turns | error_during_execution | ... */
+    subtype: text("subtype"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("claude_metrics_owner_idx").on(t.ownerKind, t.ownerId),
+    index("claude_metrics_project_created_idx").on(t.projectId, t.createdAt),
+    index("claude_metrics_created_idx").on(t.createdAt),
+  ],
+);
+
+export type ClaudeMetrics = typeof claudeMetrics.$inferSelect;
+export type NewClaudeMetrics = typeof claudeMetrics.$inferInsert;
