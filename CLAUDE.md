@@ -49,12 +49,14 @@ Per-package: `bun --filter '@factory/<name>' <script>`. DB scripts: `bun run db:
 - **Successful runs auto-merge to `main`.** `runner.ts` calls `mergeIntoMain` (`--no-ff`) after `status="completed"`. Without this, the project's `main` never moves past bootstrap and auto-advance can't compound. On merge conflict the merge is aborted, the failure is recorded in the run summary, and auto-advance is held — the operator resolves manually. Branches stay on disk regardless.
 - **Worker pool default = 4.** Concurrency is real; the UX must reflect "what's running" coherently (active run vs ready task vs done task). See `apps/pwa/src/routes/project-detail.tsx` for the canonical pattern.
 - **`--dangerously-skip-permissions` on code-changing runs.** Runs are non-interactive; the per-run worktree is the isolation boundary, not the CLI permission gates. Triage doesn't get this flag (different code path). When a real sandbox lands, the flag goes away. See `docs/vision.md` §5.
+- **Plans are first-class, not a sub-stage.** v0.2 introduces the Plan primitive (`project_spec`, `task_plan`, `refinement`, reserved `feature_plan`). Triage approve no longer bootstraps directly — it creates a drafting `project_spec` plan in the inbox; the project materializes when that plan freezes. Plan iteration runs through `apps/daemon/src/plans/iterate.ts` (same pattern as triage: `claude --print`, fenced JSON, null-parse-fail discipline). See `docs/spec-v0.2.md` and ADR-002.
+- **Quality is informational, not a gate.** Code-changing runs invoke `runQualityChecks` (`apps/daemon/src/workers/quality.ts`) after the agent's auto-commit and before `mergeIntoMain`. Failures land in `runs.quality_report` and surface in the live pane, but **do not block the merge** — gating is v0.3. The per-project config lives at `<project>/.factory/quality.yaml`; missing/empty config means "no checks for this project."
 
 ## Where things live
 
-- tRPC routers: `apps/daemon/src/routers/` (`ideas`, `decisions`, `projects` (with nested `tasks`), `runs`, `rubrics`).
-- Worker / run executor: `apps/daemon/src/workers/runner.ts`, `submit.ts`.
-- Triage orchestration: `apps/daemon/src/triage/orchestrate.ts`. Prompts in `prompts/`.
+- tRPC routers: `apps/daemon/src/routers/` (`ideas`, `decisions`, `plans`, `projects` (with nested `tasks`), `runs`, `rubrics`).
+- Worker / run executor: `apps/daemon/src/workers/runner.ts`, `submit.ts`. Quality checks: `quality.ts`.
+- Triage orchestration: `apps/daemon/src/triage/orchestrate.ts`. Plan iteration: `apps/daemon/src/plans/{iterate,bootstrap-from-plan,refine}.ts`. Prompts in `prompts/`.
 - Project bootstrap: `apps/daemon/src/projects/bootstrap.ts`. Task IO: `tasks.ts`.
 - Workdir snapshot (file tree, git status, commits): `apps/daemon/src/projects/workdir.ts`.
 - Runtime: `packages/runtime/src/{runtime,worktree,tmux}.ts`; agent providers in `agents/`.
