@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ModelPicker } from "../components/model-picker.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -75,23 +74,20 @@ export function DecisionDetail() {
     enabled: !!decision.data?.rubricVersionId,
   });
 
-  const [model, setModel] = useState<string | null>(null);
-
   const action = useMutation({
     mutationFn: (vars: { action: Action }) =>
-      trpc.decisions.action.mutate({
-        decisionId: id,
-        action: vars.action,
-        // Model is only meaningful for approve (it stamps the project); the
-        // server ignores it for park/trash/decompose/dismiss but sending it
-        // anyway keeps the call site simple.
-        model: vars.action === "approve" ? model : undefined,
-      }),
+      trpc.decisions.action.mutate({ decisionId: id, action: vars.action }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      qc.invalidateQueries({ queryKey: ["plans.inbox"] });
       qc.invalidateQueries({ queryKey: ["decisions.get", id] });
       qc.invalidateQueries({ queryKey: ["projects.list"] });
-      if (res.projectId) {
+      // Triage approval now routes through a project_spec foundry plan;
+      // jump the operator into iteration immediately. Other approve flows
+      // (blocked_run retry, merge_failure retry) still surface a project.
+      if (res.planId) {
+        nav(`/plans/${res.planId}`);
+      } else if (res.projectId) {
         nav(`/projects/${res.projectId}`);
       } else {
         nav("/");
@@ -490,11 +486,14 @@ export function DecisionDetail() {
       ) : null}
 
       {isPending && isTriage ? (
-        <Section title="model · for runs in this project">
+        <Section title="approve creates a project_spec plan">
           <div className="px-4 py-3 space-y-1.5">
-            <ModelPicker value={model} onChange={setModel} disabled={action.isPending} />
+            <p className="text-[13px] leading-relaxed text-[var(--color-fg-1)]">
+              the project doesn't materialize on approve — it materializes when you freeze the
+              project_spec plan. iterate with the agent in the inbox, then freeze.
+            </p>
             <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
-              applied on approve; can be changed later from the project page.
+              set the project's claude model from the project page after freeze.
             </p>
           </div>
         </Section>

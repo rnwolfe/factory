@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx";
+import { PlanCard, type PlanRow } from "../components/plan-card.tsx";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -14,6 +15,8 @@ interface TriagingIdea {
   createdAt: number;
 }
 
+type InboxItem = { kind: "decision"; row: DecisionRow } | { kind: "plan"; row: PlanRow };
+
 export function Inbox() {
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -21,6 +24,12 @@ export function Inbox() {
   const inbox = useQuery({
     queryKey: ["decisions.inbox"],
     queryFn: () => trpc.decisions.inbox.query() as unknown as Promise<DecisionRow[]>,
+    refetchInterval: 6_000,
+  });
+
+  const planInbox = useQuery({
+    queryKey: ["plans.inbox"],
+    queryFn: () => trpc.plans.inbox.query() as unknown as Promise<PlanRow[]>,
     refetchInterval: 6_000,
   });
 
@@ -45,9 +54,10 @@ export function Inbox() {
     try {
       ws = new WebSocket(url);
       ws.onmessage = () => {
-        // Coarse invalidation — inbox + triaging both refetch on any inbox-
-        // channel event. The set is small and these are cheap queries.
+        // Coarse invalidation — inbox + plan inbox + triaging all refetch on
+        // any inbox-channel event. The set is small and these are cheap queries.
         qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+        qc.invalidateQueries({ queryKey: ["plans.inbox"] });
         qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
       };
     } catch {
@@ -74,15 +84,25 @@ export function Inbox() {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["decisions.inbox"], ctx.prev);
     },
+    onSuccess: (res) => {
+      // Approving a triage decision creates a plan; navigate the operator
+      // straight into the foundry plan to keep momentum.
+      if (res?.planId) {
+        nav(`/plans/${res.planId}`);
+      }
+    },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      qc.invalidateQueries({ queryKey: ["plans.inbox"] });
       qc.invalidateQueries({ queryKey: ["projects.list"] });
     },
   });
 
   const triagingRows = triaging.data ?? [];
 
-  if (inbox.isLoading && triagingRows.length === 0) return <InboxSkeleton />;
+  if (inbox.isLoading && triagingRows.length === 0 && !planInbox.data) {
+    return <InboxSkeleton />;
+  }
   if (inbox.isError) {
     return (
       <div className="surface p-4 text-sm">
@@ -94,10 +114,18 @@ export function Inbox() {
     );
   }
 
-  const rows = inbox.data ?? [];
+  const decisionRows = inbox.data ?? [];
+  const planRows = planInbox.data ?? [];
   const ideasById = new Map(ideasList.data?.map((i) => [i.id, i.rawText]) ?? []);
 
-  if (rows.length === 0 && triagingRows.length === 0) {
+  // Merge by createdAt descending. Each kind keeps its own renderer; the
+  // inbox is just a single chronological list of attention items.
+  const merged: InboxItem[] = [
+    ...decisionRows.map((row) => ({ kind: "decision" as const, row })),
+    ...planRows.map((row) => ({ kind: "plan" as const, row })),
+  ].sort((a, b) => b.row.createdAt - a.row.createdAt);
+
+  if (merged.length === 0 && triagingRows.length === 0) {
     return (
       <div className="px-2 pt-8">
         <div className="text-center">
@@ -118,16 +146,23 @@ export function Inbox() {
       {triagingRows.map((idea) => (
         <TriagingRow key={idea.id} idea={idea} />
       ))}
-      {rows.map((d, i) => (
-        <DecisionCard
-          key={d.id}
-          decision={d}
-          ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
-          index={i}
-          onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
-          onOpen={() => nav(`/decisions/${d.id}`)}
-        />
-      ))}
+      {merged.map((item, i) => {
+        if (item.kind === "decision") {
+          const d = item.row;
+          return (
+            <DecisionCard
+              key={d.id}
+              decision={d}
+              ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
+              index={i}
+              onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
+              onOpen={() => nav(`/decisions/${d.id}`)}
+            />
+          );
+        }
+        const p = item.row;
+        return <PlanCard key={p.id} plan={p} index={i} onOpen={() => nav(`/plans/${p.id}`)} />;
+      })}
     </div>
   );
 }
