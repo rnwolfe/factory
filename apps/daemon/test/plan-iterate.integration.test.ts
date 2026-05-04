@@ -40,7 +40,6 @@ async function seedPlanPrompts(dbPath: string) {
   const repoRoot = path.resolve(import.meta.dir, "../../..");
   const db = createDb(dbPath);
   for (const [, key] of Object.entries(PLAN_PROMPT_KEYS)) {
-    if (key === "plan-feature-plan-v1") continue; // not implemented
     const file = path.join(repoRoot, "prompts", `${key}.md`);
     const content = readFileSync(file, "utf8");
     await db.insert(schema.prompts).values({
