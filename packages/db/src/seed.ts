@@ -18,7 +18,12 @@ const PLAN_PROMPT_FILES: Array<{ key: string; file: string }> = [
   { key: "plan-project-spec-v1", file: "prompts/plan-project-spec-v1.md" },
   { key: "plan-task-plan-v1", file: "prompts/plan-task-plan-v1.md" },
   { key: "plan-refinement-v1", file: "prompts/plan-refinement-v1.md" },
+  { key: "plan-feature-plan-v1", file: "prompts/plan-feature-plan-v1.md" },
+  { key: "plan-project-vision-v1", file: "prompts/plan-project-vision-v1.md" },
 ];
+
+const AUDIT_BRIDGE_PROMPT_FILE = path.join(repoRoot, "prompts/audit-bridge-v1.md");
+const AUDIT_BRIDGE_PROMPT_KEY = "audit-bridge-v1";
 
 interface RubricYaml {
   id: string;
@@ -139,6 +144,40 @@ async function main() {
       );
   }
 
+  // Audit bridge prompt: small routing call invoked by audits.promoteFindings.
+  // Same upsert shape as the plan prompts.
+  const auditBridgeContent = await readFile(AUDIT_BRIDGE_PROMPT_FILE, "utf8");
+  const existingAuditBridge = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(eq(prompts.promptKey, AUDIT_BRIDGE_PROMPT_KEY))
+    .all();
+  if (existingAuditBridge.length === 0) {
+    await db.insert(prompts).values({
+      id: createId(),
+      promptKey: AUDIT_BRIDGE_PROMPT_KEY,
+      version: 1,
+      content: auditBridgeContent,
+      active: true,
+      createdAt: now,
+    });
+    console.log(`  + prompt ${AUDIT_BRIDGE_PROMPT_KEY}@1`);
+  } else {
+    console.log(
+      `  · prompt ${AUDIT_BRIDGE_PROMPT_KEY} already present (${existingAuditBridge.length} row(s))`,
+    );
+  }
+  await db
+    .update(prompts)
+    .set({ active: false })
+    .where(eq(prompts.promptKey, AUDIT_BRIDGE_PROMPT_KEY));
+  await db
+    .update(prompts)
+    .set({ active: true })
+    .where(
+      sql`${prompts.promptKey} = ${AUDIT_BRIDGE_PROMPT_KEY} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${AUDIT_BRIDGE_PROMPT_KEY})`,
+    );
+
   // Rubric: same shape.
   const existingRubric = await db
     .select({ id: rubricVersions.id })
@@ -195,6 +234,7 @@ async function main() {
     promptKey,
     FOLLOWUP_PROMPT_KEY,
     ...PLAN_PROMPT_FILES.map((p) => p.key),
+    AUDIT_BRIDGE_PROMPT_KEY,
   ]);
   const activePromptKeys = new Set(activePrompts.map((p) => p.key));
   const missingKeys = [...expectedPromptKeys].filter((k) => !activePromptKeys.has(k));

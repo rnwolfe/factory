@@ -22,9 +22,25 @@ export const taskStatusEnum = [
   "blocked",
   "dropped",
 ] as const;
-export const planKindEnum = ["project_spec", "task_plan", "refinement", "feature_plan"] as const;
-export const planStatusEnum = ["drafting", "frozen", "abandoned"] as const;
+export const planKindEnum = [
+  "project_spec",
+  "task_plan",
+  "refinement",
+  "feature_plan",
+  "project_vision",
+] as const;
+export const planStatusEnum = ["drafting", "frozen", "abandoned", "superseded"] as const;
 export const planCommentRoleEnum = ["operator", "agent"] as const;
+export const auditStatusEnum = [
+  "running",
+  "completed",
+  "reviewed",
+  "approved",
+  "rejected",
+  "failed",
+] as const;
+export const auditFindingSeverityEnum = ["critical", "major", "minor", "enhancement"] as const;
+export const auditSkillKindEnum = ["read-only", "exec"] as const;
 
 export type Goal = (typeof goalEnum)[number];
 export type Tier = (typeof tierEnum)[number];
@@ -37,6 +53,9 @@ export type TaskStatus = (typeof taskStatusEnum)[number];
 export type PlanKind = (typeof planKindEnum)[number];
 export type PlanStatus = (typeof planStatusEnum)[number];
 export type PlanCommentRole = (typeof planCommentRoleEnum)[number];
+export type AuditStatus = (typeof auditStatusEnum)[number];
+export type AuditFindingSeverity = (typeof auditFindingSeverityEnum)[number];
+export type AuditSkillKind = (typeof auditSkillKindEnum)[number];
 
 /** Discriminated PlanDraft union — kind-specific shapes carried in `plans.draft`. */
 export interface ProjectSpecDraft {
@@ -69,7 +88,80 @@ export interface RefinementDraft {
   followups?: Array<{ title: string; estimate: "small" | "medium" | "large" }>;
 }
 
-export type PlanDraft = ProjectSpecDraft | TaskPlanDraft | RefinementDraft;
+export interface FeaturePlanVisionFilterTest {
+  passes: boolean;
+  reasoning: string;
+}
+
+export interface FeaturePlanDraft {
+  kind: "feature_plan";
+  /** Operator-stated, immutable after creation. */
+  goal: string;
+  summary: string;
+  tasks: Array<{
+    title: string;
+    estimate: "small" | "medium" | "large";
+    acceptance: string[];
+  }>;
+  unknowns: string[];
+  risks: string[];
+  /**
+   * The forge-style 4-test vision filter. Populated on each agent turn; read by
+   * the freeze mutation as a precondition for tier ≥ personal.
+   */
+  visionFilter: {
+    identity: FeaturePlanVisionFilterTest;
+    principle: FeaturePlanVisionFilterTest;
+    phase: FeaturePlanVisionFilterTest;
+    replacement: FeaturePlanVisionFilterTest;
+  };
+}
+
+export interface ProjectVisionDraft {
+  kind: "project_vision";
+  /** 2-3 sentence "what it is". */
+  identity: string;
+  audience: string;
+  problem: string;
+  designPrinciples: Array<{ name: string; meaning: string }>;
+  outOfScope: string[];
+  personality: string | null;
+  roadmap: Array<{ phase: string; bullets: string[] }>;
+  priorArt: string[];
+}
+
+export type PlanDraft =
+  | ProjectSpecDraft
+  | TaskPlanDraft
+  | RefinementDraft
+  | FeaturePlanDraft
+  | ProjectVisionDraft;
+
+export interface AuditFinding {
+  /** cuid2, stable across promote calls. */
+  id: string;
+  severity: AuditFindingSeverity;
+  /** <120 chars headline. */
+  title: string;
+  /** markdown body. */
+  body: string;
+  filePath: string | null;
+  line: number | null;
+  /**
+   * Pointer set when the operator promoted this finding via the bridge call.
+   * `id` is the new plan id (kind="plan") or new task file id (kind="task").
+   * Aligned with the `finding_promoted` WS event shape.
+   */
+  promotedTo: { kind: "plan" | "task"; id: string } | null;
+}
+
+export interface AuditSkillFrontmatter {
+  name: string;
+  description: string;
+  kind: AuditSkillKind;
+  needsWorktree: boolean;
+  defaultSeverityGrade: "enabled" | "disabled";
+}
 
 export const ideas = sqliteTable("ideas", {
   id: text("id").primaryKey(),
@@ -259,6 +351,16 @@ export const plans = sqliteTable(
      * under stale instructions otherwise.
      */
     promptVersion: text("prompt_version"),
+    /**
+     * v0.3 — tier carried into bootstrap. Null for v0.1/v0.2 plans (treated as
+     * tinker for filter purposes).
+     */
+    tier: text("tier", { enum: tierEnum }),
+    /**
+     * v0.3 — set when a newer plan in the same kind+target supersedes this
+     * one. The superseded plan's status moves to "superseded".
+     */
+    supersededBy: text("superseded_by"),
   },
   (t) => [
     index("plans_status_created_idx").on(t.status, t.createdAt),
@@ -290,3 +392,44 @@ export type Plan = typeof plans.$inferSelect;
 export type NewPlan = typeof plans.$inferInsert;
 export type PlanComment = typeof planComments.$inferSelect;
 export type NewPlanComment = typeof planComments.$inferInsert;
+
+export const audits = sqliteTable(
+  "audits",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .references(() => projects.id)
+      .notNull(),
+    /** matches dir name under <project>/.factory/audits/<name>/. */
+    skillName: text("skill_name").notNull(),
+    /** git SHA of SKILL.md at audit-start time. */
+    skillVersion: text("skill_version").notNull(),
+    status: text("status", { enum: auditStatusEnum }).notNull().default("running"),
+    startedAt: integer("started_at").notNull(),
+    completedAt: integer("completed_at"),
+    /** First-open by operator. */
+    reviewedAt: integer("reviewed_at"),
+    approvedAt: integer("approved_at"),
+    rejectedAt: integer("rejected_at"),
+    /** Populated on completion. */
+    reportMarkdown: text("report_markdown"),
+    /** JSON-stringified array of AuditFinding. Null while running. */
+    findings: text("findings"),
+    /** Repo-relative, set on approval. */
+    approvedReportPath: text("approved_report_path"),
+    /** v0.2 session-resume mechanic for follow-up turns. */
+    claudeSessionId: text("claude_session_id"),
+    promptVersion: text("prompt_version"),
+    /** Exec audits only; null for read-only. */
+    worktreePath: text("worktree_path"),
+    tmuxSessionName: text("tmux_session_name"),
+    paneLogPath: text("pane_log_path"),
+  },
+  (t) => [
+    index("audits_project_status_idx").on(t.projectId, t.status),
+    index("audits_status_started_idx").on(t.status, t.startedAt),
+  ],
+);
+
+export type Audit = typeof audits.$inferSelect;
+export type NewAudit = typeof audits.$inferInsert;

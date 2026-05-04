@@ -50,6 +50,13 @@
       "when": 1777893058383,
       "tag": "0006_plan_session_resume",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1777902070736,
+      "tag": "0007_audit_primitive",
+      "breakpoints": true
     }
   ]
 }
