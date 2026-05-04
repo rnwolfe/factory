@@ -87,3 +87,22 @@ export async function updateTaskStatus(
   await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
   return updated;
 }
+
+export async function updateTaskBody(
+  projectPath: string,
+  taskId: string,
+  body: string,
+): Promise<TaskFile | null> {
+  const t = await readTaskFile(projectPath, taskId);
+  if (!t) return null;
+  const updated: TaskFile = {
+    ...t,
+    body,
+    frontmatter: {
+      ...t.frontmatter,
+      updated: new Date().toISOString(),
+    },
+  };
+  await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+  return updated;
+}

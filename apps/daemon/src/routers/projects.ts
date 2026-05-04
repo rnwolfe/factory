@@ -1,8 +1,9 @@
 import { schema } from "@factory/db";
+import { commitAllChanges } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { listTasks, updateTaskStatus } from "../projects/tasks.ts";
+import { listTasks, readTaskFile, updateTaskBody, updateTaskStatus } from "../projects/tasks.ts";
 import { snapshotWorkdir } from "../projects/workdir.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
@@ -22,6 +23,19 @@ const tasksRouter = router({
       const tasks = await listTasks(project.workdirPath);
       return tasks.map((t) => t.frontmatter);
     }),
+  get: protectedProcedure
+    .input(z.object({ projectId: z.string(), taskId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) return null;
+      const task = await readTaskFile(project.workdirPath, input.taskId);
+      if (!task) return null;
+      return { frontmatter: task.frontmatter, body: task.body };
+    }),
   updateStatus: protectedProcedure
     .input(
       z.object({
@@ -39,7 +53,39 @@ const tasksRouter = router({
       if (!project) throw new Error("project not found");
       const updated = await updateTaskStatus(project.workdirPath, input.taskId, input.status);
       if (!updated) throw new Error("task not found");
+      // Commit on main so the next run's worktree starts clean. Without this,
+      // operator-driven status flips dirty the project tree and the next
+      // mergeIntoMain refuses ("project working tree has uncommitted changes").
+      await commitAllChanges(
+        project.workdirPath,
+        `chore: ${input.taskId} status -> ${input.status}`,
+        ctx.config.gitAuthor,
+      );
       return updated.frontmatter;
+    }),
+  updateBody: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        taskId: z.string(),
+        body: z.string().max(50_000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const updated = await updateTaskBody(project.workdirPath, input.taskId, input.body);
+      if (!updated) throw new Error("task not found");
+      await commitAllChanges(
+        project.workdirPath,
+        `docs: ${input.taskId} body update`,
+        ctx.config.gitAuthor,
+      );
+      return { frontmatter: updated.frontmatter, body: updated.body };
     }),
 });
 

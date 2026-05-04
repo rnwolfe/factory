@@ -9,6 +9,7 @@ import { NewIdea } from "./routes/new-idea.tsx";
 import { ProjectDetail } from "./routes/project-detail.tsx";
 import { Projects } from "./routes/projects.tsx";
 import { Settings } from "./routes/settings.tsx";
+import { TaskDetail } from "./routes/task-detail.tsx";
 
 export function App() {
   const token = useAuth((s) => s.token);
@@ -21,6 +22,7 @@ export function App() {
         <Route path="/decisions/:id" element={<DecisionDetail />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
+        <Route path="/projects/:id/tasks/:taskId" element={<TaskDetail />} />
         <Route path="/projects/:id/runs/:runId" element={<LivePane />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Inbox />} />
