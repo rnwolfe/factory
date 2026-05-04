@@ -1,9 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileText, Folder, GitBranch, Play } from "lucide-react";
+import { ArrowLeft, ChevronRight, Eye, FileText, Folder, GitBranch, Play } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ModelPicker } from "../components/model-picker.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { trpc } from "../lib/trpc.ts";
+
+interface RunRow {
+  id: string;
+  status: string;
+  taskId: string | null;
+  startedAt: number;
+}
+
+const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
 
 interface WorkdirSnapshot {
   exists: boolean;
@@ -30,7 +39,7 @@ export function ProjectDetail() {
 
   const runs = useQuery({
     queryKey: ["runs.list", id],
-    queryFn: () => trpc.runs.list.query({ projectId: id }),
+    queryFn: () => trpc.runs.list.query({ projectId: id }) as unknown as Promise<RunRow[]>,
     enabled: id.length > 0,
     refetchInterval: 4_000,
   });
@@ -78,8 +87,14 @@ export function ProjectDetail() {
   }
 
   const { project: p, tasks } = project.data;
-  const readyTasks = tasks.filter((t) => t.status === "ready");
-  const nextTask = readyTasks[0];
+  const allRuns = runs.data ?? [];
+  const activeRuns = allRuns.filter((r) => ACTIVE_RUN_STATUSES.has(r.status));
+  const activeRunByTask = new Map<string, RunRow>();
+  for (const r of activeRuns) {
+    if (r.taskId && !activeRunByTask.has(r.taskId)) activeRunByTask.set(r.taskId, r);
+  }
+  const headerActiveRun = activeRuns[0] ?? null;
+  const nextStartableTask = tasks.find((t) => t.status === "ready" && !activeRunByTask.has(t.id));
 
   return (
     <div className="space-y-4">
@@ -102,19 +117,30 @@ export function ProjectDetail() {
           <TagChip projectId={p.id} tag={p.tag as Tag} />
         </div>
 
-        <button
-          type="button"
-          onClick={() => start.mutate({ taskId: nextTask?.id })}
-          disabled={start.isPending}
-          className="btn btn-primary w-full mt-4"
-        >
-          <Play size={14} />
-          {start.isPending
-            ? "starting…"
-            : nextTask
-              ? `start run · ${nextTask.id}`
-              : "start ad-hoc run"}
-        </button>
+        {headerActiveRun ? (
+          <Link
+            to={`/projects/${id}/runs/${headerActiveRun.id}`}
+            className="btn btn-primary w-full mt-4"
+          >
+            <Eye size={14} />
+            view active run · {headerActiveRun.taskId ?? "ad-hoc"}
+            {activeRuns.length > 1 ? ` (+${activeRuns.length - 1})` : ""}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => start.mutate({ taskId: nextStartableTask?.id })}
+            disabled={start.isPending}
+            className="btn btn-primary w-full mt-4"
+          >
+            <Play size={14} />
+            {start.isPending
+              ? "starting…"
+              : nextStartableTask
+                ? `start run · ${nextStartableTask.id}`
+                : "start ad-hoc run"}
+          </button>
+        )}
         {start.isError ? (
           <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
             {(start.error as Error).message}
@@ -152,26 +178,51 @@ export function ProjectDetail() {
               no tasks yet — first run will create them.
             </div>
           ) : (
-            tasks.map((t) => (
-              <div key={t.id} className="px-3 py-2.5 flex items-center gap-3">
-                <span className={`chip status-${t.status}`}>{t.status}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[14px] truncate">{t.title}</div>
-                  <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
-                    {t.id} · {String(t.estimate ?? "—")}
+            tasks.map((t) => {
+              const activeRun = activeRunByTask.get(t.id) ?? null;
+              const canStart = !activeRun && t.status !== "done" && t.status !== "in_progress";
+              return (
+                <div key={t.id} className="flex items-stretch">
+                  <Link
+                    to={`/projects/${id}/tasks/${t.id}`}
+                    className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]"
+                  >
+                    <span className={`chip status-${t.status}`}>{t.status}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[14px] truncate">{t.title}</div>
+                      <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+                        {t.id} · {String(t.estimate ?? "—")}
+                      </div>
+                    </div>
+                    <ChevronRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
+                  </Link>
+                  <div className="flex items-center px-2 border-l border-[var(--color-line)]">
+                    {activeRun ? (
+                      <Link
+                        to={`/projects/${id}/runs/${activeRun.id}`}
+                        className="btn btn-ghost text-[11px] !h-8 !px-2"
+                        aria-label="view active run"
+                        title={`view active run ${activeRun.id.slice(0, 8)}`}
+                      >
+                        <Eye size={12} />
+                      </Link>
+                    ) : canStart ? (
+                      <button
+                        type="button"
+                        onClick={() => start.mutate({ taskId: t.id })}
+                        disabled={start.isPending}
+                        className="btn btn-ghost text-[11px] !h-8 !px-2"
+                        aria-label="run this task"
+                      >
+                        <Play size={12} />
+                      </button>
+                    ) : (
+                      <span className="w-8" aria-hidden="true" />
+                    )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => start.mutate({ taskId: t.id })}
-                  disabled={start.isPending || t.status === "done"}
-                  className="btn btn-ghost text-[11px] !h-8 !px-2"
-                  aria-label="run this task"
-                >
-                  <Play size={12} />
-                </button>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </section>
@@ -197,25 +248,30 @@ export function ProjectDetail() {
               <div className="skel h-3 w-1/3" />
             </div>
           ) : runs.data && runs.data.length > 0 ? (
-            runs.data.map((r) => (
-              <Link
-                key={r.id}
-                to={`/projects/${id}/runs/${r.id}`}
-                className="block px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <RunStatusChip status={r.status} />
-                    <span className="mono text-[11px] text-[var(--color-fg-3)] truncate">
-                      {r.id.slice(0, 8)} · {r.taskId ?? "ad-hoc"}
+            runs.data.map((r) => {
+              const isActive = ACTIVE_RUN_STATUSES.has(r.status);
+              return (
+                <Link
+                  key={r.id}
+                  to={`/projects/${id}/runs/${r.id}`}
+                  className={`block px-3 py-2.5 hover:bg-[var(--color-bg-2)] ${
+                    isActive ? "bg-[var(--color-bg-2)]/60" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <RunStatusChip status={r.status} />
+                      <span className="mono text-[11px] text-[var(--color-fg-3)] truncate">
+                        {r.id.slice(0, 8)} · {r.taskId ?? "ad-hoc"}
+                      </span>
+                    </div>
+                    <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                      {timeAgo(r.startedAt)}
                     </span>
                   </div>
-                  <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
-                    {timeAgo(r.startedAt)}
-                  </span>
-                </div>
-              </Link>
-            ))
+                </Link>
+              );
+            })
           ) : (
             <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">no runs yet.</div>
           )}
@@ -379,9 +435,9 @@ function RunStatusChip({ status }: { status: string }) {
   const tone =
     status === "completed"
       ? "chip-greenlit"
-      : status === "running"
+      : status === "running" || status === "queued"
         ? "chip-accent"
-        : status === "failed" || status === "aborted"
+        : status === "failed" || status === "aborted" || status === "blocked"
           ? "chip-trashed"
           : "";
   return <span className={`chip ${tone}`}>{status}</span>;
