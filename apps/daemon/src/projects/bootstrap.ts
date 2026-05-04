@@ -114,6 +114,30 @@ export async function bootstrapProject(
     // .factory/.gitignore
     await writeFile(path.join(workdirPath, ".factory", ".gitignore"), "runs/\n", "utf8");
 
+    // .factory/quality.yaml — seeded with a conservative default set. The
+    // operator can edit or delete it; absence means "no quality checks for
+    // this project" (v0.1 behavior preserved). We seed unconditionally for
+    // new projects since every project bootstrap is Bun-based and at least
+    // a typecheck pass is universally useful.
+    await writeFile(
+      path.join(workdirPath, ".factory", "quality.yaml"),
+      `# Factory quality checks. Each command runs in the run's worktree
+# after the agent declares done and before the merge into main.
+# Failures are informational in v0.2 (do not block merge).
+checks:
+  - name: typecheck
+    command: bun run typecheck
+    timeoutSeconds: 300
+  - name: lint
+    command: bun run check
+    timeoutSeconds: 120
+  - name: test
+    command: bun test
+    timeoutSeconds: 600
+`,
+      "utf8",
+    );
+
     // root .gitignore
     await writeFile(
       path.join(workdirPath, ".gitignore"),
