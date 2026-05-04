@@ -1,3 +1,4 @@
+import { auditsRouter } from "./routers/audits.ts";
 import { decisionsRouter } from "./routers/decisions.ts";
 import { healthRouter } from "./routers/health.ts";
 import { ideasRouter } from "./routers/ideas.ts";
@@ -17,6 +18,7 @@ export const appRouter = router({
   prompts: promptsRouter,
   runs: runsRouter,
   rubrics: rubricsRouter,
+  audits: auditsRouter,
 });
 
 export type AppRouter = typeof appRouter;

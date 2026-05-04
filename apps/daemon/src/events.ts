@@ -29,7 +29,7 @@ export type DaemonEvent =
       channel: "inbox";
       kind: "plan_created";
       planId: string;
-      planKind: "project_spec" | "task_plan" | "refinement" | "feature_plan";
+      planKind: "project_spec" | "task_plan" | "refinement" | "feature_plan" | "project_vision";
       projectId?: string | null;
     }
   | { channel: "inbox"; kind: "plan_updated"; planId: string }
@@ -47,6 +47,31 @@ export type DaemonEvent =
       taskId?: string | null;
     }
   | { channel: "inbox"; kind: "plan_abandoned"; planId: string }
+  | { channel: "inbox"; kind: "plan_superseded"; planId: string; supersededBy: string }
+  | {
+      channel: "inbox";
+      kind: "audit_started";
+      auditId: string;
+      projectId: string;
+      skillName: string;
+    }
+  | { channel: "inbox"; kind: "audit_completed"; auditId: string; projectId: string }
+  | {
+      channel: "inbox";
+      kind: "audit_approved";
+      auditId: string;
+      projectId: string;
+      reportPath: string;
+    }
+  | { channel: "inbox"; kind: "audit_rejected"; auditId: string; projectId: string }
+  | { channel: "inbox"; kind: "audit_updated"; auditId: string }
+  | {
+      channel: "inbox";
+      kind: "finding_promoted";
+      auditId: string;
+      findingId: string;
+      promotedTo: { kind: "plan" | "task"; id: string };
+    }
   | { channel: "pane"; runId: string; bytes: Uint8Array };
 
 type Listener = (e: DaemonEvent) => void;

@@ -106,3 +106,77 @@ export async function updateTaskBody(
   await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
   return updated;
 }
+
+export interface CreateTaskInput {
+  title: string;
+  /** Full markdown body. Caller controls section structure. */
+  body: string;
+  status?: TaskFrontmatter["status"];
+  priority?: TaskFrontmatter["priority"];
+  estimate?: TaskFrontmatter["estimate"];
+  labels?: string[];
+  parent?: string;
+}
+
+/**
+ * Single-point-of-truth for task creation. Picks the next monotonic task id,
+ * writes the file under `.factory/work/`, returns the parsed result. All
+ * task-creation flows route through this — bootstrap, refinement freeze,
+ * feature_plan freeze, audit-finding promotion, ad-hoc PWA "+ task".
+ *
+ * Storage swap (GitHub Issues, beads, etc.) is a one-file change here.
+ */
+export async function createTask(projectPath: string, input: CreateTaskInput): Promise<TaskFile> {
+  const dir = path.join(projectPath, ".factory", "work");
+  if (!existsSync(dir)) {
+    throw new Error(`project task directory does not exist: ${dir}`);
+  }
+  const existing = await listTasks(projectPath);
+  const id = nextTaskId(existing);
+  const fileName = `${id}-${slugify(input.title || "task").slice(0, 40)}.md`;
+  const filePath = path.join(dir, fileName);
+  const now = new Date().toISOString();
+  const frontmatter: TaskFrontmatter = {
+    id,
+    title: input.title || "Untitled",
+    status: input.status ?? "ready",
+    priority: input.priority ?? "med",
+    estimate: input.estimate ?? "small",
+    created: now,
+    updated: now,
+  };
+  if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
+  if (input.parent) frontmatter.parent = input.parent;
+  const file: TaskFile = { id, filePath, frontmatter, body: input.body };
+  await writeFile(filePath, renderTaskMarkdown(file), "utf8");
+  return file;
+}
+
+function nextTaskId(existing: TaskFile[]): string {
+  let max = 0;
+  for (const t of existing) {
+    const m = /^task-(\d+)$/.exec(t.id);
+    if (m) {
+      const n = Number.parseInt(m[1] ?? "0", 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return `task-${String(max + 1).padStart(3, "0")}`;
+}
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+/**
+ * Helper for callers building "## Acceptance" sections. Returns a checkbox list
+ * with a "(TBD)" fallback when the input is empty.
+ */
+export function renderAcceptanceBlock(criteria: string[] | undefined | null): string {
+  if (!criteria || criteria.length === 0) return "- [ ] (TBD)";
+  return criteria.map((c) => `- [ ] ${c}`).join("\n");
+}
