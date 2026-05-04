@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const goalEnum = ["me", "learn", "share", "productize"] as const;
 export const tierEnum = ["tinker", "personal", "share", "productize"] as const;
@@ -22,6 +22,9 @@ export const taskStatusEnum = [
   "blocked",
   "dropped",
 ] as const;
+export const planKindEnum = ["project_spec", "task_plan", "refinement", "feature_plan"] as const;
+export const planStatusEnum = ["drafting", "frozen", "abandoned"] as const;
+export const planCommentRoleEnum = ["operator", "agent"] as const;
 
 export type Goal = (typeof goalEnum)[number];
 export type Tier = (typeof tierEnum)[number];
@@ -31,6 +34,42 @@ export type DecisionStatus = (typeof decisionStatusEnum)[number];
 export type DecisionCommentRole = (typeof decisionCommentRoleEnum)[number];
 export type RunStatus = (typeof runStatusEnum)[number];
 export type TaskStatus = (typeof taskStatusEnum)[number];
+export type PlanKind = (typeof planKindEnum)[number];
+export type PlanStatus = (typeof planStatusEnum)[number];
+export type PlanCommentRole = (typeof planCommentRoleEnum)[number];
+
+/** Discriminated PlanDraft union — kind-specific shapes carried in `plans.draft`. */
+export interface ProjectSpecDraft {
+  kind: "project_spec";
+  summary: string;
+  tasks: Array<{
+    title: string;
+    estimate: "small" | "medium" | "large";
+    acceptance: string[];
+  }>;
+  unknowns: string[];
+  risks: string[];
+}
+
+export interface TaskPlanDraft {
+  kind: "task_plan";
+  goal: string;
+  steps: Array<{ order: number; title: string; detail: string }>;
+  acceptance: string[];
+  /** File path globs the agent expects to modify. */
+  touches: string[];
+  risks: string[];
+}
+
+export interface RefinementDraft {
+  kind: "refinement";
+  targetTaskId: string;
+  feedback: string;
+  revisedAcceptance?: string[];
+  followups?: Array<{ title: string; estimate: "small" | "medium" | "large" }>;
+}
+
+export type PlanDraft = ProjectSpecDraft | TaskPlanDraft | RefinementDraft;
 
 export const ideas = sqliteTable("ideas", {
   id: text("id").primaryKey(),
@@ -126,6 +165,22 @@ export const runs = sqliteTable("runs", {
    * (e.g. blocked) run's branch tip instead of starting fresh.
    */
   baseRef: text("base_ref"),
+  /**
+   * Frozen `task_plan` plan id whose draft was folded into this run's prompt.
+   * Null when the run was submitted without an attached plan (v0.1 behavior).
+   */
+  taskPlanId: text("task_plan_id"),
+  /**
+   * Captured QualityReport (JSON-stringified). Null when no quality config
+   * is present in the project, or when the runner skipped the pass.
+   */
+  qualityReport: text("quality_report"),
+  /**
+   * Parsed `acceptance` array from the agent's factory-status block, when
+   * the run had a frozen task_plan attached and the agent emitted per-
+   * criterion results. JSON array of {criterion, met, evidence?, reason?}.
+   */
+  acceptanceResults: text("acceptance_results"),
 });
 
 export const events = sqliteTable("events", {
@@ -168,3 +223,54 @@ export type RubricVersion = typeof rubricVersions.$inferSelect;
 export type NewRubricVersion = typeof rubricVersions.$inferInsert;
 export type Prompt = typeof prompts.$inferSelect;
 export type NewPrompt = typeof prompts.$inferInsert;
+
+export const plans = sqliteTable(
+  "plans",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: planKindEnum }).notNull(),
+    status: text("status", { enum: planStatusEnum }).notNull().default("drafting"),
+    /** Set on `kind='project_spec'` plans created from a triage decision. */
+    decisionId: text("decision_id").references(() => decisions.id),
+    /** Null until the project exists (project_spec pre-freeze). */
+    projectId: text("project_id").references(() => projects.id),
+    /** Task IDs are file-frontmatter strings, not FKs. Null for project_spec. */
+    taskId: text("task_id"),
+    goal: text("goal").notNull(),
+    /** Current draft payload (PlanDraft union, JSON-stringified). */
+    draft: text("draft").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    frozenAt: integer("frozen_at"),
+    abandonedAt: integer("abandoned_at"),
+  },
+  (t) => [
+    index("plans_status_created_idx").on(t.status, t.createdAt),
+    index("plans_project_kind_idx").on(t.projectId, t.kind),
+  ],
+);
+
+export const planComments = sqliteTable(
+  "plan_comments",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id")
+      .references(() => plans.id)
+      .notNull(),
+    role: text("role", { enum: planCommentRoleEnum }).notNull(),
+    body: text("body").notNull(),
+    /**
+     * When the agent's turn produced a new draft, the new payload is mirrored
+     * here so the diff is auditable. Null for operator comments and for agent
+     * turns that failed to produce a parseable draft.
+     */
+    resultingDraft: text("resulting_draft"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("plan_comments_plan_created_idx").on(t.planId, t.createdAt)],
+);
+
+export type Plan = typeof plans.$inferSelect;
+export type NewPlan = typeof plans.$inferInsert;
+export type PlanComment = typeof planComments.$inferSelect;
+export type NewPlanComment = typeof planComments.$inferInsert;
