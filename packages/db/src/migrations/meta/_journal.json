@@ -43,6 +43,13 @@
       "when": 1777867040351,
       "tag": "0005_plan_primitive",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777893058383,
+      "tag": "0006_plan_session_resume",
+      "breakpoints": true
     }
   ]
 }

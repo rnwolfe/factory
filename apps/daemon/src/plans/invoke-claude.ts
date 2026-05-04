@@ -1,19 +1,47 @@
 import { claudeCodeAgent, type StreamEvent } from "@factory/runtime";
 import { spawn as bunSpawn } from "bun";
 
+export interface InvokeClaudeOptions {
+  budgetSeconds: number;
+  /**
+   * When set, claude is invoked with `--resume <id>` so the prior session's
+   * messages stay in the agent's context. The `prompt` argument is then
+   * treated as a follow-up turn instead of a fresh task. When the resume
+   * fails (session evicted, etc.), the caller should retry with this
+   * option omitted and a full prompt.
+   */
+  resumeSessionId?: string;
+}
+
+export interface InvokeClaudeResult {
+  /** Concatenated assistant text output across all stream events. */
+  text: string;
+  /**
+   * The session id reported by the CLI. On a fresh invocation this is a new
+   * session; on a `--resume` invocation it is the resumed session's id (which
+   * the CLI may rotate, so callers should always store the latest value).
+   */
+  sessionId: string | null;
+}
+
 /**
- * One-shot `claude --print` invocation that pipes a prompt and concatenates
- * every text event the agent emits. Used by triage and plan iteration —
+ * One-shot `claude --print` invocation. Used by triage and plan iteration —
  * neither flow uses `runtime.spawn` (no worktree, no tmux, no commits).
  *
- * Mirrors the helper that lives in `triage/orchestrate.ts`. Pulled out so
- * plan iteration doesn't fork the same code path.
+ * Returns both the assistant text and the session id so plan iteration can
+ * thread the conversation across operator comments instead of replaying the
+ * full prompt + thread on every turn.
  */
-export async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<string> {
+export async function invokeClaudeJson(
+  prompt: string,
+  opts: InvokeClaudeOptions,
+): Promise<InvokeClaudeResult> {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), budgetSeconds * 1000);
+  const timer = setTimeout(() => ac.abort(), opts.budgetSeconds * 1000);
 
-  const { argv, stdin } = claudeCodeAgent.buildArgv(prompt, {});
+  const { argv, stdin } = claudeCodeAgent.buildArgv(prompt, {
+    resumeSessionId: opts.resumeSessionId,
+  });
   const proc = bunSpawn({
     cmd: argv as string[],
     stdin: "pipe",
@@ -29,6 +57,7 @@ export async function invokeClaudeJson(prompt: string, budgetSeconds: number): P
   }
 
   let resultText = "";
+  let sessionId: string | null = null;
   const reader = proc.stdout.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -44,13 +73,17 @@ export async function invokeClaudeJson(prompt: string, budgetSeconds: number): P
         const events: readonly StreamEvent[] = claudeCodeAgent.parseLine(line);
         for (const e of events) {
           if (e.kind === "text") resultText += e.text;
+          if (e.kind === "session") sessionId = e.id;
         }
         idx = buf.indexOf("\n");
       }
     }
     if (buf.length > 0) {
       const events = claudeCodeAgent.parseLine(buf);
-      for (const e of events) if (e.kind === "text") resultText += e.text;
+      for (const e of events) {
+        if (e.kind === "text") resultText += e.text;
+        if (e.kind === "session") sessionId = e.id;
+      }
     }
   } finally {
     clearTimeout(timer);
@@ -62,5 +95,5 @@ export async function invokeClaudeJson(prompt: string, budgetSeconds: number): P
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`claude exited ${exitCode}: ${stderr.trim().slice(0, 200)}`);
   }
-  return resultText;
+  return { text: resultText, sessionId };
 }

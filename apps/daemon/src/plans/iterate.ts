@@ -16,19 +16,27 @@ import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
 import { readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
-import { invokeClaudeJson } from "./invoke-claude.ts";
+import { type InvokeClaudeResult, invokeClaudeJson } from "./invoke-claude.ts";
 import { extractJsonObject } from "./json-extract.ts";
 import { planPromptKey } from "./prompts.ts";
 
 const PLAN_BUDGET_SECONDS = 120;
 
+export interface PlanAgentInvocation {
+  /** Rendered prompt — full template on a fresh turn, follow-up note on resume. */
+  prompt: string;
+  /** When defined, the caller would have invoked `claude --resume <id>`. */
+  resumeSessionId?: string;
+}
+
 export interface PlanIterationOptions {
   /**
-   * Test seam — receives the rendered prompt and returns the raw agent
-   * response. Mirrors `agentInvoker` in `runTriage` so plan tests can
-   * skip spawning real `claude` processes.
+   * Test seam — receives a description of the invocation the runtime would
+   * have made and returns a synthetic claude response. Mirrors `agentInvoker`
+   * in `runTriage`, but the richer signature lets tests assert that resume
+   * was used and that the follow-up prompt was short.
    */
-  agentInvoker?: (prompt: string) => Promise<string>;
+  agentInvoker?: (call: PlanAgentInvocation) => Promise<InvokeClaudeResult>;
   /** Wall-clock cap. Default 120s, matching triage. */
   budgetSeconds?: number;
   /** Override `Date.now()` for deterministic tests. */
@@ -45,6 +53,10 @@ export interface PlanIterationResult {
   draft: PlanDraft | null;
   /** Parse error message when the agent's response could not be parsed. */
   parseError: string | null;
+  /** Session id captured from this turn (null if the agent did not emit one). */
+  sessionId: string | null;
+  /** True when the runtime invoked claude with `--resume` for this turn. */
+  usedResume: boolean;
 }
 
 interface PlanAgentResponse {
@@ -64,6 +76,33 @@ function formatThread(comments: PlanComment[]): string {
   return comments
     .map((c) => `[${c.role} · ${new Date(c.createdAt).toISOString()}]\n${c.body}`)
     .join("\n\n");
+}
+
+/**
+ * Compose a follow-up turn prompt for a resumed claude session. The session
+ * already has the full template + thread + draft history in its context, so
+ * we don't replay any of it — just hand the agent the operator's latest
+ * comment and remind it of the JSON envelope shape so it doesn't drift into
+ * prose.
+ */
+function renderFollowUpPrompt(args: {
+  kind: PlanKind;
+  operatorMessage: string;
+  currentDraftJson: string;
+}): string {
+  const schemaHint = `{ "reply": "<short prose>", ...${args.kind} fields... }`;
+  return [
+    `Operator just commented on this ${args.kind} plan:`,
+    "",
+    args.operatorMessage,
+    "",
+    "Current draft (for reference — update if the operator's note changes it):",
+    "```json",
+    args.currentDraftJson,
+    "```",
+    "",
+    `Reply with a single fenced JSON block matching the same envelope you used last turn (${schemaHint}). Keep "reply" short — one or two sentences. Do not restate the entire plan unless the operator asked you to revise it.`,
+  ].join("\n");
 }
 
 function parseDraft(raw: string): PlanDraft {
@@ -328,14 +367,71 @@ export async function runPlanIteration(
     throw new Error(`no active prompt for ${promptKey} — re-run \`bun run seed\`?`);
   }
 
-  const rendered = await buildPromptForKind(db, plan, thread, promptRow.content);
+  const currentPromptVersion = `${promptKey}@${promptRow.version}`;
   const budget = Math.min(opts.budgetSeconds ?? PLAN_BUDGET_SECONDS, PLAN_BUDGET_SECONDS);
 
-  let responseText: string;
+  // Resume conditions: we have a captured session id, the prompt version is
+  // unchanged since the session started (otherwise the resumed agent is
+  // running under stale instructions), and there's at least one prior agent
+  // turn (without one, the session can't really exist anyway). The latest
+  // operator comment is the conversational input the follow-up needs.
+  const lastOperatorComment = [...thread].reverse().find((c) => c.role === "operator");
+  const hasPriorAgentTurn = thread.some((c) => c.role === "agent");
+  const canResume =
+    Boolean(plan.claudeSessionId) &&
+    plan.promptVersion === currentPromptVersion &&
+    hasPriorAgentTurn &&
+    Boolean(lastOperatorComment);
+
+  // Build both candidate prompts up front. `resumed` may be skipped at call
+  // time, but rendering both keeps the fall-back path zero-cost.
+  const fullPrompt = await buildPromptForKind(db, plan, thread, promptRow.content);
+  const followUpPrompt =
+    canResume && lastOperatorComment
+      ? renderFollowUpPrompt({
+          kind: plan.kind,
+          operatorMessage: lastOperatorComment.body,
+          currentDraftJson: plan.draft,
+        })
+      : null;
+
+  async function callAgent(call: PlanAgentInvocation): Promise<InvokeClaudeResult> {
+    if (opts.agentInvoker) return opts.agentInvoker(call);
+    return invokeClaudeJson(call.prompt, {
+      budgetSeconds: budget,
+      resumeSessionId: call.resumeSessionId,
+    });
+  }
+
+  let invocation: InvokeClaudeResult;
+  let usedResume = false;
   try {
-    responseText = opts.agentInvoker
-      ? await opts.agentInvoker(rendered)
-      : await invokeClaudeJson(rendered, budget);
+    if (canResume && followUpPrompt && plan.claudeSessionId) {
+      try {
+        invocation = await callAgent({
+          prompt: followUpPrompt,
+          resumeSessionId: plan.claudeSessionId,
+        });
+        usedResume = true;
+      } catch (resumeErr) {
+        // The CLI evicts old sessions and a `--resume` against a missing
+        // session is a hard error. Fall back to a fresh invocation with the
+        // full template + thread, which always works. Stamp the session
+        // fields null so we don't keep retrying the bad id.
+        await db
+          .update(schema.plans)
+          .set({ claudeSessionId: null, promptVersion: null, updatedAt: now })
+          .where(eq(schema.plans.id, planId))
+          .run();
+        const message = resumeErr instanceof Error ? resumeErr.message : String(resumeErr);
+        console.warn(
+          `[plans] resume failed for plan ${planId} (${message.slice(0, 120)}); falling back to fresh prompt`,
+        );
+        invocation = await callAgent({ prompt: fullPrompt });
+      }
+    } else {
+      invocation = await callAgent({ prompt: fullPrompt });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const commentId = createId();
@@ -353,8 +449,12 @@ export async function runPlanIteration(
       draftUpdated: false,
       draft: null,
       parseError: message,
+      sessionId: null,
+      usedResume,
     };
   }
+  const responseText = invocation.text;
+  const newSessionId = invocation.sessionId;
 
   let parsedRaw: unknown;
   let parseError: string | null = null;
@@ -382,6 +482,8 @@ export async function runPlanIteration(
       draftUpdated: false,
       draft: null,
       parseError,
+      sessionId: newSessionId,
+      usedResume,
     };
   }
 
@@ -404,6 +506,8 @@ export async function runPlanIteration(
       draftUpdated: false,
       draft: null,
       parseError: `coerce-${plan.kind} returned null`,
+      sessionId: newSessionId,
+      usedResume,
     };
   }
 
@@ -416,6 +520,21 @@ export async function runPlanIteration(
   const draftJson = JSON.stringify(newDraft);
   const commentId = createId();
 
+  // Persist the session id + prompt-version stamp on success so the *next*
+  // iteration can resume. If the CLI rotated the id (it sometimes does on
+  // resume), the new value supersedes the old. On a fresh invocation that
+  // didn't yield a session id (e.g. a flag-stripped CI agent), we leave the
+  // existing value alone — better to let the caller rebuild it next turn
+  // than to wipe a still-valid session.
+  const planUpdate: Partial<typeof schema.plans.$inferInsert> = {
+    draft: draftJson,
+    updatedAt: now,
+  };
+  if (newSessionId) {
+    planUpdate.claudeSessionId = newSessionId;
+    planUpdate.promptVersion = currentPromptVersion;
+  }
+
   await db.transaction((tx) => {
     tx.insert(schema.planComments)
       .values({
@@ -427,10 +546,7 @@ export async function runPlanIteration(
         createdAt: now,
       })
       .run();
-    tx.update(schema.plans)
-      .set({ draft: draftJson, updatedAt: now })
-      .where(eq(schema.plans.id, planId))
-      .run();
+    tx.update(schema.plans).set(planUpdate).where(eq(schema.plans.id, planId)).run();
   });
 
   return {
@@ -439,6 +555,8 @@ export async function runPlanIteration(
     draftUpdated: true,
     draft: newDraft,
     parseError: null,
+    sessionId: newSessionId,
+    usedResume,
   };
 }
 

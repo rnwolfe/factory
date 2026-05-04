@@ -243,6 +243,22 @@ export const plans = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
     frozenAt: integer("frozen_at"),
     abandonedAt: integer("abandoned_at"),
+    /**
+     * Claude session id captured on the first agent turn. Subsequent turns
+     * resume this session instead of replaying the full prompt + thread,
+     * which keeps the prompt cache warm and avoids re-billing context on
+     * every operator comment. Null until the first parseable agent turn,
+     * or after a prompt-version change that invalidates the session.
+     */
+    claudeSessionId: text("claude_session_id"),
+    /**
+     * Identifier for the prompt template used when the session was started,
+     * shaped as `<promptKey>@<version>` (e.g. `plan-project-spec@1`). If the
+     * active prompt version drifts away from this, we discard the session
+     * and start fresh — the agent's resumed conversation would be operating
+     * under stale instructions otherwise.
+     */
+    promptVersion: text("prompt_version"),
   },
   (t) => [
     index("plans_status_created_idx").on(t.status, t.createdAt),
