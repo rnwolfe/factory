@@ -1,12 +1,18 @@
+import type { FeaturePlanDraft } from "@factory/db";
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
+import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { applyFeaturePlanFreeze } from "../plans/apply-feature-plan.ts";
+import { applyProjectVisionFreeze } from "../plans/apply-project-vision.ts";
 import { bootstrapFromPlan } from "../plans/bootstrap-from-plan.ts";
 import {
   parseStoredDraft,
   runPlanIteration,
+  seedFeaturePlanDraft,
   seedProjectSpecDraft,
+  seedProjectVisionDraft,
   seedRefinementDraft,
   seedTaskPlanDraft,
 } from "../plans/iterate.ts";
@@ -188,6 +194,156 @@ export const plansRouter = router({
       return { planId };
     }),
 
+  startFeaturePlan: protectedProcedure
+    .input(z.object({ projectId: z.string(), goal: z.string().min(1).max(280) }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+
+      const planId = createId();
+      const now = Date.now();
+      const seed = seedFeaturePlanDraft(input.goal);
+      await ctx.db.insert(schema.plans).values({
+        id: planId,
+        kind: "feature_plan",
+        status: "drafting",
+        projectId: project.id,
+        goal: input.goal,
+        draft: JSON.stringify(seed),
+        tier: project.tier ?? null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "plan_created",
+        planId,
+        planKind: "feature_plan",
+        projectId: project.id,
+      });
+
+      // Kick off the agent's first turn — operator gets a draft to push back on.
+      void (async () => {
+        try {
+          const result = await runPlanIteration(ctx.db, planId);
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_comment_added",
+            planId,
+            role: "agent",
+          });
+          if (result.draftUpdated) {
+            ctx.events.publish({ channel: "inbox", kind: "plan_updated", planId });
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[plan-iterate] ${planId}: ${message}`);
+          await ctx.db.insert(schema.planComments).values({
+            id: createId(),
+            planId,
+            role: "agent",
+            body: `(plan iteration failed: ${message.slice(0, 240)})`,
+            createdAt: Date.now(),
+          });
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_comment_added",
+            planId,
+            role: "agent",
+          });
+        }
+      })();
+
+      return { planId };
+    }),
+
+  startProjectVision: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+
+      // Reuse a drafting project_vision plan rather than stack duplicates.
+      const existing = await ctx.db
+        .select()
+        .from(schema.plans)
+        .where(
+          and(
+            eq(schema.plans.projectId, input.projectId),
+            eq(schema.plans.kind, "project_vision"),
+            eq(schema.plans.status, "drafting"),
+          ),
+        )
+        .get();
+      if (existing) return { planId: existing.id };
+
+      const planId = createId();
+      const now = Date.now();
+      const seed = seedProjectVisionDraft();
+      await ctx.db.insert(schema.plans).values({
+        id: planId,
+        kind: "project_vision",
+        status: "drafting",
+        projectId: project.id,
+        goal: `Vision for ${project.name}`,
+        draft: JSON.stringify(seed),
+        tier: project.tier ?? null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "plan_created",
+        planId,
+        planKind: "project_vision",
+        projectId: project.id,
+      });
+
+      // Kick off agent's first turn for the seed-from-context pass.
+      void (async () => {
+        try {
+          const result = await runPlanIteration(ctx.db, planId);
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_comment_added",
+            planId,
+            role: "agent",
+          });
+          if (result.draftUpdated) {
+            ctx.events.publish({ channel: "inbox", kind: "plan_updated", planId });
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[plan-iterate] ${planId}: ${message}`);
+          await ctx.db.insert(schema.planComments).values({
+            id: createId(),
+            planId,
+            role: "agent",
+            body: `(plan iteration failed: ${message.slice(0, 240)})`,
+            createdAt: Date.now(),
+          });
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_comment_added",
+            planId,
+            role: "agent",
+          });
+        }
+      })();
+
+      return { planId };
+    }),
+
   startRefinement: protectedProcedure
     .input(z.object({ projectId: z.string(), taskId: z.string(), runId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -329,6 +485,40 @@ export const plansRouter = router({
         throw new Error(`plan already ${plan.status}`);
       }
 
+      // Vision-filter precondition for feature_plan freezes on tier ≥ personal.
+      // Tier resolves from plan.tier (snapshot at startFeaturePlan), falling
+      // back to the project's current tier if the plan was created before
+      // tier was added to the schema.
+      if (plan.kind === "feature_plan" && plan.projectId) {
+        const project = await ctx.db
+          .select()
+          .from(schema.projects)
+          .where(eq(schema.projects.id, plan.projectId))
+          .get();
+        const tier = plan.tier ?? project?.tier ?? "tinker";
+        if (tier !== "tinker") {
+          let parsed: FeaturePlanDraft | null = null;
+          try {
+            const obj = JSON.parse(plan.draft) as FeaturePlanDraft;
+            if (obj.kind === "feature_plan") parsed = obj;
+          } catch {
+            // fall through — null parsed treated as failing the gate
+          }
+          const tests = parsed?.visionFilter ?? null;
+          const failing: string[] = [];
+          if (!tests?.identity?.passes) failing.push("identity");
+          if (!tests?.principle?.passes) failing.push("principle");
+          if (!tests?.phase?.passes) failing.push("phase");
+          if (!tests?.replacement?.passes) failing.push("replacement");
+          if (failing.length > 0) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `vision filter failing: ${failing.join(", ")} — iterate the plan until all four tests pass before freezing on a ${tier}-tier project`,
+            });
+          }
+        }
+      }
+
       const now = Date.now();
       await ctx.db
         .update(schema.plans)
@@ -338,18 +528,67 @@ export const plansRouter = router({
       let projectId: string | null = plan.projectId ?? null;
       const taskId: string | null = plan.taskId ?? null;
 
+      // Apply per-kind side effects. project_spec → bootstrap; refinement →
+      // rewrite acceptance + emit followups; feature_plan → emit tasks;
+      // project_vision → write VISION.md; task_plan is no-op (next run.submit
+      // picks it up).
       if (plan.kind === "project_spec") {
-        // Bootstrap the project from the frozen draft. The plan's draft has
-        // priority over the original spec_stub.
         const result = await bootstrapFromPlan(ctx.config, ctx.db, input.planId);
         projectId = result.projectId;
         await ctx.db
           .update(schema.plans)
           .set({ projectId })
           .where(eq(schema.plans.id, input.planId));
+
+        // Auto-trigger a project_vision plan for tier ≥ personal so the
+        // operator authors VISION.md right after the project lands. Tinker
+        // projects skip this — they get the spec, not the ceremony.
+        const tier = plan.tier ?? null;
+        if (tier === "personal" || tier === "share" || tier === "productize") {
+          const visionPlanId = createId();
+          const vnow = Date.now();
+          await ctx.db.insert(schema.plans).values({
+            id: visionPlanId,
+            kind: "project_vision",
+            status: "drafting",
+            projectId,
+            goal: `Vision for ${plan.goal}`,
+            draft: JSON.stringify(seedProjectVisionDraft()),
+            tier,
+            createdAt: vnow,
+            updatedAt: vnow,
+          });
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_created",
+            planId: visionPlanId,
+            planKind: "project_vision",
+            projectId,
+          });
+          // Fire-and-forget seed turn — same shape as startTaskPlan.
+          void (async () => {
+            try {
+              const r = await runPlanIteration(ctx.db, visionPlanId);
+              ctx.events.publish({
+                channel: "inbox",
+                kind: "plan_comment_added",
+                planId: visionPlanId,
+                role: "agent",
+              });
+              if (r.draftUpdated) {
+                ctx.events.publish({
+                  channel: "inbox",
+                  kind: "plan_updated",
+                  planId: visionPlanId,
+                });
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              console.error(`[plan-iterate] auto-vision ${visionPlanId}: ${message}`);
+            }
+          })();
+        }
       } else if (plan.kind === "refinement") {
-        // Apply the refinement: rewrite acceptance + emit followups (as new
-        // task files committed on main).
         if (!plan.projectId || !plan.taskId) {
           throw new Error("refinement plan missing projectId/taskId at freeze time");
         }
@@ -360,9 +599,73 @@ export const plansRouter = router({
           taskId: plan.taskId,
           draft: parseStoredDraft(plan.draft),
         });
+      } else if (plan.kind === "feature_plan") {
+        if (!plan.projectId) {
+          throw new Error("feature_plan missing projectId at freeze time");
+        }
+        const draft = parseStoredDraft(plan.draft);
+        if (draft.kind !== "feature_plan") {
+          throw new Error(`feature_plan ${plan.id} draft kind mismatch: ${draft.kind}`);
+        }
+        await applyFeaturePlanFreeze({
+          config: ctx.config,
+          db: ctx.db,
+          projectId: plan.projectId,
+          draft,
+          planId: plan.id,
+        });
+      } else if (plan.kind === "project_vision") {
+        if (!plan.projectId) {
+          throw new Error("project_vision missing projectId at freeze time");
+        }
+        const draft = parseStoredDraft(plan.draft);
+        if (draft.kind !== "project_vision") {
+          throw new Error(`project_vision ${plan.id} draft kind mismatch: ${draft.kind}`);
+        }
+        await applyProjectVisionFreeze({
+          config: ctx.config,
+          db: ctx.db,
+          projectId: plan.projectId,
+          draft,
+          planId: plan.id,
+        });
       }
-      // task_plan: no immediate side-effect; the next run.submit on this
-      // task will pick up the plan via task_plan_id.
+
+      // v0.3 — when a newer plan in the same kind+target supersedes a prior
+      // frozen plan, transition the prior plan to status='superseded' and
+      // record the supersededBy pointer. Same kind+target tuple is:
+      //   - project_spec/feature_plan/project_vision: kind + projectId
+      //   - task_plan/refinement: kind + projectId + taskId
+      // The triage-rooted project_spec plan has projectId set on freeze (we
+      // just stamped it for that path), so the lookup below sees the new id.
+      const supersedeMatchers = [
+        eq(schema.plans.kind, plan.kind),
+        eq(schema.plans.status, "frozen"),
+      ];
+      if (plan.kind === "task_plan" || plan.kind === "refinement") {
+        if (plan.projectId) supersedeMatchers.push(eq(schema.plans.projectId, plan.projectId));
+        if (plan.taskId) supersedeMatchers.push(eq(schema.plans.taskId, plan.taskId));
+      } else {
+        if (plan.projectId) supersedeMatchers.push(eq(schema.plans.projectId, plan.projectId));
+      }
+      const priorFrozen = await ctx.db
+        .select()
+        .from(schema.plans)
+        .where(and(...supersedeMatchers))
+        .all();
+      for (const p of priorFrozen) {
+        if (p.id === plan.id) continue;
+        await ctx.db
+          .update(schema.plans)
+          .set({ status: "superseded", supersededBy: plan.id, updatedAt: now })
+          .where(eq(schema.plans.id, p.id));
+        ctx.events.publish({
+          channel: "inbox",
+          kind: "plan_superseded",
+          planId: p.id,
+          supersededBy: plan.id,
+        });
+      }
 
       ctx.events.publish({
         channel: "inbox",

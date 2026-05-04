@@ -8,7 +8,7 @@ import { spawn as bunSpawn } from "bun";
 import YAML from "yaml";
 import type { FactoryConfig } from "../config.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
-import { renderTaskMarkdown } from "./tasks.ts";
+import { createTask, renderAcceptanceBlock } from "./tasks.ts";
 
 export interface BootstrapInput {
   ideaId: string;
@@ -145,31 +145,19 @@ checks:
       "utf8",
     );
 
-    // Initial task files from the spec_stub.
+    // Initial task files from the spec_stub. Routes through tasks.createTask
+    // so the storage seam stays single-pointed (per ADR-003 §10.1).
     const taskIds: string[] = [];
     const initialTasks = input.payload.spec_stub?.initial_tasks ?? [];
-    for (let i = 0; i < initialTasks.length; i++) {
-      const t = initialTasks[i];
+    for (const t of initialTasks) {
       if (!t) continue;
-      const id = `task-${String(i + 1).padStart(3, "0")}`;
-      taskIds.push(id);
-      const fileName = `${id}-${slugify(t.title || "untitled").slice(0, 40)}.md`;
-      const acceptance = (t.acceptance ?? []).map((a) => `- [ ] ${a}`).join("\n");
-      const md = renderTaskMarkdown({
-        id,
-        filePath: "",
-        frontmatter: {
-          id,
-          title: t.title || "Untitled",
-          status: "ready",
-          priority: "med",
-          created: new Date(now).toISOString(),
-          updated: new Date(now).toISOString(),
-          estimate: t.estimate ?? "small",
-        },
-        body: `## Acceptance\n\n${acceptance || "- [ ] (TBD)"}\n\n## Notes\n\n(agent-maintained)\n`,
+      const created = await createTask(workdirPath, {
+        title: t.title || "Untitled",
+        body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\n(agent-maintained)\n`,
+        estimate: t.estimate ?? "small",
+        priority: "med",
       });
-      await writeFile(path.join(workdirPath, ".factory", "work", fileName), md, "utf8");
+      taskIds.push(created.id);
     }
 
     // README seed.

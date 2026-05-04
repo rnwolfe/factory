@@ -63,6 +63,8 @@ export const decisionsRouter = router({
         note: z.string().optional(),
         /** Claude model id for the project's runs. Approve-only; ignored otherwise. */
         model: z.string().nullable().optional(),
+        /** Project tier carried into the project_spec plan and on into bootstrap. */
+        tier: z.enum(["tinker", "personal", "share", "productize"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -179,6 +181,7 @@ export const decisionsRouter = router({
             decisionId: decision.id,
             goal: goalText,
             draft: JSON.stringify(seed),
+            tier: input.tier ?? null,
             createdAt: tnow,
             updatedAt: tnow,
           });

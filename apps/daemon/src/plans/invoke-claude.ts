@@ -11,6 +11,13 @@ export interface InvokeClaudeOptions {
    * option omitted and a full prompt.
    */
   resumeSessionId?: string;
+  /**
+   * Spawn claude with this working directory. Used by exec audits so the
+   * agent's shell tools (Bash, Read, etc.) operate against the audit's
+   * worktree. Default: daemon's cwd, which is fine for read-only invocations
+   * that don't shell out into project source.
+   */
+  cwd?: string;
 }
 
 export interface InvokeClaudeResult {
@@ -44,6 +51,7 @@ export async function invokeClaudeJson(
   });
   const proc = bunSpawn({
     cmd: argv as string[],
+    cwd: opts.cwd,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",

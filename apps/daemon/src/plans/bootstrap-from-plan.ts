@@ -74,6 +74,7 @@ export async function bootstrapFromPlan(
   };
 
   const goal = (idea.goalHint ?? "me") as "me" | "learn" | "share" | "productize";
+  const tier = (plan.tier ?? "tinker") as "tinker" | "personal" | "share" | "productize";
 
   return bootstrapProject(config, db, {
     ideaId: idea.id,
@@ -81,7 +82,7 @@ export async function bootstrapFromPlan(
     payload,
     ideaText: idea.rawText,
     goal,
-    tier: "tinker",
+    tier,
     model: null,
   });
 }

@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Db } from "@factory/db";
 import {
+  type FeaturePlanDraft,
   type Plan,
   type PlanComment,
   type PlanDraft,
   type PlanKind,
   type ProjectSpecDraft,
+  type ProjectVisionDraft,
   type RefinementDraft,
   schema,
   type TaskPlanDraft,
@@ -214,6 +216,81 @@ function coerceDraft(kind: PlanKind, raw: unknown): PlanDraft | null {
     return draft;
   }
 
+  if (kind === "feature_plan") {
+    const tasks = Array.isArray(obj.tasks) ? obj.tasks : [];
+    const vfRaw = (obj.visionFilter ?? {}) as Record<string, unknown>;
+    const vfTest = (key: string) => {
+      const v = vfRaw[key] as Record<string, unknown> | undefined;
+      return {
+        passes: typeof v?.passes === "boolean" ? v.passes : false,
+        reasoning: typeof v?.reasoning === "string" ? v.reasoning : "(unevaluated)",
+      };
+    };
+    const draft: FeaturePlanDraft = {
+      kind: "feature_plan",
+      goal: typeof obj.goal === "string" ? obj.goal : "",
+      summary: typeof obj.summary === "string" ? obj.summary : "",
+      tasks: tasks
+        .filter((t): t is Record<string, unknown> => Boolean(t) && typeof t === "object")
+        .map((t) => ({
+          title: typeof t.title === "string" ? t.title : "Untitled",
+          estimate:
+            t.estimate === "small" || t.estimate === "medium" || t.estimate === "large"
+              ? t.estimate
+              : "small",
+          acceptance: Array.isArray(t.acceptance)
+            ? t.acceptance.filter((a): a is string => typeof a === "string")
+            : [],
+        })),
+      unknowns: Array.isArray(obj.unknowns)
+        ? obj.unknowns.filter((u): u is string => typeof u === "string")
+        : [],
+      risks: Array.isArray(obj.risks)
+        ? obj.risks.filter((r): r is string => typeof r === "string")
+        : [],
+      visionFilter: {
+        identity: vfTest("identity"),
+        principle: vfTest("principle"),
+        phase: vfTest("phase"),
+        replacement: vfTest("replacement"),
+      },
+    };
+    return draft;
+  }
+
+  if (kind === "project_vision") {
+    const principles = Array.isArray(obj.designPrinciples) ? obj.designPrinciples : [];
+    const roadmap = Array.isArray(obj.roadmap) ? obj.roadmap : [];
+    const draft: ProjectVisionDraft = {
+      kind: "project_vision",
+      identity: typeof obj.identity === "string" ? obj.identity : "",
+      audience: typeof obj.audience === "string" ? obj.audience : "",
+      problem: typeof obj.problem === "string" ? obj.problem : "",
+      designPrinciples: principles
+        .filter((p): p is Record<string, unknown> => Boolean(p) && typeof p === "object")
+        .map((p) => ({
+          name: typeof p.name === "string" ? p.name : "",
+          meaning: typeof p.meaning === "string" ? p.meaning : "",
+        })),
+      outOfScope: Array.isArray(obj.outOfScope)
+        ? obj.outOfScope.filter((o): o is string => typeof o === "string")
+        : [],
+      personality: typeof obj.personality === "string" ? obj.personality : null,
+      roadmap: roadmap
+        .filter((r): r is Record<string, unknown> => Boolean(r) && typeof r === "object")
+        .map((r) => ({
+          phase: typeof r.phase === "string" ? r.phase : "",
+          bullets: Array.isArray(r.bullets)
+            ? r.bullets.filter((b): b is string => typeof b === "string")
+            : [],
+        })),
+      priorArt: Array.isArray(obj.priorArt)
+        ? obj.priorArt.filter((p): p is string => typeof p === "string")
+        : [],
+    };
+    return draft;
+  }
+
   return null;
 }
 
@@ -323,7 +400,74 @@ async function buildPromptForKind(
     });
   }
 
-  throw new Error(`feature_plan iteration not implemented in v0.2 (plan ${plan.id})`);
+  if (plan.kind === "feature_plan") {
+    if (!plan.projectId) throw new Error(`feature_plan ${plan.id} missing projectId`);
+    const project = await db
+      .select()
+      .from(schema.projects)
+      .where(eq(schema.projects.id, plan.projectId))
+      .get();
+    if (!project) throw new Error(`project ${plan.projectId} not found`);
+    const [readme, claudeMd, vision] = await Promise.all([
+      readIfPresent(path.join(project.workdirPath, "README.md")),
+      readIfPresent(path.join(project.workdirPath, "CLAUDE.md")),
+      readIfPresent(path.join(project.workdirPath, "docs", "internal", "VISION.md")),
+    ]);
+    return renderPrompt(template, {
+      PROJECT_NAME: project.name,
+      PROJECT_TIER: plan.tier ?? project.tier ?? "tinker",
+      PROJECT_README: readme,
+      PROJECT_CLAUDE_MD: claudeMd,
+      PROJECT_VISION: vision,
+      FEATURE_GOAL: plan.goal,
+      CURRENT_DRAFT_JSON: draftJson,
+      THREAD: formatThread(thread),
+    });
+  }
+
+  if (plan.kind === "project_vision") {
+    if (!plan.projectId) throw new Error(`project_vision ${plan.id} missing projectId`);
+    const project = await db
+      .select()
+      .from(schema.projects)
+      .where(eq(schema.projects.id, plan.projectId))
+      .get();
+    if (!project) throw new Error(`project ${plan.projectId} not found`);
+    const [readme, claudeMd, existingVision] = await Promise.all([
+      readIfPresent(path.join(project.workdirPath, "README.md")),
+      readIfPresent(path.join(project.workdirPath, "CLAUDE.md")),
+      readIfPresent(path.join(project.workdirPath, "docs", "internal", "VISION.md")),
+    ]);
+    // Recent commit log is grounding for the agent's identity statement —
+    // best signal of what the project actually does today.
+    let recentCommits = "(no git history)";
+    try {
+      const { spawn: bunSpawn } = await import("bun");
+      const proc = bunSpawn({
+        cmd: ["git", "log", "-n30", "--pretty=format:%h %s"],
+        cwd: project.workdirPath,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const out = await new Response(proc.stdout).text();
+      await proc.exited;
+      if (out.trim().length > 0) recentCommits = out.trim();
+    } catch {
+      // ignore
+    }
+    return renderPrompt(template, {
+      PROJECT_NAME: project.name,
+      PROJECT_TIER: plan.tier ?? project.tier ?? "tinker",
+      PROJECT_README: readme,
+      PROJECT_CLAUDE_MD: claudeMd,
+      EXISTING_VISION: existingVision,
+      RECENT_COMMITS: recentCommits,
+      CURRENT_DRAFT_JSON: draftJson,
+      THREAD: formatThread(thread),
+    });
+  }
+
+  throw new Error(`unhandled plan kind: ${plan.kind}`);
 }
 
 /**
@@ -346,10 +490,6 @@ export async function runPlanIteration(
   if (plan.status !== "drafting") {
     throw new Error(`plan ${planId} is ${plan.status}; only drafting plans iterate`);
   }
-  if (plan.kind === "feature_plan") {
-    throw new Error(`feature_plan iteration not implemented in v0.2 (plan ${planId})`);
-  }
-
   const thread = await db
     .select()
     .from(schema.planComments)
@@ -585,6 +725,39 @@ export function seedRefinementDraft(targetTaskId: string): RefinementDraft {
     feedback: "",
     revisedAcceptance: undefined,
     followups: undefined,
+  };
+}
+
+/** Helper to seed an empty feature_plan draft. */
+export function seedFeaturePlanDraft(goal: string): FeaturePlanDraft {
+  return {
+    kind: "feature_plan",
+    goal,
+    summary: "",
+    tasks: [],
+    unknowns: [],
+    risks: [],
+    visionFilter: {
+      identity: { passes: false, reasoning: "(unevaluated)" },
+      principle: { passes: false, reasoning: "(unevaluated)" },
+      phase: { passes: false, reasoning: "(unevaluated)" },
+      replacement: { passes: false, reasoning: "(unevaluated)" },
+    },
+  };
+}
+
+/** Helper to seed an empty project_vision draft. */
+export function seedProjectVisionDraft(): ProjectVisionDraft {
+  return {
+    kind: "project_vision",
+    identity: "",
+    audience: "",
+    problem: "",
+    designPrinciples: [],
+    outOfScope: [],
+    personality: null,
+    roadmap: [],
+    priorArt: [],
   };
 }
 

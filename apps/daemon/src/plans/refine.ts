@@ -1,15 +1,12 @@
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { Db } from "@factory/db";
 import { type PlanDraft, type RefinementDraft, schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import {
-  listTasks,
+  createTask,
   readTaskFile,
-  renderTaskMarkdown,
-  type TaskFile,
+  renderAcceptanceBlock,
   updateTaskBody,
 } from "../projects/tasks.ts";
 
@@ -65,32 +62,16 @@ export async function applyRefinementFreeze(
   }
 
   if (refinement.followups && refinement.followups.length > 0) {
-    const tasks = await listTasks(project.workdirPath);
-    let nextIdx = nextTaskIndex(tasks);
-    const now = new Date().toISOString();
     for (const f of refinement.followups) {
-      const id = `task-${String(nextIdx).padStart(3, "0")}`;
-      followupTaskIds.push(id);
-      const acceptanceBlock = "- [ ] (TBD)";
-      const md = renderTaskMarkdown({
-        id,
-        filePath: "",
-        frontmatter: {
-          id,
-          title: f.title,
-          status: "ready",
-          priority: "med",
-          created: now,
-          updated: now,
-          estimate: f.estimate,
-          parent: taskId,
-          labels: ["refinement-followup"],
-        },
-        body: `## Acceptance\n\n${acceptanceBlock}\n\n## Notes\n\nFollow-up emitted by refinement plan against ${taskId}. ${refinement.feedback ? `Operator note: ${refinement.feedback}` : ""}\n`,
+      const created = await createTask(project.workdirPath, {
+        title: f.title,
+        body: `## Acceptance\n\n${renderAcceptanceBlock(null)}\n\n## Notes\n\nFollow-up emitted by refinement plan against ${taskId}.${refinement.feedback ? ` Operator note: ${refinement.feedback}` : ""}\n`,
+        estimate: f.estimate,
+        priority: "med",
+        parent: taskId,
+        labels: ["refinement-followup"],
       });
-      const fileName = `${id}-${slugify(f.title || "followup").slice(0, 40)}.md`;
-      await writeFile(path.join(project.workdirPath, ".factory", "work", fileName), md, "utf8");
-      nextIdx++;
+      followupTaskIds.push(created.id);
     }
   }
 
@@ -131,24 +112,4 @@ function rewriteAcceptanceSection(body: string, criteria: string[]): string {
   const nextHeaderRel = /\n##\s+/.exec(tail);
   const sectionEnd = nextHeaderRel ? afterHeader + nextHeaderRel.index + 1 : body.length;
   return `${body.slice(0, headerStart)}${newSection}\n${body.slice(sectionEnd)}`;
-}
-
-function nextTaskIndex(tasks: TaskFile[]): number {
-  let max = 0;
-  for (const t of tasks) {
-    const m = /^task-(\d+)$/.exec(t.id);
-    if (m) {
-      const n = Number.parseInt(m[1] ?? "0", 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  return max + 1;
-}
-
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
 }
