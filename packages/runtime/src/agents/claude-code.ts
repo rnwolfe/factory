@@ -49,7 +49,19 @@ export const claudeCodeAgent: AgentSpec = {
   name: "claude-code",
 
   buildArgv(prompt, opts) {
-    const argv: string[] = ["claude", "--print", "--output-format", "stream-json", "--verbose"];
+    // --dangerously-skip-permissions: code-changing runs are non-interactive, so
+    // there is no human to approve Write/Edit/Bash prompts. The factory's
+    // isolation comes from the per-run worktree, not from CLI permission
+    // gates. Real sandboxing arrives with a container provider; until then this
+    // is the supported way to keep runs unblocked. See docs/vision.md §5.
+    const argv: string[] = [
+      "claude",
+      "--print",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--dangerously-skip-permissions",
+    ];
     if (opts.resumeSessionId) {
       argv.push("--resume", opts.resumeSessionId);
     }

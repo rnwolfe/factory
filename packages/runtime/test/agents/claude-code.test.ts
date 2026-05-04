@@ -2,9 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { claudeCodeAgent } from "../../src/agents/claude-code.ts";
 
 describe("claudeCodeAgent.buildArgv", () => {
-  test("base invocation uses --print, stream-json, --verbose", () => {
+  test("base invocation uses --print, stream-json, --verbose, --dangerously-skip-permissions", () => {
     const r = claudeCodeAgent.buildArgv("hello", {});
-    expect(r.argv).toEqual(["claude", "--print", "--output-format", "stream-json", "--verbose"]);
+    expect(r.argv).toEqual([
+      "claude",
+      "--print",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--dangerously-skip-permissions",
+    ]);
     expect(r.stdin).toBe("hello");
   });
 
