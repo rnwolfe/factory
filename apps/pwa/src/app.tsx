@@ -9,6 +9,7 @@ import { NewIdea } from "./routes/new-idea.tsx";
 import { PlanDetail } from "./routes/plan-detail.tsx";
 import { ProjectDetail } from "./routes/project-detail.tsx";
 import { Projects } from "./routes/projects.tsx";
+import { PromptsViewer } from "./routes/prompts-viewer.tsx";
 import { Settings } from "./routes/settings.tsx";
 import { TaskDetail } from "./routes/task-detail.tsx";
 
@@ -27,6 +28,7 @@ export function App() {
         <Route path="/projects/:id/tasks/:taskId" element={<TaskDetail />} />
         <Route path="/projects/:id/runs/:runId" element={<LivePane />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/prompts" element={<PromptsViewer />} />
         <Route path="*" element={<Inbox />} />
       </Routes>
     </Shell>

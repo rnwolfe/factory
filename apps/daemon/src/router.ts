@@ -3,6 +3,7 @@ import { healthRouter } from "./routers/health.ts";
 import { ideasRouter } from "./routers/ideas.ts";
 import { plansRouter } from "./routers/plans.ts";
 import { projectsRouter } from "./routers/projects.ts";
+import { promptsRouter } from "./routers/prompts.ts";
 import { rubricsRouter } from "./routers/rubrics.ts";
 import { runsRouter } from "./routers/runs.ts";
 import { router } from "./trpc.ts";
@@ -13,6 +14,7 @@ export const appRouter = router({
   decisions: decisionsRouter,
   plans: plansRouter,
   projects: projectsRouter,
+  prompts: promptsRouter,
   runs: runsRouter,
   rubrics: rubricsRouter,
 });

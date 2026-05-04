@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -47,6 +49,16 @@ export function Settings() {
             forget token
           </button>
         </div>
+      </Section>
+
+      <Section title="agent">
+        <Link
+          to="/settings/prompts"
+          className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
+        >
+          <span className="text-[13px] text-[var(--color-fg-1)]">prompts</span>
+          <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
+        </Link>
       </Section>
 
       <Section title="active rubric">
