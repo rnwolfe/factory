@@ -15,3 +15,4 @@ data.db-shm
 .vite/
 .turbo/
 coverage/
+.overnight/
