@@ -36,6 +36,15 @@ interface DecisionPayload {
   previousTag?: string;
   newTag?: string;
   note?: string | null;
+  // blocked_run / merge_failure shape
+  runId?: string;
+  taskId?: string | null;
+  summary?: string;
+  questions?: string[];
+  branch?: string;
+  // merge_failure-only
+  reason?: string;
+  message?: string;
 }
 
 type Action = "approve" | "park" | "trash" | "decompose" | "dismiss";
@@ -153,11 +162,14 @@ export function DecisionDetail() {
   const d = decision.data;
   const payload = (d.payload ?? {}) as DecisionPayload;
   const isTriage = d.kind === "triage";
+  const isBlockedRun = d.kind === "blocked_run";
+  const isMergeFailure = d.kind === "merge_failure";
   const isPending = d.status === "pending";
   const score = d.weightedScore != null ? d.weightedScore.toFixed(2) : "—";
   const uncertainty = d.uncertainty != null ? d.uncertainty.toFixed(2) : "—";
-  const headline =
-    payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome);
+  const headline = isMergeFailure
+    ? `merge to main failed${payload.taskId ? ` for ${payload.taskId}` : ""} — ${payload.reason ?? "unknown"}`
+    : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
 
   return (
     <div className="space-y-3 pb-4">
@@ -171,7 +183,15 @@ export function DecisionDetail() {
 
         <div className="flex items-center gap-2 mt-3 mb-2 flex-wrap">
           <span className={cn("chip", verdictTone(d.outcome))}>{d.outcome}</span>
-          <span className="chip">{isTriage ? "triage" : "tag change"}</span>
+          <span className="chip">
+            {isTriage
+              ? "triage"
+              : isBlockedRun
+                ? "blocked run"
+                : isMergeFailure
+                  ? "merge failure"
+                  : "tag change"}
+          </span>
           <span className="chip">{d.status}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
             {fmtDate(d.createdAt)}
@@ -386,6 +406,83 @@ export function DecisionDetail() {
         </Section>
       ) : null}
 
+      {isBlockedRun ? (
+        <>
+          {payload.summary ? (
+            <Section title="agent summary">
+              <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
+                {payload.summary}
+              </p>
+            </Section>
+          ) : null}
+          {payload.questions && payload.questions.length > 0 ? (
+            <Section title="open questions">
+              <ul className="divide-y divide-[var(--color-line)]">
+                {payload.questions.map((q) => (
+                  <li
+                    key={q}
+                    className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)]"
+                  >
+                    {q}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+          {payload.runId && d.projectId ? (
+            <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
+              source run ·{" "}
+              <Link
+                to={`/projects/${d.projectId}/runs/${payload.runId}`}
+                className="text-[var(--color-accent)] underline"
+              >
+                {payload.runId.slice(0, 8)}
+              </Link>
+              {payload.branch ? ` · ${payload.branch}` : ""}
+            </p>
+          ) : null}
+          <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
+            retry resumes from this run's branch tip — partial work and the auto-commit ride
+            forward.
+          </p>
+        </>
+      ) : null}
+
+      {isMergeFailure ? (
+        <>
+          {payload.message ? (
+            <Section title="git error">
+              <p className="px-4 py-3 mono text-[12px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap break-words">
+                {payload.message}
+              </p>
+            </Section>
+          ) : null}
+          {payload.summary ? (
+            <Section title="agent summary">
+              <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
+                {payload.summary}
+              </p>
+            </Section>
+          ) : null}
+          {payload.runId && d.projectId ? (
+            <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
+              source run ·{" "}
+              <Link
+                to={`/projects/${d.projectId}/runs/${payload.runId}`}
+                className="text-[var(--color-accent)] underline"
+              >
+                {payload.runId.slice(0, 8)}
+              </Link>
+              {payload.branch ? ` · ${payload.branch}` : ""}
+            </p>
+          ) : null}
+          <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
+            the agent's commits live on the run's branch — retry merges them into main once the
+            blocker is cleared. dismiss leaves them on the branch.
+          </p>
+        </>
+      ) : null}
+
       {rubric.data ? (
         <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
           rubric · {rubric.data.rubricKey}@{rubric.data.version}
@@ -447,7 +544,7 @@ export function DecisionDetail() {
               onClick={() => action.mutate({ action: "approve" })}
               disabled={action.isPending}
             >
-              confirm
+              {isBlockedRun ? "retry" : isMergeFailure ? "retry merge" : "confirm"}
             </button>
             <button
               type="button"
@@ -496,6 +593,8 @@ function verdictTone(outcome: string): string {
   if (outcome.startsWith("parked")) return "chip-parked";
   if (outcome.startsWith("trashed")) return "chip-trashed";
   if (outcome.startsWith("decompose")) return "chip-decompose";
+  if (outcome === "blocked") return "chip-trashed";
+  if (outcome.startsWith("merge:")) return "chip-trashed";
   return "";
 }
 

@@ -60,6 +60,11 @@ export async function startTmuxSession(init: TmuxSessionInit): Promise<TmuxSessi
     check: true,
   });
 
+  // Defensive: ensure the pane disappears the instant its command exits. If
+  // the user's tmux config sets `remain-on-exit on` globally, our exit-poll
+  // loop in the host sandbox never breaks and the runtime hangs.
+  await tmux(["set-option", "-t", sessionName, "remain-on-exit", "off"]);
+
   // -o appends; -O captures the existing scrollback first. We use -o for stream-style.
   await tmux(
     ["pipe-pane", "-o", "-t", `${sessionName}:0.0`, `cat >> ${shellQuote(logSocketPath)}`],

@@ -40,7 +40,9 @@ class HostRuntime implements Runtime {
     await mkdir(path.dirname(logPath), { recursive: true });
 
     const baseRef =
-      spec.strategy.type === "branch" ? spec.strategy.baseRef : await getHeadRef(spec.projectPath);
+      spec.strategy.type === "branch"
+        ? spec.strategy.baseRef
+        : (spec.strategy.baseRef ?? (await getHeadRef(spec.projectPath)));
 
     const wt = await ensureWorktree({
       projectPath: spec.projectPath,
@@ -65,6 +67,7 @@ class HostRuntime implements Runtime {
     let agentExitCode = 0;
     let sessionId: string | undefined;
     let stalenessTripped = false;
+    let handleRef: { kill(): Promise<void> } | null = null;
 
     const onLine = (line: string) => {
       // Always emit the raw line so consumers can stream pane output to xterm.
@@ -75,7 +78,18 @@ class HostRuntime implements Runtime {
       const events = spec.agent.parseLine(line);
       for (const e of events as StreamEvent[]) {
         if (e.kind === "session") sessionId = e.id;
-        if (e.kind === "agent_exit") agentExitCode = e.exitCode;
+        if (e.kind === "agent_exit") {
+          agentExitCode = e.exitCode;
+          // The agent's own `result` envelope is authoritative. Some tmux
+          // configs keep the session alive after the inner command exits
+          // (e.g. `set-option -g remain-on-exit on`), in which case the
+          // sandbox's session-existence poll never breaks and the runtime
+          // hangs forever. Schedule an explicit kill once we've seen the
+          // exit envelope; the small delay lets any trailing output flush.
+          setTimeout(() => {
+            void handleRef?.kill();
+          }, 500);
+        }
         spec.onEvent({ ...e, runId: spec.runId, iteration });
       }
     };
@@ -96,6 +110,7 @@ class HostRuntime implements Runtime {
         onLine,
         tmux: { sessionName, logSocketPath: logPath },
       });
+      handleRef = handle;
 
       sandboxExit = await handle.exit;
     } finally {

@@ -20,6 +20,12 @@ export interface SubmitRunInput {
   projectId: string;
   taskId?: string;
   budgetSeconds?: number;
+  /**
+   * When set, the new worktree is created from this ref instead of project
+   * HEAD. Used by the retry path: pass the source run's branch so the new
+   * agent invocation picks up its predecessor's auto-commit + partial work.
+   */
+  baseRef?: string;
 }
 
 /**
@@ -55,6 +61,7 @@ export async function submitRun(
     worktreePath,
     startedAt: now,
     budgetSeconds: input.budgetSeconds ?? config.defaultRunBudgetSeconds,
+    baseRef: input.baseRef ?? null,
   });
 
   void pool.submit(async () => {
@@ -62,4 +69,28 @@ export async function submitRun(
   });
 
   return { runId };
+}
+
+/**
+ * Re-submit an existing run for execution against the same Claude session.
+ * Used by the boot-time reaper: if the prior daemon was interrupted while a
+ * run was in flight, and the run row carries a `sessionId`, we'd rather
+ * resume the conversation than throw the work away.
+ */
+export async function resumeOrphanedRun(deps: SubmitRunDeps, runId: string): Promise<void> {
+  const { config, db, events, runs, pool } = deps;
+  const row = await db.select().from(schema.runs).where(eq(schema.runs.id, runId)).get();
+  if (!row) throw new Error(`run not found: ${runId}`);
+  if (!row.sessionId) throw new Error(`run ${runId} has no sessionId — cannot resume`);
+
+  // Reset to queued so the worker picks it up cleanly. Keep the original
+  // startedAt — the run is conceptually the same execution, not a new one.
+  await db
+    .update(schema.runs)
+    .set({ status: "queued", endedAt: null })
+    .where(eq(schema.runs.id, runId));
+
+  void pool.submit(async () => {
+    await executeRun({ config, db, events, runs, pool }, runId, { resume: true });
+  });
 }

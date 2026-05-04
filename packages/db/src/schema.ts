@@ -3,7 +3,7 @@ import { integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlit
 export const goalEnum = ["me", "learn", "share", "productize"] as const;
 export const tierEnum = ["tinker", "personal", "share", "productize"] as const;
 export const tagEnum = ["active", "background", "past"] as const;
-export const decisionKindEnum = ["triage", "tag_change"] as const;
+export const decisionKindEnum = ["triage", "tag_change", "blocked_run", "merge_failure"] as const;
 export const decisionStatusEnum = ["pending", "actioned", "dismissed"] as const;
 export const decisionCommentRoleEnum = ["operator", "agent"] as const;
 export const runStatusEnum = [
@@ -120,6 +120,12 @@ export const runs = sqliteTable("runs", {
   summary: text("summary"),
   /** When status='blocked', the JSON-stringified array of agent questions. */
   blockerQuestions: text("blocker_questions"),
+  /**
+   * Optional baseRef the worktree was created from. Defaults to project HEAD
+   * when null. Used by the retry path so a new run can resume from a prior
+   * (e.g. blocked) run's branch tip instead of starting fresh.
+   */
+  baseRef: text("base_ref"),
 });
 
 export const events = sqliteTable("events", {

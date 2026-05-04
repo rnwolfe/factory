@@ -10,7 +10,7 @@ import { cn } from "../lib/cn.ts";
 
 export interface DecisionRow {
   id: string;
-  kind: "triage" | "tag_change";
+  kind: "triage" | "tag_change" | "blocked_run" | "merge_failure";
   outcome: string;
   weightedScore: number | null;
   uncertainty: number | null;
@@ -20,6 +20,15 @@ export interface DecisionRow {
     title_suggestion?: string;
     clarifying_questions?: string[];
     what_would_change_verdict?: string;
+    // blocked_run / merge_failure shape
+    runId?: string;
+    taskId?: string | null;
+    summary?: string;
+    questions?: string[];
+    branch?: string;
+    // merge_failure-only
+    reason?: string;
+    message?: string;
     [k: string]: unknown;
   };
   ideaId?: string | null;
@@ -41,7 +50,22 @@ function verdictTone(outcome: string) {
   if (outcome.startsWith("parked")) return "chip-parked";
   if (outcome.startsWith("trashed")) return "chip-trashed";
   if (outcome.startsWith("decompose")) return "chip-decompose";
+  if (outcome === "blocked") return "chip-trashed";
+  if (outcome.startsWith("merge:")) return "chip-trashed";
   return "";
+}
+
+function kindLabel(kind: DecisionRow["kind"]): string {
+  switch (kind) {
+    case "triage":
+      return "triage";
+    case "tag_change":
+      return "tag";
+    case "blocked_run":
+      return "blocked run";
+    case "merge_failure":
+      return "merge failure";
+  }
 }
 
 function uncertaintyLabel(u: number | null): string {
@@ -114,11 +138,30 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
     return () => document.removeEventListener("pointerdown", fn, { capture: true });
   }, [menuOpen, closeMenu]);
 
+  const isTriage = decision.kind === "triage";
+  const isBlockedRun = decision.kind === "blocked_run";
+  const isMergeFailure = decision.kind === "merge_failure";
+
+  const blockedHeadline = isBlockedRun
+    ? (decision.payload.summary ??
+      `run ${decision.payload.runId?.slice(0, 8) ?? ""} blocked${
+        decision.payload.taskId ? ` on ${decision.payload.taskId}` : ""
+      }`)
+    : null;
+
+  const mergeFailHeadline = isMergeFailure
+    ? `merge to main failed${
+        decision.payload.taskId ? ` for ${decision.payload.taskId}` : ""
+      } — ${decision.payload.reason ?? "unknown"}`
+    : null;
+
   const headline =
-    decision.payload.title_suggestion ?? (ideaText ? ideaText.slice(0, 80) : decision.outcome);
+    blockedHeadline ??
+    mergeFailHeadline ??
+    decision.payload.title_suggestion ??
+    (ideaText ? ideaText.slice(0, 80) : decision.outcome);
 
   const score = decision.weightedScore != null ? decision.weightedScore.toFixed(1) : "—";
-  const isTriage = decision.kind === "triage";
 
   return (
     <div
@@ -159,7 +202,7 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
         <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className={cn("chip", verdictTone(decision.outcome))}>{decision.outcome}</span>
-            {isTriage ? <span className="chip">triage</span> : <span className="chip">tag</span>}
+            <span className="chip">{kindLabel(decision.kind)}</span>
             <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
               · {timeAgo(decision.createdAt)} ago
             </span>
@@ -188,11 +231,26 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
           ) : null}
         </button>
 
-        <div className="px-4 pb-3 flex items-center gap-2 mono text-[10.5px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
-          <span>score {score}</span>
-          <span>·</span>
-          <span>uncertainty {uncertaintyLabel(decision.uncertainty)}</span>
-        </div>
+        {isTriage ? (
+          <div className="px-4 pb-3 flex items-center gap-2 mono text-[10.5px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
+            <span>score {score}</span>
+            <span>·</span>
+            <span>uncertainty {uncertaintyLabel(decision.uncertainty)}</span>
+          </div>
+        ) : isBlockedRun && decision.payload.questions && decision.payload.questions.length > 0 ? (
+          <ul className="px-4 pb-3 space-y-1 text-[12.5px] text-[var(--color-fg-2)] leading-snug">
+            {decision.payload.questions.slice(0, 3).map((q) => (
+              <li key={q} className="flex gap-1.5">
+                <span className="text-[var(--color-fg-3)] shrink-0">·</span>
+                <span className="line-clamp-2">{q}</span>
+              </li>
+            ))}
+          </ul>
+        ) : isMergeFailure && decision.payload.message ? (
+          <p className="px-4 pb-3 mono text-[11.5px] leading-snug text-[var(--color-fg-2)] line-clamp-3">
+            {decision.payload.message}
+          </p>
+        ) : null}
 
         {isTriage ? (
           <div className="grid grid-cols-4 border-t border-[var(--color-line)]">
@@ -205,6 +263,21 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
             <ActionBtn label="park" onClick={() => onAction("park")} />
             <ActionBtn label="decompose" onClick={() => onAction("decompose")} />
             <ActionBtn label="trash" tone="danger" onClick={() => onAction("trash")} />
+          </div>
+        ) : isBlockedRun ? (
+          <div className="grid grid-cols-2 border-t border-[var(--color-line)]">
+            <ActionBtn label="retry" tone="primary" onClick={() => onAction("approve")} showArrow />
+            <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
+          </div>
+        ) : isMergeFailure ? (
+          <div className="grid grid-cols-2 border-t border-[var(--color-line)]">
+            <ActionBtn
+              label="retry merge"
+              tone="primary"
+              onClick={() => onAction("approve")}
+              showArrow
+            />
+            <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
           </div>
         ) : (
           <div className="grid grid-cols-2 border-t border-[var(--color-line)]">

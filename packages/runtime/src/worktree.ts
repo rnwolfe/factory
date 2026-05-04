@@ -151,6 +151,87 @@ export async function commitAllChanges(
   return { sha: head.stdout.trim(), subject: message };
 }
 
+export type MergeResult =
+  | { ok: true; sha: string; alreadyMerged: boolean }
+  | { ok: false; reason: "dirty" | "conflict" | "wrong-branch" | "other"; message: string };
+
+export interface MergeIntoMainOpts {
+  projectPath: string;
+  /** The run branch (e.g. `factory/run-<id>`) to merge in. */
+  branch: string;
+  /** Merge commit subject. */
+  message: string;
+  author: GitAuthor;
+  /** The branch we're merging into. Defaults to "main". */
+  targetBranch?: string;
+}
+
+/**
+ * Merge a run branch into the project's main branch with a `--no-ff` merge
+ * commit. This is what makes per-run branches actually compound — without
+ * it, every run starts from bootstrap and the project's main never moves.
+ *
+ * Refuses if the project's working tree is dirty or HEAD isn't on the
+ * target branch (the operator may be doing manual git work). On conflict,
+ * aborts the merge so main stays clean.
+ */
+export async function mergeIntoMain(opts: MergeIntoMainOpts): Promise<MergeResult> {
+  const { projectPath, branch, message, author } = opts;
+  const targetBranch = opts.targetBranch ?? "main";
+
+  const status = await git(["status", "--porcelain"], projectPath);
+  if (status.exitCode !== 0) {
+    return { ok: false, reason: "other", message: status.stderr.trim() || "git status failed" };
+  }
+  if (status.stdout.trim().length > 0) {
+    return {
+      ok: false,
+      reason: "dirty",
+      message: "project working tree has uncommitted changes",
+    };
+  }
+
+  const head = await git(["symbolic-ref", "--short", "HEAD"], projectPath);
+  if (head.exitCode !== 0 || head.stdout.trim() !== targetBranch) {
+    return {
+      ok: false,
+      reason: "wrong-branch",
+      message: `project HEAD is on '${head.stdout.trim() || "(detached)"}', expected '${targetBranch}'`,
+    };
+  }
+
+  // If the run branch is already an ancestor of HEAD, nothing to merge.
+  const ancestor = await git(["merge-base", "--is-ancestor", branch, "HEAD"], projectPath);
+  if (ancestor.exitCode === 0) {
+    const sha = (await git(["rev-parse", "HEAD"], projectPath, { check: true })).stdout.trim();
+    return { ok: true, sha, alreadyMerged: true };
+  }
+
+  const env: Record<string, string> = {
+    GIT_AUTHOR_NAME: author.name,
+    GIT_AUTHOR_EMAIL: author.email,
+    GIT_COMMITTER_NAME: author.name,
+    GIT_COMMITTER_EMAIL: author.email,
+  };
+  // --no-ff matches the project convention (CLAUDE.md): preserve per-run
+  // history as a topology marker even when fast-forward would work.
+  const merge = await git(["merge", "--no-ff", "--no-verify", "-m", message, branch], projectPath, {
+    env,
+  });
+  if (merge.exitCode !== 0) {
+    // Abort so main is left clean.
+    await git(["merge", "--abort"], projectPath);
+    return {
+      ok: false,
+      reason: "conflict",
+      message: (merge.stderr.trim() || merge.stdout.trim() || "merge failed").slice(0, 400),
+    };
+  }
+
+  const sha = (await git(["rev-parse", "HEAD"], projectPath, { check: true })).stdout.trim();
+  return { ok: true, sha, alreadyMerged: false };
+}
+
 export interface RemoveWorktreeOpts {
   projectPath: string;
   worktreePath: string;

@@ -262,8 +262,20 @@ export function LivePane() {
             </span>
           </div>
         </div>
-        <div className="mono text-[11px] text-[var(--color-fg-3)] mt-2 truncate">
-          run {runId.slice(0, 12)} · task {run.data?.taskId ?? "ad-hoc"}
+        <div className="mt-2 flex items-center gap-2">
+          <div className="mono text-[11px] text-[var(--color-fg-3)] truncate flex-1 min-w-0">
+            run {runId.slice(0, 12)} · task {run.data?.taskId ?? "ad-hoc"}
+          </div>
+          {status === "running" || status === "queued" ? (
+            <button
+              type="button"
+              onClick={abort}
+              className="btn btn-danger !h-7 !px-2 text-[11px] shrink-0"
+              aria-label="abort run"
+            >
+              <Square size={11} /> abort
+            </button>
+          ) : null}
         </div>
       </div>
 

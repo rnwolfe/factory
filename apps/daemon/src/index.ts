@@ -7,6 +7,7 @@ import { EventBus } from "./events.ts";
 import { appRouter } from "./router.ts";
 import { makeStaticHandler } from "./static.ts";
 import { WorkerPool } from "./workers/pool.ts";
+import { reapOrphanedRuns } from "./workers/recover.ts";
 import { RunRegistry } from "./workers/registry.ts";
 import { attachWsChannel, detachWsChannel, planWsUpgrade, type WsClientData } from "./ws/hub.ts";
 
@@ -67,6 +68,9 @@ export async function startDaemon(): Promise<DaemonHandle> {
   runMigrations(config.dbPath);
   const db = createDb(config.dbPath);
 
+  // (Boot-time recovery happens after pool/registry/events are constructed
+  //  below — the resume path needs them to re-submit work.)
+
   // Static PWA (built by `bun run --filter @factory/pwa build`).
   const pwaDist =
     process.env.FACTORY_PWA_DIST ?? new URL("../../pwa/dist", import.meta.url).pathname;
@@ -76,6 +80,17 @@ export async function startDaemon(): Promise<DaemonHandle> {
   const pool = new WorkerPool(config.maxConcurrentRuns);
   const runs = new RunRegistry();
   const events = new EventBus();
+
+  // Boot-time recovery for any runs left mid-flight by a prior daemon.
+  // Three-tier salvage: log-recovery, --resume the claude session, or mark
+  // aborted as a last resort. Resume re-submits to the pool we just built,
+  // which is why this lives here and not earlier.
+  const reaped = await reapOrphanedRuns({ config, db, events, runs, pool });
+  if (reaped.recovered + reaped.resumed + reaped.aborted > 0) {
+    console.log(
+      `[factoryd] reaped orphaned runs — recovered: ${reaped.recovered}, resumed: ${reaped.resumed}, aborted: ${reaped.aborted}`,
+    );
+  }
 
   const buildCtx = (req: Request): DaemonContext => ({
     config,

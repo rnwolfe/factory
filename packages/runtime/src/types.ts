@@ -58,7 +58,17 @@ export interface SandboxSpec {
   spawn(opts: SpawnOpts): Promise<SpawnHandle>;
 }
 
-export type BranchStrategy = { type: "head" } | { type: "branch"; name: string; baseRef?: string };
+export type BranchStrategy =
+  | {
+      type: "head";
+      /**
+       * Optional ref the per-run branch is created from. Defaults to the
+       * project's HEAD. Override is used by the retry path so a new run can
+       * resume from a prior run's branch tip.
+       */
+      baseRef?: string;
+    }
+  | { type: "branch"; name: string; baseRef?: string };
 
 export interface RunSpec {
   runId: string;

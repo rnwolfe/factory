@@ -148,3 +148,25 @@ Rules:
 export function wrapPrompt(taskBody: string): string {
   return `${taskBody.trimEnd()}${COMPLETION_FOOTER}`;
 }
+
+const RESUME_PREFIX = `The factory daemon was restarted while you were working on this task. The previous Claude session has been resumed; you have full context of what you were doing. Pick up where you left off.
+
+Before continuing:
+- Run \`git status\` and \`git log --oneline -5\` to see what state the worktree is in.
+- If your prior work fully satisfies the task, just declare done with a summary of what you delivered.
+- If it's partial, finish the remaining work and then declare done.
+- If you're stuck because of an unanswered question, declare blocked with the question.
+
+For reference, the original task was:
+
+`;
+
+/**
+ * Build the prompt for a resumed run. Used by the daemon-restart recovery
+ * path: claude is invoked with `--resume <sessionId>`, and this string is
+ * appended as the new user turn. The agent already has the full prior
+ * conversation; we just nudge it to inspect state and finish.
+ */
+export function wrapResumePrompt(taskBody: string): string {
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${COMPLETION_FOOTER}`;
+}

@@ -1,10 +1,29 @@
 import { schema } from "@factory/db";
+import { mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { bootstrapProject } from "../projects/bootstrap.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
+import { submitRun } from "../workers/submit.ts";
+
+interface BlockedRunPayload {
+  runId: string;
+  taskId?: string | null;
+  summary?: string;
+  questions?: string[];
+  branch?: string;
+}
+
+interface MergeFailurePayload {
+  runId: string;
+  taskId?: string | null;
+  branch: string;
+  reason: string;
+  message: string;
+  summary?: string;
+}
 
 const ActionEnum = z.enum(["approve", "park", "trash", "decompose", "dismiss"]);
 
@@ -58,6 +77,74 @@ export const decisionsRouter = router({
       }
 
       let projectId: string | null = null;
+      let retryRunId: string | null = null;
+      let mergedSha: string | null = null;
+
+      if (input.action === "approve" && decision.kind === "merge_failure") {
+        // Retry the merge of the run's branch into main. If main is still
+        // dirty (the original failure mode) the operator gets a clear error
+        // and the decision stays pending — they can clean up and approve
+        // again. Success closes the decision.
+        const payload = decision.payload as MergeFailurePayload;
+        if (!decision.projectId) throw new Error("merge_failure decision missing projectId");
+        const project = await ctx.db
+          .select()
+          .from(schema.projects)
+          .where(eq(schema.projects.id, decision.projectId))
+          .get();
+        if (!project) throw new Error("project not found");
+        const taskLabel = payload.taskId ?? "ad-hoc";
+        const merge = await mergeIntoMain({
+          projectPath: project.workdirPath,
+          branch: payload.branch,
+          message: `factory: merge ${taskLabel} · run ${payload.runId.slice(0, 8)} (retry)`,
+          author: ctx.config.gitAuthor,
+        });
+        if (!merge.ok) {
+          throw new Error(`merge still failing — ${merge.reason}: ${merge.message}`);
+        }
+        mergedSha = merge.sha;
+        projectId = project.id;
+        if (!merge.alreadyMerged) {
+          ctx.events.publish({
+            channel: "events",
+            kind: "commit",
+            runId: payload.runId,
+            iteration: 1,
+            sha: merge.sha,
+            subject: `merge to main: ${payload.branch}`,
+          });
+        }
+      }
+
+      if (input.action === "approve" && decision.kind === "blocked_run") {
+        // "approve" on a blocked-run decision means retry. Submit a new run
+        // whose worktree is based on the source run's branch tip — partial
+        // work and the source run's auto-commit ride forward.
+        const payload = decision.payload as BlockedRunPayload;
+        const source = await ctx.db
+          .select()
+          .from(schema.runs)
+          .where(eq(schema.runs.id, payload.runId))
+          .get();
+        if (!source) throw new Error("source run not found");
+        const result = await submitRun(
+          {
+            config: ctx.config,
+            db: ctx.db,
+            events: ctx.events,
+            runs: ctx.runs,
+            pool: ctx.pool,
+          },
+          {
+            projectId: source.projectId,
+            taskId: source.taskId ?? undefined,
+            baseRef: source.branch,
+          },
+        );
+        retryRunId = result.runId;
+        projectId = source.projectId;
+      }
 
       if (input.action === "approve" && decision.kind === "triage") {
         if (!decision.ideaId) throw new Error("triage decision missing ideaId");
@@ -98,7 +185,7 @@ export const decisionsRouter = router({
         decisionId: input.decisionId,
       });
 
-      return { ok: true, projectId };
+      return { ok: true, projectId, retryRunId, mergedSha };
     }),
 
   comments: protectedProcedure

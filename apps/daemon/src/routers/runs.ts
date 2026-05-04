@@ -6,6 +6,7 @@ import { spawn as bunSpawn } from "bun";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../trpc.ts";
+import { tmuxSessionNameFor } from "../workers/recover.ts";
 import { submitRun } from "../workers/submit.ts";
 
 const MAX_RAW_LOG_BYTES = 256 * 1024;
@@ -74,9 +75,82 @@ export const runsRouter = router({
     }),
 
   abort: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-    const ok = ctx.runs.abort(input.id);
-    return { ok };
+    // Best path: signal the in-memory AbortController. The runtime catches it,
+    // tears down the tmux session, and updates the row to `aborted`.
+    const signaled = ctx.runs.abort(input.id);
+
+    const row = await ctx.db.select().from(schema.runs).where(eq(schema.runs.id, input.id)).get();
+    if (!row) return { ok: false, signaled: false };
+
+    // Force path: if the AC was missing (e.g., daemon was restarted while
+    // this run was active), the runtime can't help. The operator's intent
+    // is unambiguous, so we mark the row aborted ourselves and best-effort
+    // kill the orphaned tmux session.
+    if (!signaled && (row.status === "running" || row.status === "queued")) {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, row.projectId))
+        .get();
+      if (project) {
+        try {
+          const proc = bunSpawn({
+            cmd: ["tmux", "kill-session", "-t", tmuxSessionNameFor(project.slug, input.id)],
+            stdout: "pipe",
+            stderr: "pipe",
+          });
+          await proc.exited;
+        } catch {
+          // best-effort
+        }
+      }
+      await ctx.db
+        .update(schema.runs)
+        .set({
+          status: "aborted",
+          endedAt: Date.now(),
+          summary: "Run force-aborted by operator (runtime was no longer registered).",
+        })
+        .where(eq(schema.runs.id, input.id));
+      ctx.events.publish({ channel: "inbox", kind: "decision_updated", decisionId: input.id });
+    }
+
+    return { ok: true, signaled };
   }),
+
+  /**
+   * Submit a new run that resumes from a prior run's branch tip. Use case:
+   * the source run blocked or failed and the operator wants the agent to
+   * pick up where it left off (including any auto-committed partial work)
+   * rather than start fresh from project HEAD.
+   */
+  retry: protectedProcedure
+    .input(z.object({ runId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const source = await ctx.db
+        .select()
+        .from(schema.runs)
+        .where(eq(schema.runs.id, input.runId))
+        .get();
+      if (!source) throw new Error("source run not found");
+      if (source.status !== "blocked" && source.status !== "failed") {
+        throw new Error(`cannot retry a ${source.status} run`);
+      }
+      return submitRun(
+        {
+          config: ctx.config,
+          db: ctx.db,
+          events: ctx.events,
+          runs: ctx.runs,
+          pool: ctx.pool,
+        },
+        {
+          projectId: source.projectId,
+          taskId: source.taskId ?? undefined,
+          baseRef: source.branch,
+        },
+      );
+    }),
 
   diff: protectedProcedure
     .input(z.object({ runId: z.string() }))
