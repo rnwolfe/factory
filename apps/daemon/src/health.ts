@@ -48,6 +48,38 @@ export async function buildHealth(db: Db): Promise<HealthInfo> {
   };
 }
 
+let cachedVersion: string | null = null;
+
+/**
+ * Resolve the running daemon's version. Order of precedence:
+ *   1. FACTORY_VERSION env var (set by `factory upgrade` if it wants to pin
+ *      a specific tag in the response — useful when the checkout is detached
+ *      at a tagged sha and you want the tag, not the sha7).
+ *   2. `git describe --tags --always --dirty` in the daemon's cwd. Falls
+ *      back to a sha7 when no tag exists.
+ *   3. Literal "dev".
+ *
+ * Cached for the daemon's lifetime — version doesn't change without a
+ * restart. Synchronous spawn at first call is acceptable; /health is only
+ * hit a handful of times per minute.
+ */
 function resolveVersion(): string {
-  return process.env.FACTORY_VERSION ?? "dev";
+  if (process.env.FACTORY_VERSION) return process.env.FACTORY_VERSION;
+  if (cachedVersion !== null) return cachedVersion;
+  try {
+    const proc = Bun.spawnSync({
+      cmd: ["git", "describe", "--tags", "--always", "--dirty"],
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (proc.exitCode === 0) {
+      cachedVersion = proc.stdout.toString().trim() || "dev";
+    } else {
+      cachedVersion = "dev";
+    }
+  } catch {
+    cachedVersion = "dev";
+  }
+  return cachedVersion;
 }

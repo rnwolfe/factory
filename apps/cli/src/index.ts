@@ -7,6 +7,7 @@ import { runRestart } from "./commands/restart.ts";
 import { runStatus } from "./commands/status.ts";
 import { runUninstall } from "./commands/uninstall.ts";
 import { runUp } from "./commands/up.ts";
+import { parseUpgradeArgs, runUpgrade } from "./commands/upgrade.ts";
 import { HELP } from "./help.ts";
 
 async function main(argv: string[]): Promise<number> {
@@ -33,6 +34,8 @@ async function main(argv: string[]): Promise<number> {
       return await runUninstall();
     case "channel":
       return await runChannel(rest);
+    case "upgrade":
+      return await runUpgrade(parseUpgradeArgs(rest));
     default:
       process.stderr.write(`factory: unknown command '${cmd}'\n\n`);
       process.stdout.write(HELP);

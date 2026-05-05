@@ -25,6 +25,11 @@ upgrade lifecycle:
   factory channel <stable|nightly|dev>  set the upgrade channel
                         --dev-branch=<name>  override the dev-channel branch
   factory channel resolve               dry-run: print the sha the channel maps to
-  factory upgrade       fetch + restart on the current channel             (cut 5)
+  factory upgrade       fetch → checkout → bun install → migrate → restart → probe
+                        --channel=<n>     override the configured channel
+                        --checkout=<p>    override the configured checkout
+                        --dry-run         print the target without applying
+                        --force           proceed on a dirty checkout
+                        --skip-restart    apply without restarting the unit
   factory doctor        preflight checks                                   (cut 7)
 `;

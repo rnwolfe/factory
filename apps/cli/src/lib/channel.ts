@@ -51,7 +51,7 @@ async function resolveStable(checkout: string, remote: string): Promise<Resolved
   for (const line of ls.stdout.split("\n")) {
     if (!line) continue;
     const m = /^([0-9a-f]+)\s+refs\/tags\/(.+)$/.exec(line);
-    if (!m || !m[1] || !m[2]) continue;
+    if (!m?.[1] || !m[2]) continue;
     const sha = m[1];
     const tag = m[2];
     if (!SEMVER_TAG.test(tag)) continue;
