@@ -87,19 +87,19 @@ export function Settings() {
               label="git author name"
               value={settings.data.gitAuthor.name}
               settingKey="git-author-name"
-              overridden={settings.data.overridden["git-author-name"]}
+              overridden={settings.data.overridden["git-author-name"] ?? false}
             />
             <EditableRow
               label="git author email"
               value={settings.data.gitAuthor.email}
               settingKey="git-author-email"
-              overridden={settings.data.overridden["git-author-email"]}
+              overridden={settings.data.overridden["git-author-email"] ?? false}
             />
             <EditableRow
               label="max concurrent runs"
               value={String(settings.data.maxConcurrentRuns)}
               settingKey="max-concurrent-runs"
-              overridden={settings.data.overridden["max-concurrent-runs"]}
+              overridden={settings.data.overridden["max-concurrent-runs"] ?? false}
               hint="takes effect on next daemon restart"
               type="number"
             />
@@ -107,13 +107,13 @@ export function Settings() {
               label="default run budget (s)"
               value={String(settings.data.defaultRunBudgetSeconds)}
               settingKey="default-run-budget-seconds"
-              overridden={settings.data.overridden["default-run-budget-seconds"]}
+              overridden={settings.data.overridden["default-run-budget-seconds"] ?? false}
               type="number"
             />
             <GithubTokenRow has={settings.data.githubToken.has} />
             <FactoryProjectRow
               currentId={settings.data.factoryProjectId}
-              overridden={settings.data.overridden["factory-project-id"]}
+              overridden={settings.data.overridden["factory-project-id"] ?? false}
               projects={projects.data ?? []}
             />
           </>
