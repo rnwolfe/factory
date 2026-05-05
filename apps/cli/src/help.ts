@@ -13,8 +13,12 @@ commands:
   --help, -h            this help
 
 unit lifecycle:
-  factory install       write the systemd user unit and enable it          (cut 2)
-  factory uninstall     remove the unit                                    (cut 2)
+  factory install       write the systemd user unit and enable it
+                        --checkout=<path>  override (default: git toplevel of cwd)
+                        --home=<path>      override FACTORY_HOME (default: ~/.factory)
+                        --force            overwrite an existing unit
+                        --yes              non-interactive (assume y on prompts)
+  factory uninstall     disable, remove the unit, daemon-reload (data is preserved)
 
 upgrade lifecycle:
   factory channel       view or set the upgrade channel                    (cut 4)

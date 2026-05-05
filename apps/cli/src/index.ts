@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 import { runDown } from "./commands/down.ts";
+import { parseInstallArgs, runInstall } from "./commands/install.ts";
 import { parseLogsArgs, runLogs } from "./commands/logs.ts";
 import { runRestart } from "./commands/restart.ts";
 import { runStatus } from "./commands/status.ts";
+import { runUninstall } from "./commands/uninstall.ts";
 import { runUp } from "./commands/up.ts";
 import { HELP } from "./help.ts";
 
@@ -24,6 +26,10 @@ async function main(argv: string[]): Promise<number> {
       return await runStatus();
     case "logs":
       return await runLogs(parseLogsArgs(rest));
+    case "install":
+      return await runInstall(parseInstallArgs(rest));
+    case "uninstall":
+      return await runUninstall();
     default:
       process.stderr.write(`factory: unknown command '${cmd}'\n\n`);
       process.stdout.write(HELP);
