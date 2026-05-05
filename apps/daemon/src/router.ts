@@ -7,6 +7,7 @@ import { metricsRouter } from "./routers/metrics.ts";
 import { plansRouter } from "./routers/plans.ts";
 import { projectsRouter } from "./routers/projects.ts";
 import { promptsRouter } from "./routers/prompts.ts";
+import { repoRouter } from "./routers/repo.ts";
 import { rubricsRouter } from "./routers/rubrics.ts";
 import { runsRouter } from "./routers/runs.ts";
 import { scriptsRouter } from "./routers/scripts.ts";
@@ -25,6 +26,7 @@ export const appRouter = router({
   rubrics: rubricsRouter,
   audits: auditsRouter,
   metrics: metricsRouter,
+  repo: repoRouter,
   scripts: scriptsRouter,
   worktrees: worktreesRouter,
 });

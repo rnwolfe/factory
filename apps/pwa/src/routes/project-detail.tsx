@@ -257,6 +257,9 @@ export function ProjectDetail() {
           <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">
             deepen
           </Link>
+          <Link to={`/projects/${id}/code`} className="btn btn-ghost text-[12px]">
+            <FileText size={12} /> code
+          </Link>
           {p.githubRemote ? (
             <a
               href={githubHtmlUrlFromClone(p.githubRemote)}

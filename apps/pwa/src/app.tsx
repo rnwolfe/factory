@@ -16,6 +16,7 @@ import { ProjectDetail } from "./routes/project-detail.tsx";
 import { Projects } from "./routes/projects.tsx";
 import { PromptDetail } from "./routes/prompt-detail.tsx";
 import { PromptsViewer } from "./routes/prompts-viewer.tsx";
+import { RepoBrowser } from "./routes/repo-browser.tsx";
 import { RubricDetail } from "./routes/rubric-detail.tsx";
 import { RubricsViewer } from "./routes/rubrics-viewer.tsx";
 import { ScriptPane } from "./routes/script-pane.tsx";
@@ -39,6 +40,7 @@ export function App() {
         <Route path="/projects/:id/tasks/:taskId" element={<TaskDetail />} />
         <Route path="/projects/:id/runs/:runId" element={<LivePane />} />
         <Route path="/projects/:id/scripts/:scriptId" element={<ScriptPane />} />
+        <Route path="/projects/:id/code" element={<RepoBrowser />} />
         <Route path="/projects/:id/audits/:auditId" element={<AuditPane />} />
         <Route path="/projects/:id/deepen" element={<Deepen />} />
         <Route path="/feedback/:id" element={<FeedbackDetail />} />
