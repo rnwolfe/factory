@@ -16,6 +16,7 @@ import { spawn as bunSpawn } from "bun";
 import { and, eq, inArray } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import { recordMergeFailure } from "../workers/merge-failure.ts";
 
 export class SessionError extends Error {
   constructor(
@@ -319,28 +320,17 @@ export async function endSession(
     .where(eq(schema.sessions.id, sessionId));
 
   // Surface a merge_failure decision so the operator gets the same recovery
-  // affordances that run merge failures already get.
-  const decisionId = createId();
-  await db.insert(schema.decisions).values({
-    id: decisionId,
-    kind: "merge_failure",
+  // affordances run merge failures already get.
+  const decisionId = await recordMergeFailure(db, events, {
     projectId: project.id,
-    outcome: `merge:${merge.reason}`,
+    reason: merge.reason,
+    message: merge.message,
     payload: {
       sessionId,
       branch: row.branchName,
       reason: merge.reason,
       message: merge.message,
     },
-    status: "pending",
-    createdAt: Date.now(),
-  });
-
-  events.publish({
-    channel: "inbox",
-    kind: "decision_created",
-    decisionId,
-    projectId: project.id,
   });
   events.publish({
     channel: "inbox",

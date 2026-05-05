@@ -23,6 +23,7 @@ import {
   wrapPromptWithPlan,
   wrapResumePrompt,
 } from "./factory-status.ts";
+import { recordMergeFailure } from "./merge-failure.ts";
 import type { WorkerPool } from "./pool.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
@@ -385,15 +386,12 @@ export async function executeRun(
           .where(eq(schema.runs.id, runId));
 
         // The agent's work is sitting on `result.branch` but main hasn't
-        // moved. The operator needs to know — without a decision here,
-        // the run shows "completed" while main is empty. Approve = retry
-        // the merge from this branch; dismiss = leave it on the branch.
-        const decisionId = createId();
-        await db.insert(schema.decisions).values({
-          id: decisionId,
-          kind: "merge_failure",
+        // moved. Surface a decision so the operator can approve = retry
+        // or dismiss = leave on the branch. Same primitive sessions use.
+        await recordMergeFailure(db, events, {
           projectId: project.id,
-          outcome: `merge:${merge.reason}`,
+          reason: merge.reason,
+          message: merge.message,
           payload: {
             runId,
             taskId: row.taskId ?? null,
@@ -402,14 +400,6 @@ export async function executeRun(
             message: merge.message,
             summary,
           },
-          status: "pending",
-          createdAt: Date.now(),
-        });
-        events.publish({
-          channel: "inbox",
-          kind: "decision_created",
-          decisionId,
-          projectId: project.id,
         });
       }
     }
