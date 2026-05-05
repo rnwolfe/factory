@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Terminal } from "lucide-react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
+
+type SessionMode = "claude" | "shell";
 
 interface SessionRow {
   id: string;
@@ -38,6 +41,7 @@ interface Props {
 export function SessionsList({ projectId }: Props) {
   const nav = useNavigate();
   const qc = useQueryClient();
+  const [mode, setMode] = useState<SessionMode>("claude");
 
   const sessions = useQuery({
     queryKey: ["sessions.list", projectId],
@@ -48,7 +52,7 @@ export function SessionsList({ projectId }: Props) {
 
   const start = useMutation({
     mutationFn: () =>
-      trpc.sessions.start.mutate({ projectId }) as unknown as Promise<{ id: string }>,
+      trpc.sessions.start.mutate({ projectId, mode }) as unknown as Promise<{ id: string }>,
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["sessions.list", projectId] });
       nav(`/projects/${projectId}/sessions/${res.id}`);
@@ -57,6 +61,26 @@ export function SessionsList({ projectId }: Props) {
 
   const rows = sessions.data ?? [];
   const hasRunning = rows.some((r) => r.status === "running");
+
+  const ModePicker = (
+    <div className="flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em]">
+      {(["claude", "shell"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          aria-pressed={mode === m}
+          onClick={() => setMode(m)}
+          className={`px-2 py-0.5 border ${
+            mode === m
+              ? "border-[var(--color-accent)] text-[var(--color-fg-1)]"
+              : "border-[var(--color-line)] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+          }`}
+        >
+          {m}
+        </button>
+      ))}
+    </div>
+  );
 
   if (rows.length === 0 && !start.isPending) {
     // Render the "start" button as a single CTA so the section isn't empty.
@@ -67,6 +91,7 @@ export function SessionsList({ projectId }: Props) {
             ad-hoc sessions
           </span>
           <div className="hairline flex-1" />
+          {ModePicker}
         </div>
         <button
           type="button"
@@ -79,7 +104,7 @@ export function SessionsList({ projectId }: Props) {
           ) : (
             <Terminal size={12} />
           )}
-          start ad-hoc session
+          start {mode} session
         </button>
         {start.isError ? (
           <div className="mt-2 mono text-[11px] text-[var(--color-verdict-trashed)]">
@@ -97,6 +122,7 @@ export function SessionsList({ projectId }: Props) {
           ad-hoc sessions
         </span>
         <div className="hairline flex-1" />
+        {!hasRunning ? ModePicker : null}
       </div>
       <div className="surface divide-y divide-[var(--color-line)]">
         {rows.map((s) => (
@@ -128,7 +154,7 @@ export function SessionsList({ projectId }: Props) {
         title={hasRunning ? "a session is already running for this project" : undefined}
       >
         {start.isPending ? <Loader2 size={12} className="animate-spin" /> : <Terminal size={12} />}
-        {hasRunning ? "session already running" : "start ad-hoc session"}
+        {hasRunning ? "session already running" : `start ${mode} session`}
       </button>
       {start.isError ? (
         <div className="mt-2 mono text-[11px] text-[var(--color-verdict-trashed)]">
