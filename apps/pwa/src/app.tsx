@@ -20,6 +20,7 @@ import { RepoBrowser } from "./routes/repo-browser.tsx";
 import { RubricDetail } from "./routes/rubric-detail.tsx";
 import { RubricsViewer } from "./routes/rubrics-viewer.tsx";
 import { ScriptPane } from "./routes/script-pane.tsx";
+import { SessionPane } from "./routes/session-pane.tsx";
 import { Settings } from "./routes/settings.tsx";
 import { TaskDetail } from "./routes/task-detail.tsx";
 import { WorktreesAdmin } from "./routes/worktrees.tsx";
@@ -41,6 +42,7 @@ export function App() {
         <Route path="/projects/:id/runs/:runId" element={<LivePane />} />
         <Route path="/projects/:id/scripts/:scriptId" element={<ScriptPane />} />
         <Route path="/projects/:id/code" element={<RepoBrowser />} />
+        <Route path="/projects/:id/sessions/:sessionId" element={<SessionPane />} />
         <Route path="/projects/:id/audits/:auditId" element={<AuditPane />} />
         <Route path="/projects/:id/deepen" element={<Deepen />} />
         <Route path="/feedback/:id" element={<FeedbackDetail />} />

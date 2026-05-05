@@ -6,6 +6,7 @@ import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
 import { appRouter } from "./router.ts";
 import { ScriptRegistry } from "./scripts/registry.ts";
+import { recoverOrphanedSessions } from "./sessions/orchestrate.ts";
 import { makeStaticHandler } from "./static.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
@@ -92,6 +93,10 @@ export async function startDaemon(): Promise<DaemonHandle> {
     console.log(
       `[factoryd] reaped orphaned runs — recovered: ${reaped.recovered}, resumed: ${reaped.resumed}, aborted: ${reaped.aborted}`,
     );
+  }
+  const orphanedSessions = await recoverOrphanedSessions(db, events);
+  if (orphanedSessions > 0) {
+    console.log(`[factoryd] aborted ${orphanedSessions} orphaned session(s) on boot`);
   }
 
   const buildCtx = (req: Request): DaemonContext => ({

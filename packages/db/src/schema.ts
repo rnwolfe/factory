@@ -599,3 +599,37 @@ export const feedbackComments = sqliteTable(
 
 export type FeedbackComment = typeof feedbackComments.$inferSelect;
 export type NewFeedbackComment = typeof feedbackComments.$inferInsert;
+
+export const sessionStatusEnum = ["running", "ended", "merged", "merge_failed", "aborted"] as const;
+
+export const sessionModeEnum = ["claude", "shell"] as const;
+
+/**
+ * v0.5 cut 9 — ad-hoc interactive sessions. Reuses the run/worktree/tmux
+ * infrastructure but skips the factory-status footer, quality checks, and
+ * auto-advance. On end, commits on the session branch get the same merge
+ * treatment as runs; conflicts surface as `merge_failure` decisions.
+ */
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .references(() => projects.id, { onDelete: "cascade" })
+      .notNull(),
+    status: text("status", { enum: sessionStatusEnum }).notNull(),
+    mode: text("mode", { enum: sessionModeEnum }).notNull().default("claude"),
+    description: text("description"),
+    branchName: text("branch_name").notNull(),
+    worktreePath: text("worktree_path").notNull(),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+    commitCount: integer("commit_count").notNull().default(0),
+    mergedAt: integer("merged_at"),
+    mergeError: text("merge_error"),
+  },
+  (t) => [index("sessions_project_started_idx").on(t.projectId, t.startedAt)],
+);
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;

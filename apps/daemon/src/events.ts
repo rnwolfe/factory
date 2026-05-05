@@ -133,6 +133,20 @@ export type DaemonEvent =
       feedbackId: string;
       role: "operator" | "agent";
     }
+  | {
+      channel: "inbox";
+      kind: "session_started";
+      sessionId: string;
+      projectId: string;
+    }
+  | {
+      channel: "inbox";
+      kind: "session_ended";
+      sessionId: string;
+      projectId: string;
+      status: "ended" | "merged" | "merge_failed" | "aborted";
+      commitCount: number;
+    }
   | { channel: "pane"; runId: string; bytes: Uint8Array }
   | { channel: "script"; scriptId: string; bytes: Uint8Array };
 
