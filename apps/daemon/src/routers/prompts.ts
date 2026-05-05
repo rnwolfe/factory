@@ -3,6 +3,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, max } from "drizzle-orm";
 import { z } from "zod";
+import { applyPack, PackError, parsePack, serializePack } from "../prompts/pack.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 function lineCount(content: string): number {
@@ -165,6 +166,46 @@ export const promptsRouter = router({
           .run();
         const row = tx.select().from(schema.prompts).where(eq(schema.prompts.id, target.id)).get();
         return { row: row ?? target, changed: true as const };
+      });
+    }),
+
+  /**
+   * Export prompts as a YAML "pack" — full version history plus the
+   * active version per key. Round-trippable through `import`.
+   */
+  exportPack: protectedProcedure
+    .input(z.object({ keys: z.array(z.string()).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const yaml = serializePack(ctx.db, { keys: input?.keys });
+      return { yaml };
+    }),
+
+  /**
+   * Import a pack. Versions not present locally are inserted. With
+   * `activateImported: true`, the pack's active version becomes the
+   * destination's active version. With `activateImported: false`
+   * (default), the local active row is preserved unless the local
+   * install had no entries for that key.
+   */
+  importPack: protectedProcedure
+    .input(
+      z.object({
+        yaml: z.string().min(1).max(2_000_000),
+        activateImported: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      let pack: ReturnType<typeof parsePack>;
+      try {
+        pack = parsePack(input.yaml);
+      } catch (err) {
+        if (err instanceof PackError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw new TRPCError({ code: "BAD_REQUEST", message: (err as Error).message });
+      }
+      return applyPack(ctx.db, pack, {
+        activateImported: input.activateImported ?? false,
       });
     }),
 });
