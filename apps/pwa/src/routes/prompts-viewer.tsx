@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 
@@ -23,9 +22,8 @@ export function PromptsViewer() {
       </div>
 
       <p className="px-1 text-[12px] text-[var(--color-fg-2)] leading-relaxed">
-        these are the active prompts seeded into the daemon db. read-only — edits land via{" "}
-        <span className="mono text-[var(--color-fg-1)]">prompts/*.md</span> +{" "}
-        <span className="mono text-[var(--color-fg-1)]">bun run seed</span>.
+        the active prompts the daemon serves to triage, plans, and audits. tap a row to view, edit,
+        or roll back to a prior version.
       </p>
 
       {list.isLoading ? (
@@ -38,72 +36,30 @@ export function PromptsViewer() {
           failed to load prompts.
         </div>
       ) : list.data && list.data.length > 0 ? (
-        <div className="space-y-2">
+        <ul className="surface divide-y divide-[var(--color-line)]">
           {list.data.map((p) => (
-            <PromptCard
-              key={p.id}
-              promptKey={p.promptKey}
-              version={p.version}
-              lineCount={p.lineCount}
-            />
+            <li key={p.id}>
+              <Link
+                to={`/settings/prompts/${encodeURIComponent(p.promptKey)}`}
+                className="flex items-center justify-between gap-3 px-3 h-12 hover:bg-[var(--color-bg-2)]"
+              >
+                <span className="mono text-[12.5px] text-[var(--color-fg-1)] truncate">
+                  {p.promptKey}
+                </span>
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                    {p.lineCount} lines
+                  </span>
+                  <span className="mono text-[11px] text-[var(--color-fg-3)]">v{p.version}</span>
+                  <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
+                </span>
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
         <div className="surface p-3 text-[13px] text-[var(--color-fg-3)]">no active prompts.</div>
       )}
-    </div>
-  );
-}
-
-function PromptCard({
-  promptKey,
-  version,
-  lineCount,
-}: {
-  promptKey: string;
-  version: number;
-  lineCount: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const detail = useQuery({
-    queryKey: ["prompts.get", promptKey, version],
-    queryFn: () => trpc.prompts.get.query({ key: promptKey, version }),
-    enabled: open,
-  });
-
-  return (
-    <div className="surface">
-      <button
-        type="button"
-        className="w-full px-3 h-11 flex items-center justify-between gap-3"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {open ? (
-            <ChevronDown size={14} className="text-[var(--color-fg-3)]" />
-          ) : (
-            <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
-          )}
-          <span className="mono text-[12.5px] text-[var(--color-fg-1)] truncate">{promptKey}</span>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{lineCount} lines</span>
-          <span className="mono text-[11px] text-[var(--color-fg-3)]">v{version}</span>
-        </div>
-      </button>
-      {open ? (
-        <div className="border-t border-[var(--color-line)] p-3">
-          {detail.isLoading ? (
-            <div className="skel h-3 w-full" />
-          ) : detail.data ? (
-            <pre className="mono text-[11.5px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap break-words">
-              {detail.data.content}
-            </pre>
-          ) : (
-            <span className="mono text-[11px] text-[var(--color-fg-3)]">no content</span>
-          )}
-        </div>
-      ) : null}
     </div>
   );
 }
