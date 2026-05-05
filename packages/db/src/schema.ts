@@ -571,3 +571,31 @@ export const feedback = sqliteTable(
 
 export type Feedback = typeof feedback.$inferSelect;
 export type NewFeedback = typeof feedback.$inferInsert;
+
+export const feedbackCommentRoleEnum = ["operator", "agent"] as const;
+export type FeedbackCommentRole = (typeof feedbackCommentRoleEnum)[number];
+
+/**
+ * v0.4 cut 6 — operator/agent thread on a feedback row. Mirrors auditComments
+ * shape. `resultingDraft` is set when the agent's turn produced a parseable
+ * draft (plan or task seed) — the operator's "promote to plan/task" button
+ * picks the most recent non-null draft.
+ */
+export const feedbackComments = sqliteTable(
+  "feedback_comments",
+  {
+    id: text("id").primaryKey(),
+    feedbackId: text("feedback_id")
+      .references(() => feedback.id)
+      .notNull(),
+    role: text("role", { enum: feedbackCommentRoleEnum }).notNull(),
+    body: text("body").notNull(),
+    /** JSON-stringified `{ kind: 'plan' | 'task', summary, ... }`. Nullable. */
+    resultingDraft: text("resulting_draft"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("feedback_comments_feedback_created_idx").on(t.feedbackId, t.createdAt)],
+);
+
+export type FeedbackComment = typeof feedbackComments.$inferSelect;
+export type NewFeedbackComment = typeof feedbackComments.$inferInsert;

@@ -25,6 +25,7 @@ function makeTempConfig(): { config: FactoryConfig; cleanup: () => void } {
       defaultRunBudgetSeconds: 60,
       gitAuthor: { name: "Factory Test", email: "test@factory" },
       githubToken: null,
+      factoryProjectId: null,
     },
     cleanup: () => {
       try {

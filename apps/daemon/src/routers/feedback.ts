@@ -1,5 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { appendOperatorComment, listFeedbackComments, runAgentReply } from "../feedback/iterate.ts";
+import { PromoteError, promoteToPlan, promoteToTask } from "../feedback/promote.ts";
 import {
   appendFeedback,
   getFeedback,
@@ -71,4 +73,111 @@ export const feedbackRouter = router({
       });
       return row;
     }),
+
+  comments: protectedProcedure
+    .input(z.object({ feedbackId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return listFeedbackComments(ctx.db, input.feedbackId);
+    }),
+
+  comment: protectedProcedure
+    .input(
+      z.object({
+        feedbackId: z.string(),
+        body: z.string().min(1).max(2000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const operator = await appendOperatorComment(ctx.db, input.feedbackId, input.body);
+      // Move from open → in_progress on first operator engagement.
+      const fb = getFeedback(ctx.db, input.feedbackId);
+      if (fb?.status === "open") {
+        setFeedbackStatus(ctx.db, fb.id, "in_progress");
+      }
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "feedback_comment_added",
+        feedbackId: operator.feedbackId,
+        role: "operator",
+      });
+      // Fire the agent reply asynchronously — the mutation returns as soon
+      // as the operator's row is persisted; the agent's row appears later
+      // via the inbox WS event.
+      runAgentReply(ctx.db, input.feedbackId)
+        .then((res) => {
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "feedback_comment_added",
+            feedbackId: input.feedbackId,
+            role: "agent",
+          });
+          if (res.errorMessage) {
+            // Already persisted as an agent-role row in iterate.ts; nothing more to do.
+          }
+        })
+        .catch(() => {
+          // never escape — iterate.ts already persists a placeholder row
+        });
+      return operator;
+    }),
+
+  promoteToPlan: protectedProcedure
+    .input(z.object({ feedbackId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await promoteToPlan({
+          config: ctx.config,
+          db: ctx.db,
+          feedbackId: input.feedbackId,
+        });
+        ctx.events.publish({
+          channel: "inbox",
+          kind: "feedback_updated",
+          feedbackId: input.feedbackId,
+        });
+        return result;
+      } catch (err) {
+        if (err instanceof PromoteError) {
+          const code =
+            err.code === "no_factory_project" || err.code === "project_not_found"
+              ? "PRECONDITION_FAILED"
+              : "NOT_FOUND";
+          throw new TRPCError({ code, message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  promoteToTask: protectedProcedure
+    .input(z.object({ feedbackId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await promoteToTask({
+          config: ctx.config,
+          db: ctx.db,
+          feedbackId: input.feedbackId,
+        });
+        ctx.events.publish({
+          channel: "inbox",
+          kind: "feedback_updated",
+          feedbackId: input.feedbackId,
+        });
+        return result;
+      } catch (err) {
+        if (err instanceof PromoteError) {
+          const code =
+            err.code === "no_factory_project" || err.code === "project_not_found"
+              ? "PRECONDITION_FAILED"
+              : "NOT_FOUND";
+          throw new TRPCError({ code, message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  config: protectedProcedure.query(async ({ ctx }) => {
+    return {
+      factoryProjectId: ctx.config.factoryProjectId,
+    };
+  }),
 });

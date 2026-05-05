@@ -33,6 +33,7 @@ function setupHarness(): Harness {
     defaultRunBudgetSeconds: 60,
     gitAuthor: { name: "test", email: "test@test" },
     githubToken: null,
+    factoryProjectId: null,
   };
   return {
     config,

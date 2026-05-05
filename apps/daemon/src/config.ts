@@ -29,6 +29,13 @@ export interface FactoryConfig {
    * `repo` scope for private repos, `public_repo` is enough for public.
    */
   githubToken: string | null;
+  /**
+   * v0.4 cut 6 — id of the project that holds Factory's own meta-work. When
+   * set, "promote to plan / promote to task" on a feedback row creates a
+   * feature_plan / task on this project. Set the operator-edits-config-yaml
+   * way for now (no PWA path yet).
+   */
+  factoryProjectId: string | null;
 }
 
 export interface ConfigSource {
@@ -56,6 +63,7 @@ interface PartialConfig {
   maxConcurrentRuns?: number;
   defaultRunBudgetSeconds?: number;
   gitAuthor?: { name?: string; email?: string };
+  factoryProjectId?: string | null;
 }
 
 function fillDefaults(p: PartialConfig): FactoryConfig {
@@ -76,6 +84,7 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
       email: p.gitAuthor?.email ?? process.env.FACTORY_GIT_EMAIL ?? "factory@localhost",
     },
     githubToken: p.auth?.githubToken ?? process.env.FACTORY_GITHUB_TOKEN ?? null,
+    factoryProjectId: p.factoryProjectId ?? process.env.FACTORY_META_PROJECT_ID ?? null,
   };
 }
 
