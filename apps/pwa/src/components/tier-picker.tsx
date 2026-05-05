@@ -26,7 +26,7 @@ export function TierPicker({ projectId, tier, onChanged }: Props) {
   });
 
   return (
-    <div className="relative inline-block">
+    <div className={`relative inline-block ${open ? "z-50" : ""}`}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -37,7 +37,7 @@ export function TierPicker({ projectId, tier, onChanged }: Props) {
         <ChevronDown size={11} />
       </button>
       {open ? (
-        <ul className="absolute left-0 mt-1 z-20 surface min-w-[140px] py-1 text-[12.5px] shadow-lg">
+        <ul className="absolute left-0 mt-1 z-50 surface min-w-[140px] py-1 text-[12.5px] shadow-lg">
           {TIERS.map((t) => (
             <li key={t}>
               <button

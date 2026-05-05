@@ -12,6 +12,7 @@ import { rubricsRouter } from "./routers/rubrics.ts";
 import { runsRouter } from "./routers/runs.ts";
 import { scriptsRouter } from "./routers/scripts.ts";
 import { sessionsRouter } from "./routers/sessions.ts";
+import { settingsRouter } from "./routers/settings.ts";
 import { worktreesRouter } from "./routers/worktrees.ts";
 import { router } from "./trpc.ts";
 
@@ -30,6 +31,7 @@ export const appRouter = router({
   repo: repoRouter,
   scripts: scriptsRouter,
   sessions: sessionsRouter,
+  settings: settingsRouter,
   worktrees: worktreesRouter,
 });
 

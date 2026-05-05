@@ -97,3 +97,28 @@ export async function startTmuxSession(init: TmuxSessionInit): Promise<TmuxSessi
 export function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
+
+/**
+ * Forward keystrokes to a tmux session's first pane. Uses `send-keys -H`
+ * (hex bytes) so we can carry arbitrary control sequences from xterm.js
+ * — including NUL bytes (Ctrl-Space) and escape sequences (arrow keys,
+ * function keys) — without shell-quoting hazards.
+ *
+ * Returns true on success; false if tmux refused (session disappeared,
+ * etc.). Callers should treat false as a soft signal — the WebSocket
+ * handler logs+continues rather than disconnecting on a single failure.
+ */
+export async function sendKeysToTmux(
+  sessionName: string,
+  data: string | Uint8Array,
+): Promise<boolean> {
+  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  if (bytes.length === 0) return true;
+  const hex: string[] = new Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    const v = bytes[i] ?? 0;
+    hex[i] = v.toString(16).padStart(2, "0");
+  }
+  const r = await tmux(["send-keys", "-t", `${sessionName}:0.0`, "-H", ...hex]);
+  return r.exitCode === 0;
+}

@@ -399,3 +399,8 @@ export async function recoverOrphanedSessions(db: Db, events: EventBus): Promise
 export function isSessionActive(sessionId: string): boolean {
   return registry.get(sessionId) !== undefined;
 }
+
+/** Tmux session name for an active session, or null. */
+export function tmuxNameForSession(sessionId: string): string | null {
+  return registry.get(sessionId)?.tmux.sessionName ?? null;
+}

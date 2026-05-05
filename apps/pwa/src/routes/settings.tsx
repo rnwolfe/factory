@@ -1,8 +1,24 @@
-import { useQuery } from "@tanstack/react-query";
-import { ChevronRight } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, ChevronRight, Loader2, Pencil, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
+
+interface SettingsSnapshot {
+  gitAuthor: { name: string; email: string };
+  maxConcurrentRuns: number;
+  defaultRunBudgetSeconds: number;
+  githubToken: { has: boolean };
+  factoryProjectId: string | null;
+  overridden: Record<string, boolean>;
+}
+
+interface ProjectRow {
+  id: string;
+  slug: string;
+  name: string;
+}
 
 export function Settings() {
   const { token, clear } = useAuth();
@@ -10,6 +26,14 @@ export function Settings() {
     queryKey: ["health.ping"],
     queryFn: () => trpc.health.ping.query(),
     refetchInterval: 5_000,
+  });
+  const settings = useQuery({
+    queryKey: ["settings.get"],
+    queryFn: () => trpc.settings.get.query() as unknown as Promise<SettingsSnapshot>,
+  });
+  const projects = useQuery({
+    queryKey: ["projects.list"],
+    queryFn: () => trpc.projects.list.query() as unknown as Promise<ProjectRow[]>,
   });
   const rubrics = useQuery({
     queryKey: ["rubrics.list"],
@@ -31,27 +55,69 @@ export function Settings() {
             <span className="chip">probing…</span>
           )}
         </Row>
-        <Row label="server time">
-          <span className="mono text-[12px] text-[var(--color-fg-2)]">
-            {ping.data ? new Date(ping.data.ts).toISOString().replace("T", " ").slice(0, 19) : "—"}
-          </span>
-        </Row>
       </Section>
 
       <Section title="auth">
-        <Row label="token">
+        <Row label="bearer token">
           <span className="mono text-[12px] text-[var(--color-fg-2)]">
             {token ? `…${token.slice(-6)}` : "—"}
           </span>
         </Row>
-        <Row label="github token">
-          <GithubTokenStatus />
-        </Row>
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-3 pt-2">
           <button type="button" className="btn btn-danger w-full" onClick={clear}>
             forget token
           </button>
+          <p className="mt-2 text-[10.5px] mono text-[var(--color-fg-3)] leading-relaxed">
+            bearer token lives in{" "}
+            <span className="text-[var(--color-fg-2)]">~/.factory/config.yaml</span> — rotate via
+            the daemon, then forget + re-paste here.
+          </p>
         </div>
+      </Section>
+
+      <Section title="operator settings">
+        {settings.isLoading || !settings.data ? (
+          <div className="px-3 py-3">
+            <div className="skel h-3 w-2/3 mb-1.5" />
+            <div className="skel h-3 w-1/2" />
+          </div>
+        ) : (
+          <>
+            <EditableRow
+              label="git author name"
+              value={settings.data.gitAuthor.name}
+              settingKey="git-author-name"
+              overridden={settings.data.overridden["git-author-name"]}
+            />
+            <EditableRow
+              label="git author email"
+              value={settings.data.gitAuthor.email}
+              settingKey="git-author-email"
+              overridden={settings.data.overridden["git-author-email"]}
+            />
+            <EditableRow
+              label="max concurrent runs"
+              value={String(settings.data.maxConcurrentRuns)}
+              settingKey="max-concurrent-runs"
+              overridden={settings.data.overridden["max-concurrent-runs"]}
+              hint="takes effect on next daemon restart"
+              type="number"
+            />
+            <EditableRow
+              label="default run budget (s)"
+              value={String(settings.data.defaultRunBudgetSeconds)}
+              settingKey="default-run-budget-seconds"
+              overridden={settings.data.overridden["default-run-budget-seconds"]}
+              type="number"
+            />
+            <GithubTokenRow has={settings.data.githubToken.has} />
+            <FactoryProjectRow
+              currentId={settings.data.factoryProjectId}
+              overridden={settings.data.overridden["factory-project-id"]}
+              projects={projects.data ?? []}
+            />
+          </>
+        )}
       </Section>
 
       <Section title="agent">
@@ -101,11 +167,6 @@ export function Settings() {
           </Row>
         )}
       </Section>
-
-      <p className="px-2 text-[11px] mono text-[var(--color-fg-3)] leading-relaxed">
-        rotate the token via <span className="text-[var(--color-fg-2)]">factoryd rotate-token</span>{" "}
-        on your server, then forget &amp; re-paste here.
-      </p>
     </div>
   );
 }
@@ -130,22 +191,284 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function GithubTokenStatus() {
-  const status = useQuery({
-    queryKey: ["projects.hasGithubToken"],
-    queryFn: () => trpc.projects.hasGithubToken.query() as unknown as Promise<{ has: boolean }>,
-    staleTime: 60_000,
+function EditableRow({
+  label,
+  value,
+  settingKey,
+  overridden,
+  hint,
+  type,
+}: {
+  label: string;
+  value: string;
+  settingKey: string;
+  overridden: boolean;
+  hint?: string;
+  type?: "text" | "number";
+}) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const save = useMutation({
+    mutationFn: (next: string) =>
+      trpc.settings.set.mutate({ key: settingKey as never, value: next }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      qc.invalidateQueries({ queryKey: ["projects.hasGithubToken"] });
+      setEditing(false);
+    },
   });
-  if (status.isLoading) {
-    return <span className="mono text-[12px] text-[var(--color-fg-3)]">…</span>;
-  }
-  return status.data?.has ? (
-    <span className="chip chip-greenlit">configured</span>
-  ) : (
-    <span className="mono text-[11px] text-[var(--color-fg-3)]">
-      add to ~/.factory/config.yaml under{" "}
-      <span className="text-[var(--color-fg-2)]">auth.githubToken</span>
-    </span>
+
+  const clearOverride = useMutation({
+    mutationFn: () => trpc.settings.clear.mutate({ key: settingKey as never }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      setEditing(false);
+    },
+  });
+
+  return (
+    <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[13px] text-[var(--color-fg-1)] truncate">{label}</span>
+          {overridden ? (
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)]">db</span>
+          ) : (
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)]">yaml</span>
+          )}
+        </div>
+        {editing ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              type={type ?? "text"}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="mono text-[12px] bg-[var(--color-bg-2)] border border-[var(--color-line)] rounded px-2 py-1 w-[160px]"
+            />
+            <button
+              type="button"
+              onClick={() => save.mutate(draft)}
+              disabled={save.isPending || draft === value}
+              aria-label="save"
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              {save.isPending ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Check size={12} />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(value);
+                setEditing(false);
+              }}
+              aria-label="cancel"
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <span className="mono text-[12px] text-[var(--color-fg-2)] tabular-nums">{value}</span>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label={`edit ${label}`}
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              <Pencil size={11} />
+            </button>
+          </div>
+        )}
+      </div>
+      {save.isError ? (
+        <div className="mt-1.5 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+          {(save.error as Error).message}
+        </div>
+      ) : null}
+      {hint ? <div className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)]">{hint}</div> : null}
+      {overridden && !editing ? (
+        <button
+          type="button"
+          onClick={() => clearOverride.mutate()}
+          disabled={clearOverride.isPending}
+          className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)] underline hover:text-[var(--color-fg-1)]"
+        >
+          revert to yaml default
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function GithubTokenRow({ has }: { has: boolean }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const save = useMutation({
+    mutationFn: (v: string) => trpc.settings.set.mutate({ key: "github-token" as never, value: v }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      qc.invalidateQueries({ queryKey: ["projects.hasGithubToken"] });
+      setDraft("");
+      setEditing(false);
+    },
+  });
+
+  const clearToken = useMutation({
+    mutationFn: () => trpc.settings.set.mutate({ key: "github-token" as never, value: "" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      qc.invalidateQueries({ queryKey: ["projects.hasGithubToken"] });
+    },
+  });
+
+  return (
+    <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] text-[var(--color-fg-1)]">github token</span>
+        {has ? (
+          <span className="chip chip-greenlit">configured</span>
+        ) : (
+          <span className="mono text-[11px] text-[var(--color-fg-3)]">not set</span>
+        )}
+      </div>
+      {editing ? (
+        <div className="mt-2 flex items-center gap-1.5">
+          <input
+            type="password"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="ghp_…"
+            className="flex-1 mono text-[12px] bg-[var(--color-bg-2)] border border-[var(--color-line)] rounded px-2 py-1"
+          />
+          <button
+            type="button"
+            onClick={() => save.mutate(draft)}
+            disabled={save.isPending || !draft}
+            aria-label="save token"
+            className="btn btn-ghost text-[11px] !h-7 !px-2"
+          >
+            {save.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft("");
+              setEditing(false);
+            }}
+            aria-label="cancel"
+            className="btn btn-ghost text-[11px] !h-7 !px-2"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ) : (
+        <div className="mt-1.5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="btn btn-ghost text-[11px] !h-7 !px-2"
+          >
+            {has ? "replace" : "add"}
+          </button>
+          {has ? (
+            <button
+              type="button"
+              onClick={() => clearToken.mutate()}
+              disabled={clearToken.isPending}
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              clear
+            </button>
+          ) : null}
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            stored in db; needs <code>repo</code> or <code>public_repo</code>
+          </span>
+        </div>
+      )}
+      {save.isError ? (
+        <div className="mt-1.5 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+          {(save.error as Error).message}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FactoryProjectRow({
+  currentId,
+  overridden,
+  projects,
+}: {
+  currentId: string | null;
+  overridden: boolean;
+  projects: ProjectRow[];
+}) {
+  const qc = useQueryClient();
+
+  const save = useMutation({
+    mutationFn: (id: string) =>
+      trpc.settings.set.mutate({ key: "factory-project-id" as never, value: id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+    },
+  });
+
+  const current = projects.find((p) => p.id === currentId);
+  return (
+    <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] text-[var(--color-fg-1)]">factory meta-project</span>
+          {overridden ? (
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)]">db</span>
+          ) : (
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)]">yaml</span>
+          )}
+        </div>
+        {save.isPending ? (
+          <Loader2 size={11} className="animate-spin text-[var(--color-fg-3)]" />
+        ) : null}
+      </div>
+      <div className="mt-1.5">
+        <select
+          value={currentId ?? ""}
+          onChange={(e) => save.mutate(e.target.value)}
+          className="w-full mono text-[12px] bg-[var(--color-bg-2)] border border-[var(--color-line)] rounded px-2 py-1.5"
+        >
+          <option value="">— none (promote disabled) —</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.slug})
+            </option>
+          ))}
+        </select>
+      </div>
+      {current ? (
+        <div className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+          feedback promote-to-plan/task lands here
+        </div>
+      ) : (
+        <div className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)]">
+          set this to enable feedback → plan/task promotion
+        </div>
+      )}
+      {save.isError ? (
+        <div className="mt-1 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+          {(save.error as Error).message}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

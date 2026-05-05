@@ -2,7 +2,12 @@ export { claudeCodeAgent } from "./agents/claude-code.ts";
 export { runtime } from "./runtime.ts";
 export { hostSandbox } from "./sandboxes/host.ts";
 export { followFileLines, type TailHandle } from "./tail.ts";
-export { shellQuote, startTmuxSession, type TmuxSessionHandle } from "./tmux.ts";
+export {
+  sendKeysToTmux,
+  shellQuote,
+  startTmuxSession,
+  type TmuxSessionHandle,
+} from "./tmux.ts";
 export * from "./types.ts";
 export {
   commitAllChanges,

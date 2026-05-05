@@ -1,12 +1,15 @@
-import { createDb, runMigrations } from "@factory/db";
+import { createDb, runMigrations, schema } from "@factory/db";
+import { sendKeysToTmux } from "@factory/runtime";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { eq } from "drizzle-orm";
 import { authorizeRequest } from "./auth.ts";
 import { type FactoryConfig, loadConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
 import { appRouter } from "./router.ts";
 import { ScriptRegistry } from "./scripts/registry.ts";
-import { recoverOrphanedSessions } from "./sessions/orchestrate.ts";
+import { recoverOrphanedSessions, tmuxNameForSession } from "./sessions/orchestrate.ts";
+import { applySettingsFromDb } from "./settings/store.ts";
 import { makeStaticHandler } from "./static.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
@@ -69,6 +72,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // DB
   runMigrations(config.dbPath);
   const db = createDb(config.dbPath);
+  // Operator-tunable settings live in the DB (yaml seeds defaults on first
+  // boot; DB overrides take precedence afterwards). Mutates `config` in
+  // place so all DaemonContext.config readers see the right values without
+  // any rewiring.
+  applySettingsFromDb(db, config);
 
   // (Boot-time recovery happens after pool/registry/events are constructed
   //  below — the resume path needs them to re-submit work.)
@@ -167,12 +175,28 @@ export async function startDaemon(): Promise<DaemonHandle> {
           attachWsChannel(ws, ctx);
         },
         message(ws, msg) {
-          // Pane channel: forward inbound bytes/strings to a tmux send-keys hook.
-          // M4 keeps the inbound side as a no-op; the daemon already drives runs
-          // via tRPC. The PWA will use this channel for keystrokes in M6.
+          // Pane channel carries operator keystrokes for both runs and ad-hoc
+          // sessions. The runId field on ws.data carries either a runId (legacy
+          // pane subscribe) or a sessionId — cuid namespace is shared, so a
+          // single lookup chain (sessions → runs) finds the right tmux name.
           if (ws.data.channel !== "pane") return;
-          // For now, silently accept and discard.
-          void msg;
+          const runId = ws.data.runId;
+          if (!runId) return;
+          const data = typeof msg === "string" ? msg : (msg as Buffer);
+          void (async () => {
+            // Sessions registry first (in-memory, no DB hit).
+            let sessionName = tmuxNameForSession(runId);
+            if (!sessionName) {
+              const row = await db
+                .select({ tmuxSession: schema.runs.tmuxSession })
+                .from(schema.runs)
+                .where(eq(schema.runs.id, runId))
+                .get();
+              sessionName = row?.tmuxSession ?? null;
+            }
+            if (!sessionName) return;
+            await sendKeysToTmux(sessionName, data instanceof Buffer ? new Uint8Array(data) : data);
+          })();
         },
         close(ws) {
           detachWsChannel(ws);

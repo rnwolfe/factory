@@ -109,7 +109,15 @@ export function SessionPane() {
         term.write(new Uint8Array(ev.data));
       }
     };
+    // Forward operator keystrokes to the daemon, which routes them to tmux
+    // send-keys for the underlying claude/shell process. xterm.js gives us
+    // raw byte strings (already encoded for the terminal protocol).
+    const term = termRef.current;
+    const dataDisposer = term?.onData((d) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(d);
+    });
     return () => {
+      dataDisposer?.dispose();
       ws.close();
     };
   }, [sessionId]);

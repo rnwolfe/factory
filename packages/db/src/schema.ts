@@ -633,3 +633,20 @@ export const sessions = sqliteTable(
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
+
+/**
+ * Operator-tunable runtime settings. Key/value text rows; the daemon parses
+ * each by key. Bootstrap fields (auth.token, port, host, dbPath, workdir)
+ * stay in `~/.factory/config.yaml` because they're needed before the DB is
+ * even open — everything else (gitAuthor, github token, run concurrency,
+ * factoryProjectId) reads from here. yaml continues to seed defaults; DB
+ * takes precedence when set.
+ */
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export type Setting = typeof settings.$inferSelect;
+export type NewSetting = typeof settings.$inferInsert;
