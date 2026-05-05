@@ -28,9 +28,14 @@
   1. Worktree cleanup (smallest)
   2. Reactivity (medium, foundational — makes everything else feel
      tighter)
-  3. Run log formatting (medium, high daily value)
-  4. Unified feedback (audit comments → thread) (medium)
-  5. External project onboarding (largest, do last so an unfinished
+  3. Run log formatting (medium, high daily value; introduces the
+     `MarkdownBlock` renderer used by cut 4)
+  4. Markdown rendering across surfaces (small, depends on cut 3 —
+     audit reports, plan drafts, finding bodies, task bodies all
+     get rendered + raw toggle)
+  5. Unified feedback (audit comments → thread) (medium; thread
+     bodies render via the cut 3/4 markdown renderer)
+  6. External project onboarding (largest, do last so an unfinished
      state doesn't strand the others)
 
 -----
@@ -278,14 +283,120 @@ apps/pwa/src/routes/live-pane.tsx                  (default view + raw toggle)
 - Markdown library: hand-roll vs marked. Lean: hand-roll a 100-LoC
   renderer that handles paragraphs, code fences, inline code, bullet
   lists, and bold/italic. Avoids a 30 kB dep for a constrained subset.
-  If quality is poor, swap to marked.
+  If quality is poor, swap to marked. Whichever choice we make here
+  also serves cut 4.
 - ANSI color codes in tool output (Bash stdout especially): xterm
   handles them automatically; the structured view will need either to
   strip ANSI or convert to spans. Lean: strip in v1, convert later.
 
 -----
 
-## 4. Unified feedback (audit comments → thread)
+## 4. Markdown rendering across surfaces
+
+### Goal
+
+Render markdown content (audit reports, plan drafts, finding bodies,
+task bodies, agent / operator comment bodies) as styled markdown by
+default — paragraphs, headings, code fences, lists, bold/italic — with
+a per-surface `[raw]` toggle that returns the operator to today's
+mono `<pre>` view. Same shape as cut 3's run-log raw toggle.
+
+### Approach
+
+Reuse the `MarkdownBlock` component cut 3 introduces. Add a small
+`MarkdownView` wrapper that pairs the renderer with a toggle button
+and remembers operator preference per-surface in `localStorage` so a
+"raw by default" choice on a code-heavy report sticks across reloads.
+Replace each existing mono `<pre>` markdown block with `<MarkdownView>`.
+
+This cut is plumbing-only — no new render logic beyond the toggle.
+
+### Shape
+
+**No daemon changes.** All markdown is already stored as text on
+existing rows; we're only changing how the PWA presents it.
+
+**PWA:**
+
+- New `apps/pwa/src/components/markdown-view.tsx`:
+  - Wraps `<MarkdownBlock>` with a small mode toggle (`rendered` |
+    `raw`) shown as a tiny mono link in the top-right of the block
+    (`[raw]` / `[rendered]`).
+  - Persists operator's choice per-`storageKey` prop in localStorage
+    so the toggle state is sticky across reloads.
+  - Default: `rendered` for everything; cells with `defaultMode="raw"`
+    can opt out (e.g., dense fenced-JSON-heavy outputs).
+
+- Surfaces to update (each is a 2-3 line edit, replacing a `<pre>`
+  with `<MarkdownView>`):
+  - `apps/pwa/src/routes/audit-pane.tsx` — the report markdown body.
+  - `apps/pwa/src/components/finding-card.tsx` — finding body
+    markdown.
+  - `apps/pwa/src/components/plan-draft-viewer.tsx` — plan drafts
+    that surface markdown blobs (project_vision body, refinement
+    feedback, etc. — verify per-kind during implementation).
+  - `apps/pwa/src/routes/task-detail.tsx` — task body markdown.
+  - `apps/pwa/src/routes/decision-detail.tsx` — agent rationale /
+    reply bodies inside the comment thread.
+  - `apps/pwa/src/routes/plan-detail.tsx` — plan comment bodies in
+    the thread.
+
+  After cut 5 (unified feedback) lands, the audit thread bodies
+  surface inherits the same renderer automatically by using
+  `<MarkdownView>` in the new audit-pane thread component.
+
+### Files / new modules
+
+```
+apps/pwa/src/components/markdown-view.tsx       (NEW — render+toggle wrapper)
+apps/pwa/src/routes/audit-pane.tsx              (replace <pre>)
+apps/pwa/src/components/finding-card.tsx        (replace <pre>)
+apps/pwa/src/components/plan-draft-viewer.tsx   (replace <pre>)
+apps/pwa/src/routes/task-detail.tsx             (replace <pre>)
+apps/pwa/src/routes/decision-detail.tsx         (replace <pre>)
+apps/pwa/src/routes/plan-detail.tsx             (replace <pre>)
+```
+
+### Done criteria
+
+- Audit reports render with styled headings, lists, code fences, and
+  emphasis. The `[raw]` toggle reverts to the prior mono `<pre>`
+  view; toggling back returns to rendered.
+- Finding bodies, task bodies, plan drafts that contain freeform
+  markdown, agent rationale text in decisions, and plan comment
+  bodies all render the same way.
+- Operator's `raw` / `rendered` choice on a given surface persists
+  across reloads (localStorage).
+- Code fences with shell / json / typescript hints get monospace +
+  background; plain prose paragraphs do not.
+- No regression in screen real estate — rendered view should not be
+  taller than the equivalent raw view by more than ~10%.
+- `bun run typecheck`, `bun run check`, `bun test`, PWA build all
+  pass.
+
+### Open questions
+
+- Per-surface vs global default: do code-review-style audit reports
+  default to `raw`? Lean: `rendered` everywhere; the toggle is
+  one-click and the localStorage stickiness handles per-operator
+  preference.
+- Sanitization: assistant text could in theory emit raw HTML in a
+  fenced block. The hand-rolled renderer should treat all input as
+  markdown only — no `dangerouslySetInnerHTML`. Verify during
+  implementation that no surface needs HTML pass-through.
+- Should the toggle live next to each block or once at the top of the
+  page? Lean: once per block — different blocks (report vs comments)
+  may want different modes.
+
+### Depends on
+
+Cut 3 must land first to provide `MarkdownBlock`. If cut 3 isn't
+shipped during this overnight run, this cut should be skipped — do
+not duplicate the renderer.
+
+-----
+
+## 5. Unified feedback (audit comments → thread)
 
 ### Goal
 
@@ -345,7 +456,11 @@ export const auditComments = sqliteTable(
 **PWA:**
 
 - `apps/pwa/src/routes/audit-pane.tsx`: render the thread under the
-  report, identical visual shape to plan-detail's comments.
+  report, identical visual shape to plan-detail's comments. Use
+  `<MarkdownView>` from cut 4 for each comment body so operator and
+  agent prose render styled with a `[raw]` toggle. (If cut 4 hasn't
+  shipped, fall back to the existing `<pre>` and let cut 4 swap it
+  later.)
 - Keep the existing comment input box, point it at the new mutation.
 
 ### Backward compatibility
@@ -392,7 +507,7 @@ apps/pwa/src/routes/audit-pane.tsx                 (thread render)
 
 -----
 
-## 5. External project onboarding
+## 6. External project onboarding
 
 ### Goal
 
