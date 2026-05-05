@@ -20,6 +20,7 @@ import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
 import { PublishGithubModal } from "../components/publish-github-modal.tsx";
+import { ScriptsSection } from "../components/scripts-section.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { type Tier, TierPicker } from "../components/tier-picker.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
@@ -394,6 +395,8 @@ export function ProjectDetail() {
       ) : null}
 
       <AuditsSection projectId={id} />
+
+      <ScriptsSection projectId={id} />
 
       <section>
         <SectionHeader

@@ -133,7 +133,8 @@ export type DaemonEvent =
       feedbackId: string;
       role: "operator" | "agent";
     }
-  | { channel: "pane"; runId: string; bytes: Uint8Array };
+  | { channel: "pane"; runId: string; bytes: Uint8Array }
+  | { channel: "script"; scriptId: string; bytes: Uint8Array };
 
 type Listener = (e: DaemonEvent) => void;
 

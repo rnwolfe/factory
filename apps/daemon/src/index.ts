@@ -5,6 +5,7 @@ import { type FactoryConfig, loadConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
 import { appRouter } from "./router.ts";
+import { ScriptRegistry } from "./scripts/registry.ts";
 import { makeStaticHandler } from "./static.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
@@ -80,6 +81,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
   const pool = new WorkerPool(config.maxConcurrentRuns);
   const runs = new RunRegistry();
   const events = new EventBus();
+  const scripts = new ScriptRegistry(events);
 
   // Boot-time recovery for any runs left mid-flight by a prior daemon.
   // Three-tier salvage: log-recovery, --resume the claude session, or mark
@@ -98,6 +100,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     events,
     runs,
     pool,
+    scripts,
     authorized: authorizeRequest(req, config),
   });
 
@@ -153,6 +156,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
             events,
             runs,
             pool,
+            scripts,
             authorized: true,
           } satisfies DaemonContext;
           attachWsChannel(ws, ctx);
@@ -178,7 +182,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
   }
   console.log(`[factoryd] listening on http://${config.host}:${boundPort}`);
   console.log(`[factoryd] tRPC endpoint:   /trpc`);
-  console.log(`[factoryd] WS channels:     /ws/events  /ws/pane  /ws/inbox`);
+  console.log(`[factoryd] WS channels:     /ws/events  /ws/pane  /ws/inbox  /ws/script`);
   console.log(`[factoryd] workdir:         ${config.workdir}`);
   console.log(`[factoryd] db:              ${config.dbPath}`);
   console.log(`[factoryd] max concurrent runs: ${config.maxConcurrentRuns}`);
@@ -190,6 +194,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     console.log("[factoryd] shutting down…");
     server.stop();
     runs.abortAll();
+    scripts.killAll();
     await pool.drain();
     console.log("[factoryd] shutdown complete.");
   };
