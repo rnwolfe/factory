@@ -413,7 +413,7 @@ export function ProjectDetail() {
               : 0
           }
         />
-        <WorkdirPanel data={workdir.data} loading={workdir.isLoading} />
+        <WorkdirPanel projectId={id} data={workdir.data} loading={workdir.isLoading} />
       </section>
 
       <section>
@@ -473,9 +473,11 @@ export function ProjectDetail() {
 }
 
 function WorkdirPanel({
+  projectId,
   data,
   loading,
 }: {
+  projectId: string;
   data: WorkdirSnapshot | null | undefined;
   loading: boolean;
 }) {
@@ -496,13 +498,17 @@ function WorkdirPanel({
     );
   }
   const { branch, headSha, dirty, status, commits, worktrees, tree } = data;
+  const codeBase = `/projects/${projectId}/code`;
   return (
     <div className="surface divide-y divide-[var(--color-line)]">
       <div className="px-3 py-2.5 flex items-center gap-2 flex-wrap">
         <GitBranch size={12} className="text-[var(--color-fg-3)]" />
-        <span className="mono text-[12px] text-[var(--color-fg-1)] truncate">
+        <Link
+          to={`${codeBase}?tab=branches`}
+          className="mono text-[12px] text-[var(--color-fg-1)] truncate hover:text-[var(--color-accent)]"
+        >
           {branch ?? "(detached)"}
-        </span>
+        </Link>
         {headSha ? (
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{headSha.slice(0, 8)}</span>
         ) : null}
@@ -520,15 +526,25 @@ function WorkdirPanel({
             git status
           </div>
           <ul className="space-y-0.5 max-h-[140px] overflow-y-auto">
-            {status.slice(0, 80).map((s) => (
-              <li
-                key={`${s.code}-${s.path}`}
-                className="mono text-[11.5px] flex gap-2 leading-snug"
-              >
-                <span className="text-[var(--color-accent)] w-6 shrink-0">{s.code.trim()}</span>
-                <span className="text-[var(--color-fg-1)] truncate">{s.path}</span>
-              </li>
-            ))}
+            {status.slice(0, 80).map((s) => {
+              // Deletions can't be opened in the blob viewer; everything else can.
+              const code = s.code.trim();
+              const isDeleted = code === "D" || code === "AD" || code === "DD";
+              const target = isDeleted
+                ? `${codeBase}?tab=tree`
+                : `${codeBase}?tab=blob&path=${encodeURIComponent(s.path)}`;
+              return (
+                <li key={`${s.code}-${s.path}`}>
+                  <Link
+                    to={target}
+                    className="mono text-[11.5px] flex gap-2 leading-snug hover:text-[var(--color-accent)]"
+                  >
+                    <span className="text-[var(--color-accent)] w-6 shrink-0">{code}</span>
+                    <span className="text-[var(--color-fg-1)] truncate">{s.path}</span>
+                  </Link>
+                </li>
+              );
+            })}
             {status.length > 80 ? (
               <li className="mono text-[10.5px] text-[var(--color-fg-3)]">
                 +{status.length - 80} more
@@ -546,11 +562,18 @@ function WorkdirPanel({
           <ul className="space-y-1">
             {commits.slice(0, 10).map((c) => (
               <li key={c.sha} className="text-[12.5px] leading-snug">
-                <span className="mono text-[11px] text-[var(--color-accent)] mr-2">
-                  {c.sha.slice(0, 8)}
-                </span>
-                <span className="text-[var(--color-fg-1)]">{c.subject}</span>
-                <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-2">{c.author}</span>
+                <Link
+                  to={`${codeBase}?tab=commits&ref=${encodeURIComponent(c.sha)}`}
+                  className="hover:text-[var(--color-accent)]"
+                >
+                  <span className="mono text-[11px] text-[var(--color-accent)] mr-2">
+                    {c.sha.slice(0, 8)}
+                  </span>
+                  <span className="text-[var(--color-fg-1)]">{c.subject}</span>
+                  <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-2">
+                    {c.author}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -565,7 +588,16 @@ function WorkdirPanel({
           <ul className="space-y-0.5">
             {worktrees.map((w) => (
               <li key={w.path} className="mono text-[11.5px] truncate">
-                <span className="text-[var(--color-accent)] mr-2">{w.branch ?? "(detached)"}</span>
+                {w.branch ? (
+                  <Link
+                    to={`${codeBase}?tab=tree&ref=${encodeURIComponent(w.branch)}`}
+                    className="text-[var(--color-accent)] mr-2 hover:underline"
+                  >
+                    {w.branch}
+                  </Link>
+                ) : (
+                  <span className="text-[var(--color-accent)] mr-2">(detached)</span>
+                )}
                 <span className="text-[var(--color-fg-3)]">{w.path}</span>
               </li>
             ))}
@@ -580,21 +612,26 @@ function WorkdirPanel({
           </div>
           <ul className="space-y-0.5">
             {tree.map((entry) => (
-              <li key={entry.path} className="mono text-[12px] flex items-center gap-2">
-                {entry.type === "dir" ? (
-                  <Folder size={11} className="text-[var(--color-accent)] shrink-0" />
-                ) : (
-                  <FileText size={11} className="text-[var(--color-fg-3)] shrink-0" />
-                )}
-                <span className="text-[var(--color-fg-1)] truncate">
-                  {entry.path}
-                  {entry.type === "dir" ? "/" : ""}
-                </span>
-                {entry.size != null ? (
-                  <span className="text-[var(--color-fg-3)] ml-auto tabular-nums">
-                    {fmtSize(entry.size)}
+              <li key={entry.path}>
+                <Link
+                  to={`${codeBase}?tab=${entry.type === "dir" ? "tree" : "blob"}&path=${encodeURIComponent(entry.path)}`}
+                  className="mono text-[12px] flex items-center gap-2 hover:text-[var(--color-accent)]"
+                >
+                  {entry.type === "dir" ? (
+                    <Folder size={11} className="text-[var(--color-accent)] shrink-0" />
+                  ) : (
+                    <FileText size={11} className="text-[var(--color-fg-3)] shrink-0" />
+                  )}
+                  <span className="text-[var(--color-fg-1)] truncate">
+                    {entry.path}
+                    {entry.type === "dir" ? "/" : ""}
                   </span>
-                ) : null}
+                  {entry.size != null ? (
+                    <span className="text-[var(--color-fg-3)] ml-auto tabular-nums">
+                      {fmtSize(entry.size)}
+                    </span>
+                  ) : null}
+                </Link>
               </li>
             ))}
           </ul>
