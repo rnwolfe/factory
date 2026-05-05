@@ -5,6 +5,7 @@ import { useAuth } from "./lib/auth.ts";
 import { AuditPane } from "./routes/audit-pane.tsx";
 import { DecisionDetail } from "./routes/decision-detail.tsx";
 import { Deepen } from "./routes/deepen.tsx";
+import { ImportProject } from "./routes/import-project.tsx";
 import { Inbox } from "./routes/inbox.tsx";
 import { LivePane } from "./routes/live-pane.tsx";
 import { Metrics } from "./routes/metrics.tsx";
@@ -16,6 +17,7 @@ import { PromptDetail } from "./routes/prompt-detail.tsx";
 import { PromptsViewer } from "./routes/prompts-viewer.tsx";
 import { Settings } from "./routes/settings.tsx";
 import { TaskDetail } from "./routes/task-detail.tsx";
+import { WorktreesAdmin } from "./routes/worktrees.tsx";
 
 export function App() {
   const token = useAuth((s) => s.token);
@@ -28,6 +30,7 @@ export function App() {
         <Route path="/decisions/:id" element={<DecisionDetail />} />
         <Route path="/plans/:id" element={<PlanDetail />} />
         <Route path="/projects" element={<Projects />} />
+        <Route path="/projects/import" element={<ImportProject />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/projects/:id/tasks/:taskId" element={<TaskDetail />} />
         <Route path="/projects/:id/runs/:runId" element={<LivePane />} />
@@ -36,6 +39,7 @@ export function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/prompts" element={<PromptsViewer />} />
         <Route path="/settings/prompts/:key" element={<PromptDetail />} />
+        <Route path="/settings/worktrees" element={<WorktreesAdmin />} />
         <Route path="/metrics" element={<Metrics />} />
         <Route path="*" element={<Inbox />} />
       </Routes>

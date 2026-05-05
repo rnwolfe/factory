@@ -64,6 +64,13 @@
       "when": 1777929501363,
       "tag": "0008_claude_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1777945910116,
+      "tag": "0009_audit_comments",
+      "breakpoints": true
     }
   ]
 }

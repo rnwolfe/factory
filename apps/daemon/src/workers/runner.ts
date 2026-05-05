@@ -217,7 +217,7 @@ export async function executeRun(
             metrics: e.metrics,
           });
         }
-        events.publish({ channel: "events", ...e });
+        events.publish({ channel: "events", projectId: project.id, ...e });
         void persistEvent(e);
         if (e.kind === "session") lastSessionId = e.id;
       },
@@ -294,6 +294,7 @@ export async function executeRun(
       channel: "inbox",
       kind: "decision_updated", // reused — UI just invalidates queries
       decisionId: runId,
+      projectId: project.id,
     });
 
     // Quality signal: run lint/typecheck/test inside the worktree after the
@@ -318,6 +319,7 @@ export async function executeRun(
             runId,
             iteration: 1,
             overall: qualityReport.overall,
+            projectId: project.id,
           });
         }
       } catch (err) {
@@ -371,6 +373,7 @@ export async function executeRun(
             iteration: 1,
             sha: merge.sha,
             subject: `merge to main: ${result.branch}`,
+            projectId: project.id,
           });
         }
       } else {
@@ -406,6 +409,7 @@ export async function executeRun(
           channel: "inbox",
           kind: "decision_created",
           decisionId,
+          projectId: project.id,
         });
       }
     }
@@ -438,6 +442,7 @@ export async function executeRun(
         channel: "inbox",
         kind: "decision_created",
         decisionId,
+        projectId: project.id,
       });
     }
 

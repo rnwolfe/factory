@@ -1,13 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCheck, Send, X } from "lucide-react";
+import { ArrowLeft, CheckCheck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { AuditFinding, AuditRow } from "../components/audit-card.tsx";
 import { FindingCard } from "../components/finding-card.tsx";
+import { MarkdownView } from "../components/markdown-view.tsx";
 import { AuditMetricsChip } from "../components/metrics-chip.tsx";
 import { PromoteFindingsModal } from "../components/promote-findings-modal.tsx";
-import { getToken } from "../lib/auth.ts";
+import { useAuditChannel } from "../lib/channels.ts";
+import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
+
+interface AuditCommentRow {
+  id: string;
+  auditId: string;
+  role: "operator" | "agent";
+  body: string;
+  createdAt: number;
+}
 
 function parseFindings(raw: string | null | undefined): AuditFinding[] {
   if (!raw) return [];
@@ -27,6 +37,11 @@ function timeAgo(ts: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
+function fmtDate(ts: number): string {
+  const d = new Date(ts);
+  return d.toISOString().replace("T", " ").slice(0, 16);
+}
+
 export function AuditPane() {
   const params = useParams();
   const auditId = params.auditId ?? "";
@@ -41,10 +56,13 @@ export function AuditPane() {
     queryKey: ["audits.get", auditId],
     queryFn: () => trpc.audits.get.query({ id: auditId }) as unknown as Promise<AuditRow | null>,
     enabled: auditId.length > 0,
+    // Slow safety-net poll. Live updates arrive via the scoped /ws/events
+    // channel below; running audits still poll faster so the operator sees
+    // mid-run progress in case a WS message is dropped.
     refetchInterval: (q) => {
       const data = q.state.data as AuditRow | null | undefined;
-      if (!data) return 3000;
-      return data.status === "running" ? 2000 : 8000;
+      if (!data) return 30_000;
+      return data.status === "running" ? 5_000 : 30_000;
     },
   });
 
@@ -63,24 +81,18 @@ export function AuditPane() {
     }
   }, [audit.data?.status, auditId]);
 
-  // WS push for audit_*  events
-  useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/inbox?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(url);
-      ws.onmessage = () => {
-        qc.invalidateQueries({ queryKey: ["audits.get", auditId] });
-      };
-    } catch {
-      // ignore
-    }
-    return () => {
-      ws?.close();
-    };
-  }, [qc, auditId]);
+  const comments = useQuery({
+    queryKey: ["audits.comments", auditId],
+    queryFn: () => trpc.audits.comments.query({ auditId }) as unknown as Promise<AuditCommentRow[]>,
+    enabled: auditId.length > 0,
+  });
+
+  // Scoped WS push for audit_* events on this audit only — refetches both
+  // the audit row (status changes) and the comments thread (agent replies).
+  useAuditChannel(auditId || null, [
+    ["audits.get", auditId],
+    ["audits.comments", auditId],
+  ]);
 
   const approve = useMutation({
     mutationFn: () => trpc.audits.approve.mutate({ auditId }),
@@ -102,7 +114,7 @@ export function AuditPane() {
     mutationFn: (body: string) => trpc.audits.comment.mutate({ auditId, body }),
     onSuccess: () => {
       setComment("");
-      qc.invalidateQueries({ queryKey: ["audits.get", auditId] });
+      qc.invalidateQueries({ queryKey: ["audits.comments", auditId] });
     },
   });
 
@@ -160,9 +172,11 @@ export function AuditPane() {
           <div className="display text-[13.5px] text-[var(--color-verdict-trashed)] mb-1">
             audit failed
           </div>
-          <pre className="mono text-[11px] text-[var(--color-fg-2)] whitespace-pre-wrap">
-            {a.reportMarkdown ?? "(no report)"}
-          </pre>
+          <MarkdownView
+            source={a.reportMarkdown ?? "(no report)"}
+            storageKey={`mdView.audit-failed.${auditId}`}
+            defaultMode="raw"
+          />
         </div>
       ) : null}
 
@@ -171,9 +185,7 @@ export function AuditPane() {
           <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2">
             report
           </div>
-          <pre className="text-[13px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap break-words">
-            {a.reportMarkdown}
-          </pre>
+          <MarkdownView source={a.reportMarkdown} storageKey={`mdView.audit-report.${auditId}`} />
         </div>
       ) : null}
 
@@ -247,30 +259,107 @@ export function AuditPane() {
         </div>
       ) : null}
 
-      {!finalState && a.reportMarkdown ? (
-        <div className="surface p-3">
-          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2">
-            ask a follow-up
+      {a.reportMarkdown && a.status !== "running" && a.status !== "failed" ? (
+        <section>
+          <div className="flex items-center gap-2 px-1 mb-1.5">
+            <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+              thread
+            </span>
+            <div className="hairline flex-1" />
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+              {comments.data?.length ?? 0}
+            </span>
           </div>
-          <textarea
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            rows={3}
-            placeholder="ask the agent to clarify a finding…"
-            className="surface w-full bg-[var(--color-bg-2)] px-3 py-2 text-[13px] text-[var(--color-fg)] resize-none"
-          />
-          <div className="flex items-center gap-2 mt-2">
-            <div className="flex-1" />
-            <button
-              type="button"
-              className="btn btn-primary text-[12px]"
-              disabled={sendComment.isPending || comment.trim().length === 0}
-              onClick={() => sendComment.mutate(comment.trim())}
-            >
-              <Send size={12} /> send
-            </button>
+          <div className="surface">
+            {comments.data && comments.data.length > 0 ? (
+              <ul className="divide-y divide-[var(--color-line)]">
+                {comments.data.map((c) => (
+                  <li key={c.id} className="px-4 py-3">
+                    <div className="flex items-baseline justify-between gap-3 mb-1">
+                      <span
+                        className={cn(
+                          "mono text-[10.5px] uppercase tracking-[0.18em]",
+                          c.role === "operator"
+                            ? "text-[var(--color-fg-1)]"
+                            : "text-[var(--color-accent)]",
+                        )}
+                      >
+                        {c.role}
+                      </span>
+                      <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                        {fmtDate(c.createdAt)}
+                      </span>
+                    </div>
+                    <div className="text-[14px] leading-relaxed text-[var(--color-fg)]">
+                      <MarkdownView source={c.body} storageKey={`mdView.audit-comment.${c.id}`} />
+                    </div>
+                  </li>
+                ))}
+                {sendComment.isPending ||
+                (comments.data.length > 0 &&
+                  comments.data[comments.data.length - 1]?.role === "operator") ? (
+                  <li className="px-4 py-3">
+                    <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+                      agent · thinking
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="skel h-2.5 w-2.5 rounded-full" />
+                      <span className="skel h-2.5 w-2.5 rounded-full" />
+                      <span className="skel h-2.5 w-2.5 rounded-full" />
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+            ) : (
+              <div className="px-4 py-3 text-[13px] text-[var(--color-fg-3)]">
+                no follow-ups yet.
+              </div>
+            )}
+
+            {!finalState ? (
+              <form
+                className={cn(
+                  "px-4 py-3 space-y-2",
+                  comments.data && comments.data.length > 0
+                    ? "border-t border-[var(--color-line)]"
+                    : "",
+                )}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const body = comment.trim();
+                  if (!body) return;
+                  sendComment.mutate(body);
+                }}
+              >
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  rows={3}
+                  placeholder="ask the agent to clarify a finding…"
+                  className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)] resize-y"
+                  disabled={sendComment.isPending}
+                />
+                <div className="flex justify-between items-center gap-2">
+                  <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                    the agent resumes the audit's session to reply
+                  </span>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={sendComment.isPending || comment.trim().length === 0}
+                  >
+                    {sendComment.isPending ? "sending…" : "send"}
+                  </button>
+                </div>
+                {sendComment.isError ? (
+                  <p className="mono text-[11px] text-[var(--color-verdict-trashed)]">
+                    {(sendComment.error as Error).message}
+                  </p>
+                ) : null}
+              </form>
+            ) : null}
           </div>
-        </div>
+        </section>
       ) : null}
 
       {showPromote ? (

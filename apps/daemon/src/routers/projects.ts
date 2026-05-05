@@ -1,8 +1,10 @@
 import { schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
+import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { ImportError, importFromPath, importFromUrl } from "../projects/import.ts";
 import {
   createTask,
   listTasks,
@@ -16,6 +18,7 @@ import { protectedProcedure, router } from "../trpc.ts";
 
 const TagEnum = z.enum(["active", "background", "past"]);
 const TierEnum = z.enum(["tinker", "personal", "share", "productize"]);
+const GoalEnum = z.enum(["me", "learn", "share", "productize"]);
 const TaskStatusEnum = z.enum(["ready", "in_progress", "review", "done", "blocked", "dropped"]);
 const TaskEstimateEnum = z.enum(["small", "medium", "large"]);
 const TaskPriorityEnum = z.enum(["low", "med", "high"]);
@@ -249,6 +252,65 @@ export const projectsRouter = router({
     if (!project) return null;
     return snapshotWorkdir(project.workdirPath);
   }),
+
+  /**
+   * v0.4 cut 6 — bring an existing repo into Factory without going through
+   * triage. URL mode clones into <workdir>/projects/<slug>; path mode adopts
+   * an existing checkout in place. Either mode writes the .factory/
+   * skeleton without clobbering existing files.
+   */
+  import: protectedProcedure
+    .input(
+      z.object({
+        source: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("url"), url: z.string().url() }),
+          z.object({ kind: z.literal("path"), path: z.string().min(1) }),
+        ]),
+        name: z.string().min(1).max(80).optional(),
+        slug: z
+          .string()
+          .min(1)
+          .max(60)
+          .regex(/^[a-z0-9-]+$/)
+          .optional(),
+        goal: GoalEnum,
+        tier: TierEnum.optional().default("tinker"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result =
+          input.source.kind === "url"
+            ? await importFromUrl(ctx.config, ctx.db, {
+                url: input.source.url,
+                name: input.name,
+                slug: input.slug,
+                goal: input.goal,
+                tier: input.tier,
+              })
+            : await importFromPath(ctx.config, ctx.db, {
+                workdirPath: input.source.path,
+                name: input.name,
+                slug: input.slug,
+                goal: input.goal,
+                tier: input.tier,
+              });
+        return result;
+      } catch (err) {
+        if (err instanceof ImportError) {
+          // Map our typed errors to readable trpc errors so the PWA can show
+          // a useful message in the form. clone_failed/clone_timeout are
+          // user-actionable (private repo, bad URL, network); the rest are
+          // bad input.
+          const code =
+            err.code === "clone_failed" || err.code === "clone_timeout"
+              ? "INTERNAL_SERVER_ERROR"
+              : "BAD_REQUEST";
+          throw new TRPCError({ code, message: err.message });
+        }
+        throw err;
+      }
+    }),
 
   tasks: tasksRouter,
 });

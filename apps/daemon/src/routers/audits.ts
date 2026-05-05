@@ -3,6 +3,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { appendOperatorComment, listAuditComments, runAgentReply } from "../audits/comments.ts";
 import { runExecAudit } from "../audits/exec-iterate.ts";
 import { readFindings, writeFindings } from "../audits/findings.ts";
 import { runAuditIteration } from "../audits/iterate.ts";
@@ -459,17 +460,25 @@ export const auditsRouter = router({
     }),
 
   /**
-   * Operator follow-up question on a completed audit. Posts the question to
-   * the audit's pane and resumes the captured Claude session for a one-shot
-   * reply that is appended to the report markdown under a "Discussion"
-   * heading.
-   *
-   * v0.3 keeps this lightweight — no comment table for audits; the report
-   * markdown itself accrues the Q&A. Future work may promote this to a
-   * structured comment thread (see ADR-003 §15).
+   * Thread of operator and agent comments on a completed audit. v0.4 cut 5
+   * replaces the v0.3 "append a Discussion section to reportMarkdown"
+   * approach with a proper table — same shape as plan/decision threads.
+   * Pre-existing inline `## Discussion` sections in older `reportMarkdown`
+   * are left in place; this list is the authoritative thread going forward.
+   */
+  comments: protectedProcedure
+    .input(z.object({ auditId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return listAuditComments(ctx.db, input.auditId);
+    }),
+
+  /**
+   * Operator follow-up on a completed audit. Persists the operator row,
+   * fires the agent reply in the background (best-effort, resumed session),
+   * and broadcasts `audit_updated` so the open pane refetches.
    */
   comment: protectedProcedure
-    .input(z.object({ auditId: z.string(), body: z.string().min(1).max(4000) }))
+    .input(z.object({ auditId: z.string(), body: z.string().trim().min(1).max(4000) }))
     .mutation(async ({ ctx, input }) => {
       const audit = await ctx.db
         .select()
@@ -483,63 +492,28 @@ export const auditsRouter = router({
           message: `audit ${audit.status} — comment only on completed reports`,
         });
       }
-      // Append the operator question to the report markdown immediately so
-      // the UI reflects the change, then fire-and-forget a resumed claude call
-      // for the answer.
-      const now = Date.now();
-      const markdownNow = audit.reportMarkdown ?? "";
-      const opSection = `\n\n## Discussion — operator (${new Date(now).toISOString()})\n\n${input.body.trim()}\n`;
-      const updatedReport = `${markdownNow.replace(/\n+$/, "")}${opSection}`;
-      await ctx.db
-        .update(schema.audits)
-        .set({ reportMarkdown: updatedReport })
-        .where(eq(schema.audits.id, audit.id));
-      ctx.events.publish({ channel: "inbox", kind: "audit_updated", auditId: audit.id });
 
-      // Resume session for the agent's reply — best-effort. If no session was
-      // captured (older audits before session-capture wiring) we no-op the
-      // background reply; operator still has their own comment in the doc.
-      if (audit.claudeSessionId) {
-        void (async () => {
-          try {
-            const { invokeClaudeJson } = await import("../plans/invoke-claude.ts");
-            const { recordClaudeMetrics } = await import("../metrics/record.ts");
-            const reply = await invokeClaudeJson(
-              `Operator just asked a follow-up on the audit report:\n\n${input.body.trim()}\n\nReply in 1–3 short paragraphs of markdown. Do not re-emit the JSON envelope; just prose.`,
-              { budgetSeconds: 120, resumeSessionId: audit.claudeSessionId ?? undefined },
-            );
-            if (reply.metrics) {
-              await recordClaudeMetrics({
-                db: ctx.db,
-                ownerKind: "audit_comment",
-                ownerId: audit.id,
-                projectId: audit.projectId,
-                metrics: reply.metrics,
-              });
-            }
-            const replyTs = Date.now();
-            const fresh = await ctx.db
-              .select()
-              .from(schema.audits)
-              .where(eq(schema.audits.id, audit.id))
-              .get();
-            if (!fresh) return;
-            const agentSection = `\n\n## Discussion — agent (${new Date(replyTs).toISOString()})\n\n${reply.text.trim()}\n`;
-            const next = `${(fresh.reportMarkdown ?? "").replace(/\n+$/, "")}${agentSection}`;
-            await ctx.db
-              .update(schema.audits)
-              .set({
-                reportMarkdown: next,
-                claudeSessionId: reply.sessionId ?? fresh.claudeSessionId,
-              })
-              .where(eq(schema.audits.id, audit.id));
-            ctx.events.publish({ channel: "inbox", kind: "audit_updated", auditId: audit.id });
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            console.warn(`[audit-comment] ${audit.id} reply failed: ${message}`);
-          }
-        })();
-      }
-      return { ok: true };
+      const opComment = await appendOperatorComment(ctx.db, audit.id, input.body.trim());
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "audit_updated",
+        auditId: audit.id,
+        projectId: audit.projectId,
+      });
+
+      // Background agent reply — same fire-and-forget shape as plan/decision
+      // threads. Errors land as agent-role rows so the operator isn't left
+      // staring at a stalled thinking spinner.
+      void (async () => {
+        await runAgentReply(ctx.db, audit.id, opComment.body);
+        ctx.events.publish({
+          channel: "inbox",
+          kind: "audit_updated",
+          auditId: audit.id,
+          projectId: audit.projectId,
+        });
+      })();
+
+      return { commentId: opComment.id };
     }),
 });

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Snowflake, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { MarkdownView } from "../components/markdown-view.tsx";
 import { MetricsChip } from "../components/metrics-chip.tsx";
 import {
   type AnyDraftView,
@@ -12,7 +13,7 @@ import {
   type RefinementDraftView,
   type TaskPlanDraftView,
 } from "../components/plan-draft-viewer.tsx";
-import { getToken } from "../lib/auth.ts";
+import { usePlanChannel } from "../lib/channels.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -100,7 +101,7 @@ export function PlanDetail() {
     queryKey: ["plans.get", id],
     queryFn: () => trpc.plans.get.query({ id }) as unknown as Promise<PlanRow | null>,
     enabled: id.length > 0,
-    refetchInterval: 6_000,
+    refetchInterval: 30_000,
   });
 
   const comments = useQuery({
@@ -143,39 +144,10 @@ export function PlanDetail() {
     },
   });
 
-  // Subscribe to /ws/inbox for plan_* events relevant to this id.
-  useEffect(() => {
-    const token = getToken();
-    if (!token || !id) return;
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/inbox?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(url);
-      ws.onmessage = (msg) => {
-        try {
-          const evt = JSON.parse(msg.data) as { kind?: string; planId?: string };
-          if (evt.planId !== id) return;
-          if (evt.kind === "plan_comment_added") {
-            qc.invalidateQueries({ queryKey: ["plans.comments", id] });
-          }
-          if (evt.kind === "plan_updated") {
-            qc.invalidateQueries({ queryKey: ["plans.get", id] });
-          }
-          if (evt.kind === "plan_frozen" || evt.kind === "plan_abandoned") {
-            qc.invalidateQueries({ queryKey: ["plans.get", id] });
-            qc.invalidateQueries({ queryKey: ["plans.inbox"] });
-          }
-        } catch {
-          // ignore non-JSON frames
-        }
-      };
-    } catch {
-      // socket unavailable — refetch interval covers us
-    }
-    return () => {
-      ws?.close();
-    };
-  }, [id, qc]);
+  // Live updates pushed via /ws/events?scope=plan:<id>. Coarse invalidation —
+  // any plan_* event matching this id refetches the plan + its comments. The
+  // 30s polling above is the safety net.
+  usePlanChannel(id || null, [["plans.get", id], ["plans.comments", id], ["plans.inbox"]]);
 
   const parsedDraft = useMemo(() => {
     if (!plan.data) return null;
@@ -256,7 +228,7 @@ export function PlanDetail() {
           <div className="hairline flex-1" />
         </div>
         {parsedDraft ? (
-          <PlanDraftViewer draft={parsedDraft} />
+          <PlanDraftViewer draft={parsedDraft} planId={id} />
         ) : (
           <div className="surface px-4 py-3 text-[12.5px] text-[var(--color-fg-3)]">
             (draft unavailable — agent has not produced a parseable payload yet.)
@@ -299,9 +271,9 @@ export function PlanDetail() {
                       {fmtDate(c.createdAt)}
                     </span>
                   </div>
-                  <p className="text-[14px] leading-relaxed text-[var(--color-fg)] whitespace-pre-wrap">
-                    {c.body}
-                  </p>
+                  <div className="text-[14px] leading-relaxed text-[var(--color-fg)]">
+                    <MarkdownView source={c.body} storageKey={`mdView.plan-comment.${c.id}`} />
+                  </div>
                 </li>
               ))}
               {sendComment.isPending ||

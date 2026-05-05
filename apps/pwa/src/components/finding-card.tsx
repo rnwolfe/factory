@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn.ts";
 import type { AuditFinding } from "./audit-card.tsx";
+import { MarkdownView } from "./markdown-view.tsx";
 
 interface Props {
   finding: AuditFinding;
@@ -55,9 +56,9 @@ export function FindingCard({ finding, selected, onToggle }: Props) {
             {finding.title}
           </div>
           {finding.body ? (
-            <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-fg-2)] whitespace-pre-wrap">
-              {finding.body}
-            </p>
+            <div className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
+              <MarkdownView source={finding.body} storageKey={`mdView.finding.${finding.id}`} />
+            </div>
           ) : null}
         </div>
       </div>

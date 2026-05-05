@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ListTree, Pencil, Play, Snowflake, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { MarkdownView } from "../components/markdown-view.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { trpc } from "../lib/trpc.ts";
 
@@ -310,9 +311,7 @@ export function TaskDetail() {
               disabled={updateBody.isPending}
             />
           ) : task.data.body.trim().length > 0 ? (
-            <pre className="whitespace-pre-wrap break-words text-[13px] text-[var(--color-fg-1)] mono leading-relaxed">
-              {task.data.body}
-            </pre>
+            <MarkdownView source={task.data.body} storageKey={`mdView.task-body.${taskId}`} />
           ) : (
             <div className="text-[13px] text-[var(--color-fg-3)]">
               no body yet — edit to add acceptance criteria, context, etc.

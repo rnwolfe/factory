@@ -41,6 +41,7 @@ export const auditStatusEnum = [
 ] as const;
 export const auditFindingSeverityEnum = ["critical", "major", "minor", "enhancement"] as const;
 export const auditSkillKindEnum = ["read-only", "exec"] as const;
+export const auditCommentRoleEnum = ["operator", "agent"] as const;
 export const claudeMetricsOwnerKindEnum = [
   "run",
   "audit",
@@ -65,6 +66,7 @@ export type PlanCommentRole = (typeof planCommentRoleEnum)[number];
 export type AuditStatus = (typeof auditStatusEnum)[number];
 export type AuditFindingSeverity = (typeof auditFindingSeverityEnum)[number];
 export type AuditSkillKind = (typeof auditSkillKindEnum)[number];
+export type AuditCommentRole = (typeof auditCommentRoleEnum)[number];
 export type ClaudeMetricsOwnerKind = (typeof claudeMetricsOwnerKindEnum)[number];
 
 /**
@@ -456,6 +458,31 @@ export const audits = sqliteTable(
 
 export type Audit = typeof audits.$inferSelect;
 export type NewAudit = typeof audits.$inferInsert;
+
+/**
+ * v0.4 cut 5 — operator/agent thread on a completed audit. Replaces the
+ * "append a Discussion section to reportMarkdown" approach from v0.3 so
+ * follow-ups feel structurally identical to plan and decision threads.
+ * Existing audits whose reportMarkdown already carries inline `## Discussion`
+ * sections are left untouched; the thread starts fresh from the next
+ * comment.
+ */
+export const auditComments = sqliteTable(
+  "audit_comments",
+  {
+    id: text("id").primaryKey(),
+    auditId: text("audit_id")
+      .references(() => audits.id)
+      .notNull(),
+    role: text("role", { enum: auditCommentRoleEnum }).notNull(),
+    body: text("body").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("audit_comments_audit_created_idx").on(t.auditId, t.createdAt)],
+);
+
+export type AuditComment = typeof auditComments.$inferSelect;
+export type NewAuditComment = typeof auditComments.$inferInsert;
 
 /**
  * One row per terminating `claude --print` invocation, capturing the result

@@ -68,6 +68,16 @@ export function Settings() {
         </Link>
       </Section>
 
+      <Section title="storage">
+        <Link
+          to="/settings/worktrees"
+          className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
+        >
+          <span className="text-[13px] text-[var(--color-fg-1)]">worktrees</span>
+          <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
+        </Link>
+      </Section>
+
       <Section title="active rubric">
         {rubrics.data && rubrics.data.length > 0 ? (
           rubrics.data.map((r) => (

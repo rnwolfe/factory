@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Layers } from "lucide-react";
+import { FolderInput, Layers } from "lucide-react";
 import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 
@@ -16,12 +16,17 @@ export function Projects() {
   const rows = list.data ?? [];
   if (rows.length === 0) {
     return (
-      <div className="surface p-6 text-center">
-        <Layers size={28} className="mx-auto text-[var(--color-fg-3)] mb-2" />
-        <div className="display text-lg mb-1">no projects yet</div>
-        <p className="text-sm text-[var(--color-fg-2)]">
-          approve a greenlit decision to spawn the first one.
-        </p>
+      <div className="space-y-3">
+        <div className="surface p-6 text-center">
+          <Layers size={28} className="mx-auto text-[var(--color-fg-3)] mb-2" />
+          <div className="display text-lg mb-1">no projects yet</div>
+          <p className="text-sm text-[var(--color-fg-2)]">
+            approve a greenlit decision to spawn one — or import an existing repo.
+          </p>
+        </div>
+        <Link to="/projects/import" className="btn btn-primary w-full">
+          <FolderInput size={14} /> import existing project
+        </Link>
       </div>
     );
   }
@@ -33,6 +38,9 @@ export function Projects() {
 
   return (
     <div className="space-y-5">
+      <Link to="/projects/import" className="btn btn-ghost w-full">
+        <FolderInput size={14} /> import existing project
+      </Link>
       {grouped.map((g) => (
         <section key={g.tag}>
           <div className="flex items-center gap-2 px-1 mb-1.5">

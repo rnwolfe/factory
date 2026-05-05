@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn.ts";
+import { MarkdownView } from "./markdown-view.tsx";
 
 export interface ProjectSpecDraftView {
   kind: "project_spec";
@@ -74,24 +75,26 @@ export type AnyDraftView =
 
 interface Props {
   draft: AnyDraftView;
+  /** Used to seed the per-block markdown-view storageKeys. Defaults to "anon". */
+  planId?: string;
 }
 
-export function PlanDraftViewer({ draft }: Props) {
+export function PlanDraftViewer({ draft, planId = "anon" }: Props) {
   switch (draft.kind) {
     case "project_spec":
-      return <ProjectSpecView draft={draft} />;
+      return <ProjectSpecView draft={draft} planId={planId} />;
     case "task_plan":
       return <TaskPlanView draft={draft} />;
     case "refinement":
-      return <RefinementView draft={draft} />;
+      return <RefinementView draft={draft} planId={planId} />;
     case "feature_plan":
-      return <FeaturePlanView draft={draft} />;
+      return <FeaturePlanView draft={draft} planId={planId} />;
     case "project_vision":
-      return <ProjectVisionView draft={draft} />;
+      return <ProjectVisionView draft={draft} planId={planId} />;
   }
 }
 
-function FeaturePlanView({ draft }: { draft: FeaturePlanDraftView }) {
+function FeaturePlanView({ draft, planId }: { draft: FeaturePlanDraftView; planId: string }) {
   const tests = [
     { name: "identity", value: draft.visionFilter.identity },
     { name: "principle", value: draft.visionFilter.principle },
@@ -102,9 +105,9 @@ function FeaturePlanView({ draft }: { draft: FeaturePlanDraftView }) {
   return (
     <div className="space-y-3">
       {draft.summary ? (
-        <p className="px-4 py-3 surface text-[14px] leading-relaxed text-[var(--color-fg)]">
-          {draft.summary}
-        </p>
+        <div className="px-4 py-3 surface text-[14px] leading-relaxed text-[var(--color-fg)]">
+          <MarkdownView source={draft.summary} storageKey={`mdView.feature-summary.${planId}`} />
+        </div>
       ) : (
         <DraftEmpty hint="no summary yet — comment to seed the feature." />
       )}
@@ -190,7 +193,7 @@ function FeaturePlanView({ draft }: { draft: FeaturePlanDraftView }) {
   );
 }
 
-function ProjectVisionView({ draft }: { draft: ProjectVisionDraftView }) {
+function ProjectVisionView({ draft }: { draft: ProjectVisionDraftView; planId: string }) {
   return (
     <div className="space-y-3">
       <div className="surface px-4 py-3">
@@ -292,13 +295,13 @@ function ProjectVisionView({ draft }: { draft: ProjectVisionDraftView }) {
   );
 }
 
-function ProjectSpecView({ draft }: { draft: ProjectSpecDraftView }) {
+function ProjectSpecView({ draft, planId }: { draft: ProjectSpecDraftView; planId: string }) {
   return (
     <div className="space-y-3">
       {draft.summary ? (
-        <p className="px-4 py-3 surface text-[14px] leading-relaxed text-[var(--color-fg)]">
-          {draft.summary}
-        </p>
+        <div className="px-4 py-3 surface text-[14px] leading-relaxed text-[var(--color-fg)]">
+          <MarkdownView source={draft.summary} storageKey={`mdView.spec-summary.${planId}`} />
+        </div>
       ) : (
         <DraftEmpty hint="no summary yet — add a comment to seed the spec." />
       )}
@@ -413,7 +416,7 @@ function TaskPlanView({ draft }: { draft: TaskPlanDraftView }) {
   );
 }
 
-function RefinementView({ draft }: { draft: RefinementDraftView }) {
+function RefinementView({ draft, planId }: { draft: RefinementDraftView; planId: string }) {
   return (
     <div className="space-y-3">
       <div className="px-4 py-3 surface">
@@ -424,9 +427,12 @@ function RefinementView({ draft }: { draft: RefinementDraftView }) {
       </div>
       {draft.feedback ? (
         <Section title="agent's restatement of feedback">
-          <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg)]">
-            {draft.feedback}
-          </p>
+          <div className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg)]">
+            <MarkdownView
+              source={draft.feedback}
+              storageKey={`mdView.refinement-feedback.${planId}`}
+            />
+          </div>
         </Section>
       ) : (
         <DraftEmpty hint="no feedback summary yet — comment with what changed." />
