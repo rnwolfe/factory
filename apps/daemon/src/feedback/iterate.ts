@@ -1,10 +1,12 @@
 import { type Db, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { extractJsonObject } from "../plans/json-extract.ts";
 import { setFeedbackSession } from "./store.ts";
+
+const FEEDBACK_PROMPT_KEY = "feedback-iterate-v1";
 
 export interface FeedbackCommentRow {
   id: string;
@@ -89,7 +91,7 @@ export async function runAgentReply(
   if (!fb) return { comment: null, draft: null, errorMessage: "feedback not found" };
 
   const thread = await listFeedbackComments(db, feedbackId);
-  const prompt = buildPrompt(fb, thread);
+  const prompt = await buildPrompt(db, fb, thread);
 
   let invocation: InvokeClaudeResult;
   try {
@@ -164,35 +166,60 @@ async function persistAgentRow(
   return { id, feedbackId, role: "agent", body, resultingDraft, createdAt };
 }
 
-function buildPrompt(
+function renderTemplate(template: string, vars: Record<string, string>): string {
+  let out = template;
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.replaceAll(`{{${k}}}`, v);
+  }
+  return out;
+}
+
+const FALLBACK_PROMPT_TEMPLATE = [
+  'You are an AI engineering assistant helping the operator of an internal tool called "Factory" iterate on feedback they captured about Factory itself.',
+  "",
+  "## The feedback",
+  "Vote: {{VOTE}}",
+  "Captured from: {{CONTEXT_HINT}} — {{CONTEXT_ROUTE}}",
+  "",
+  "{{BODY}}",
+  "",
+  "## Thread so far",
+  "{{THREAD}}",
+  "",
+  "## Your turn",
+  "Reply to the operator in 1-3 short paragraphs of markdown. Then, on a new line, emit a fenced JSON block describing what you'd recommend doing about this feedback. Use this shape exactly:",
+  "",
+  "```json",
+  '{"kind": "plan" | "task" | "dismiss", "title": "...", "summary": "...", "reasoning": "..."}',
+  "```",
+  "",
+  "Pick `plan` for substantive work that needs decomposition; `task` for a single discrete change; `dismiss` if the feedback isn't actionable. Keep title under 80 chars; summary as 2-5 lines of markdown.",
+].join("\n");
+
+async function buildPrompt(
+  db: Db,
   fb: typeof schema.feedback.$inferSelect,
   thread: FeedbackCommentRow[],
-): string {
+): Promise<string> {
   const threadMd =
     thread.length === 0
       ? "(no replies yet)"
       : thread.map((c) => `### ${c.role}\n\n${c.body}`).join("\n\n");
-  return [
-    'You are an AI engineering assistant helping the operator of an internal tool called "Factory" iterate on feedback they captured about Factory itself.',
-    "",
-    "## The feedback",
-    `Vote: ${fb.vote}`,
-    `Captured from: ${fb.contextHint ?? "(no hint)"} — ${fb.contextRoute ?? "(no route)"}`,
-    "",
-    fb.body,
-    "",
-    "## Thread so far",
-    threadMd,
-    "",
-    "## Your turn",
-    "Reply to the operator in 1-3 short paragraphs of markdown. Then, on a new line, emit a fenced JSON block describing what you'd recommend doing about this feedback. Use this shape exactly:",
-    "",
-    "```json",
-    '{"kind": "plan" | "task" | "dismiss", "title": "...", "summary": "...", "reasoning": "..."}',
-    "```",
-    "",
-    "Pick `plan` for substantive work that needs decomposition; `task` for a single discrete change; `dismiss` if the feedback isn't actionable. Keep title under 80 chars; summary as 2-5 lines of markdown.",
-  ].join("\n");
+
+  const row = await db
+    .select({ content: schema.prompts.content })
+    .from(schema.prompts)
+    .where(and(eq(schema.prompts.promptKey, FEEDBACK_PROMPT_KEY), eq(schema.prompts.active, true)))
+    .get();
+  const template = row?.content ?? FALLBACK_PROMPT_TEMPLATE;
+
+  return renderTemplate(template, {
+    VOTE: fb.vote,
+    CONTEXT_HINT: fb.contextHint ?? "(no hint)",
+    CONTEXT_ROUTE: fb.contextRoute ?? "(no route)",
+    BODY: fb.body,
+    THREAD: threadMd,
+  });
 }
 
 function coerceDraft(parsed: Record<string, unknown>): FeedbackDraft | null {

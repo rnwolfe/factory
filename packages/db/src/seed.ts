@@ -25,6 +25,9 @@ const PLAN_PROMPT_FILES: Array<{ key: string; file: string }> = [
 const AUDIT_BRIDGE_PROMPT_FILE = path.join(repoRoot, "prompts/audit-bridge-v1.md");
 const AUDIT_BRIDGE_PROMPT_KEY = "audit-bridge-v1";
 
+const FEEDBACK_PROMPT_FILE = path.join(repoRoot, "prompts/feedback-iterate-v1.md");
+const FEEDBACK_PROMPT_KEY = "feedback-iterate-v1";
+
 interface RubricYaml {
   id: string;
   version: number;
@@ -144,6 +147,37 @@ async function main() {
       );
   }
 
+  // Feedback iteration prompt: agent reply on feedback threads.
+  // Same upsert shape as the plan prompts.
+  const feedbackContent = await readFile(FEEDBACK_PROMPT_FILE, "utf8");
+  const existingFeedback = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(eq(prompts.promptKey, FEEDBACK_PROMPT_KEY))
+    .all();
+  if (existingFeedback.length === 0) {
+    await db.insert(prompts).values({
+      id: createId(),
+      promptKey: FEEDBACK_PROMPT_KEY,
+      version: 1,
+      content: feedbackContent,
+      active: true,
+      createdAt: now,
+    });
+    console.log(`  + prompt ${FEEDBACK_PROMPT_KEY}@1`);
+  } else {
+    console.log(
+      `  · prompt ${FEEDBACK_PROMPT_KEY} already present (${existingFeedback.length} row(s))`,
+    );
+  }
+  await db.update(prompts).set({ active: false }).where(eq(prompts.promptKey, FEEDBACK_PROMPT_KEY));
+  await db
+    .update(prompts)
+    .set({ active: true })
+    .where(
+      sql`${prompts.promptKey} = ${FEEDBACK_PROMPT_KEY} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${FEEDBACK_PROMPT_KEY})`,
+    );
+
   // Audit bridge prompt: small routing call invoked by audits.promoteFindings.
   // Same upsert shape as the plan prompts.
   const auditBridgeContent = await readFile(AUDIT_BRIDGE_PROMPT_FILE, "utf8");
@@ -235,6 +269,7 @@ async function main() {
     FOLLOWUP_PROMPT_KEY,
     ...PLAN_PROMPT_FILES.map((p) => p.key),
     AUDIT_BRIDGE_PROMPT_KEY,
+    FEEDBACK_PROMPT_KEY,
   ]);
   const activePromptKeys = new Set(activePrompts.map((p) => p.key));
   const missingKeys = [...expectedPromptKeys].filter((k) => !activePromptKeys.has(k));
