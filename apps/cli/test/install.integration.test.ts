@@ -56,6 +56,8 @@ describe("factory install", () => {
     const unit = unitPath();
     expect(existsSync(unit)).toBe(true);
     const content = readFileSync(unit, "utf8");
+    expect(content).toContain("Type=notify");
+    expect(content).toContain("NotifyAccess=main");
     expect(content).toContain(`WorkingDirectory=${checkout}`);
     expect(content).toContain(`Environment=FACTORY_HOME=${home}`);
     expect(content).toContain(`ExecStart=/usr/bin/env bun run --cwd ${checkout} start`);

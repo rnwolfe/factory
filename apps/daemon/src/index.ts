@@ -6,8 +6,10 @@ import { authorizeRequest } from "./auth.ts";
 import { type FactoryConfig, loadConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
+import { buildHealth } from "./health.ts";
 import { appRouter } from "./router.ts";
 import { ScriptRegistry } from "./scripts/registry.ts";
+import { notifyReady } from "./sd-notify.ts";
 import { recoverOrphanedSessions, tmuxNameForSession } from "./sessions/orchestrate.ts";
 import { applySettingsFromDb } from "./settings/store.ts";
 import { makeStaticHandler } from "./static.ts";
@@ -150,9 +152,12 @@ export async function startDaemon(): Promise<DaemonHandle> {
           });
         }
 
-        // Tiny health endpoint that bypasses tRPC for ops checks.
+        // Health endpoint bypasses tRPC for ops checks (systemctl status,
+        // factory upgrade post-restart probe, doctor, etc.).
         if (url.pathname === "/health") {
-          return Response.json({ ok: true, ts: Date.now() });
+          return buildHealth(db).then((info) =>
+            Response.json(info, { status: info.status === "ok" ? 200 : 503 }),
+          );
         }
 
         // Static SPA — serves the built PWA when present.
@@ -215,6 +220,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
   console.log(`[factoryd] workdir:         ${config.workdir}`);
   console.log(`[factoryd] db:              ${config.dbPath}`);
   console.log(`[factoryd] max concurrent runs: ${config.maxConcurrentRuns}`);
+
+  // Tell systemd we're ready (no-op outside Type=notify units). After this
+  // point the unit is considered Started; `factory upgrade`'s health probe
+  // will see the new version.
+  await notifyReady();
 
   let stopping = false;
   const stop = async () => {

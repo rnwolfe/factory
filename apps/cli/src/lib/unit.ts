@@ -24,8 +24,10 @@ export interface UnitVars {
 }
 
 /**
- * Render the unit file. cut 2 ships Type=simple; cut 3 will flip this to
- * Type=notify after the daemon's sd_notify call lands.
+ * Render the unit file. Type=notify because the daemon calls sd_notify
+ * READY=1 once it's actually serving — that gives systemd (and the
+ * post-upgrade health probe) a real readiness signal instead of "process
+ * exec'd."
  */
 export function renderUnit(vars: UnitVars): string {
   return `[Unit]
@@ -33,12 +35,14 @@ Description=Factory daemon
 After=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 WorkingDirectory=${vars.checkout}
 Environment=FACTORY_HOME=${vars.factoryHome}
 ExecStart=${vars.bunBin} run --cwd ${vars.checkout} start
 Restart=on-failure
 RestartSec=2
+TimeoutStartSec=60
 
 [Install]
 WantedBy=default.target
