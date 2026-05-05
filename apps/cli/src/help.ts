@@ -31,5 +31,6 @@ upgrade lifecycle:
                         --dry-run         print the target without applying
                         --force           proceed on a dirty checkout
                         --skip-restart    apply without restarting the unit
-  factory doctor        preflight checks                                   (cut 7)
+  factory doctor        preflight checks (bun, git, unit, /health, config, db)
+                        --strict          warn-level checks fail with exit 1
 `;

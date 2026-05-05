@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { runChannel } from "./commands/channel.ts";
+import { parseDoctorArgs, runDoctor } from "./commands/doctor.ts";
 import { runDown } from "./commands/down.ts";
 import { parseInstallArgs, runInstall } from "./commands/install.ts";
 import { parseLogsArgs, runLogs } from "./commands/logs.ts";
@@ -36,6 +37,8 @@ async function main(argv: string[]): Promise<number> {
       return await runChannel(rest);
     case "upgrade":
       return await runUpgrade(parseUpgradeArgs(rest));
+    case "doctor":
+      return await runDoctor(parseDoctorArgs(rest));
     default:
       process.stderr.write(`factory: unknown command '${cmd}'\n\n`);
       process.stdout.write(HELP);
