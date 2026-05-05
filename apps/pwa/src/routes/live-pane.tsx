@@ -6,20 +6,10 @@ import { ArrowLeft, ListTree, Pencil, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { QualityReportPanel, type QualityReportView } from "../components/quality-report.tsx";
+import { RunEventStream } from "../components/run-event-stream.tsx";
 import { getToken } from "../lib/auth.ts";
+import { useRunChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
-
-interface TickerEvent {
-  kind: string;
-  iteration: number;
-  text?: string;
-  name?: string;
-  argSummary?: string;
-  sha?: string;
-  subject?: string;
-  exitCode?: number;
-  ts?: number;
-}
 
 interface RunDiff {
   base: string | null;
@@ -39,9 +29,16 @@ export function LivePane() {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const [ticker, setTicker] = useState<TickerEvent[]>([]);
-  const [seeded, setSeeded] = useState(false);
   const [paneStatus, setPaneStatus] = useState<"connecting" | "open" | "closed">("connecting");
+  /**
+   * "structured" (default) shows the parsed event timeline (`RunEventStream`).
+   * "raw" shows the xterm dump of pane bytes — useful for debugging when the
+   * structured view drops something. Operator preference is sticky per browser.
+   */
+  const [view, setView] = useState<"structured" | "raw">(() => {
+    if (typeof window === "undefined") return "structured";
+    return window.localStorage.getItem("livePane.view") === "raw" ? "raw" : "structured";
+  });
   // Bytes already written to xterm from the persisted log. The pane WS only
   // delivers new bytes after subscription, so without this we'd duplicate any
   // overlap when both sources land on the screen.
@@ -52,15 +49,6 @@ export function LivePane() {
     queryFn: () => trpc.runs.get.query({ id: runId }),
     enabled: runId.length > 0,
     refetchInterval: 30_000,
-  });
-
-  // Seed the ticker from persisted events so completed runs aren't blank.
-  // Only runs once per mount — after that, the live WS feed is authoritative.
-  const persistedEvents = useQuery({
-    queryKey: ["runs.events", runId],
-    queryFn: () => trpc.runs.events.query({ runId }),
-    enabled: runId.length > 0 && !seeded,
-    staleTime: Number.POSITIVE_INFINITY,
   });
 
   const diff = useQuery({
@@ -101,16 +89,6 @@ export function LivePane() {
     }
     replayedRef.current = true;
   }, [rawLog.data]);
-
-  useEffect(() => {
-    if (!persistedEvents.data || seeded) return;
-    // DB rows are asc by id; ticker renders newest-first, so reverse.
-    const events = persistedEvents.data
-      .map((row) => row.payload as unknown as TickerEvent)
-      .reverse();
-    setTicker(events);
-    setSeeded(true);
-  }, [persistedEvents.data, seeded]);
 
   // Boot the terminal once.
   useEffect(() => {
@@ -200,31 +178,14 @@ export function LivePane() {
     };
   }, [runId]);
 
-  // Events WS — structured event ticker.
-  useEffect(() => {
-    if (!runId) return;
-    const token = getToken();
-    if (!token) return;
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const url = `${proto}://${location.host}/ws/events?runId=${encodeURIComponent(runId)}&token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(url);
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-        setTicker((cur) => [data, ...cur].slice(0, 500));
-        if (data.kind === "iteration_end" || data.kind === "agent_exit") {
-          qc.invalidateQueries({ queryKey: ["runs.get", runId] });
-          qc.invalidateQueries({ queryKey: ["runs.list", id] });
-          qc.invalidateQueries({ queryKey: ["projects.get", id] });
-        }
-      } catch {
-        // ignore
-      }
-    };
-    return () => {
-      ws.close();
-    };
-  }, [runId, qc, id]);
+  // Per-route invalidations: runs.get / runs.list / projects.get refetch on
+  // any event matching this run. The structured stream (RunEventStream)
+  // additionally handles its own UI updates via the same scoped channel.
+  useRunChannel(runId || null, [
+    ["runs.get", runId],
+    ["runs.list", id],
+    ["projects.get", id],
+  ]);
 
   const abort = async () => {
     try {
@@ -348,36 +309,43 @@ export function LivePane() {
         <QualityReportPanel report={qualityReport} />
       ) : null}
 
-      <div className="surface p-0 overflow-hidden flex-1 min-h-[280px]">
-        <div ref={containerRef} className="h-full w-full" />
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          run log
+        </span>
+        <div className="hairline flex-1" />
+        <button
+          type="button"
+          className={`mono text-[10.5px] uppercase tracking-[0.18em] px-2 py-1 rounded-[2px] ${
+            view === "raw"
+              ? "text-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+              : "text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+          }`}
+          onClick={() => {
+            const next = view === "raw" ? "structured" : "raw";
+            setView(next);
+            try {
+              window.localStorage.setItem("livePane.view", next);
+            } catch {
+              // localStorage may be denied; the toggle still works for the session
+            }
+          }}
+        >
+          [{view === "raw" ? "rendered" : "raw"}]
+        </button>
+      </div>
+
+      {/* Both views stay mounted — keeps xterm scrollback when toggling. */}
+      <div className={view === "structured" ? "block" : "hidden"}>
+        <RunEventStream runId={runId} />
+      </div>
+      <div
+        className={`surface p-0 overflow-hidden ${view === "raw" ? "block flex-1 min-h-[280px]" : "hidden"}`}
+      >
+        <div ref={containerRef} className="h-full w-full min-h-[280px]" />
       </div>
 
       {diff.data ? <DiffPanel diff={diff.data} /> : null}
-
-      <div className="surface mt-2 p-0 overflow-hidden">
-        <div className="px-3 py-1.5 border-b border-[var(--color-line)] mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
-          events ({ticker.length})
-        </div>
-        <ul className="divide-y divide-[var(--color-line)] max-h-[420px] overflow-y-auto">
-          {ticker.length === 0 ? (
-            <li className="px-3 py-2 text-[12px] text-[var(--color-fg-3)]">waiting for events…</li>
-          ) : (
-            ticker.map((e, i) => (
-              <li
-                // biome-ignore lint/suspicious/noArrayIndexKey: ticker is append-only with no stable id
-                key={`${e.kind}-${e.ts ?? 0}-${i}`}
-                className="px-3 py-1.5 mono text-[11.5px] flex gap-2"
-              >
-                <span className="text-[var(--color-fg-3)] tabular-nums w-12 shrink-0">
-                  i{e.iteration}
-                </span>
-                <span className="text-[var(--color-accent)] w-24 shrink-0">{e.kind}</span>
-                <span className="text-[var(--color-fg-1)] truncate">{tickerLabel(e)}</span>
-              </li>
-            ))
-          )}
-        </ul>
-      </div>
 
       {status === "running" || status === "queued" ? (
         <button type="button" onClick={abort} className="btn btn-danger w-full mt-2">
@@ -562,24 +530,4 @@ function fmtElapsed(s: number): string {
   if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
   const h = Math.floor(m / 60);
   return `${h}h${String(m % 60).padStart(2, "0")}m`;
-}
-
-function tickerLabel(e: TickerEvent): string {
-  switch (e.kind) {
-    case "text":
-      return (e.text ?? "").slice(0, 80);
-    case "tool":
-      return `${e.name ?? ""} · ${e.argSummary ?? ""}`.slice(0, 80);
-    case "session":
-      return "session captured";
-    case "commit":
-      return `${(e.sha ?? "").slice(0, 8)} ${e.subject ?? ""}`.slice(0, 80);
-    case "iteration_start":
-    case "iteration_end":
-      return `iteration ${e.iteration} ${e.kind === "iteration_end" ? `(exit ${e.exitCode ?? "?"})` : ""}`;
-    case "agent_exit":
-      return `agent exited ${e.exitCode ?? "?"}`;
-    default:
-      return "";
-  }
 }

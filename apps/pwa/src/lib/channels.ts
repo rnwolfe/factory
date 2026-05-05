@@ -3,6 +3,11 @@ import { type ChannelScope, useScopedChannel } from "./use-channel.ts";
 
 type QueryKey = readonly unknown[];
 
+interface ChannelOpts {
+  /** Optional consumer that receives the parsed event for fine-grained handling. */
+  onEvent?: (event: unknown) => void;
+}
+
 /**
  * Typed wrappers around `useScopedChannel`. Each takes the IDs that scope
  * the channel and an array of React Query key prefixes to invalidate on
@@ -19,12 +24,16 @@ export function useProjectChannel(projectId: string | null | undefined, keys: Qu
   useScopedChannel(scope, { invalidate: keys });
 }
 
-export function useRunChannel(runId: string | null | undefined, keys: QueryKey[]): void {
+export function useRunChannel(
+  runId: string | null | undefined,
+  keys: QueryKey[],
+  opts: ChannelOpts = {},
+): void {
   const scope = useMemo<ChannelScope | null>(
     () => (runId ? { kind: "run", id: runId } : null),
     [runId],
   );
-  useScopedChannel(scope, { invalidate: keys });
+  useScopedChannel(scope, { invalidate: keys, onEvent: opts.onEvent });
 }
 
 export function useAuditChannel(auditId: string | null | undefined, keys: QueryKey[]): void {

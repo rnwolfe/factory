@@ -245,6 +245,219 @@ body {
 }
 .drop-in { animation: drop-in 280ms ease-out backwards; }
 
+/* markdown block — rendered output for assistant text, audit reports,
+   plan drafts, comments. Hand-rolled renderer in components/markdown-block.tsx. */
+.md-block {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-fg);
+}
+.md-block > * + * { margin-top: 8px; }
+.md-block > h1 + *, .md-block > h2 + *, .md-block > h3 + * { margin-top: 6px; }
+.md-block .md-p { margin: 0; word-wrap: break-word; }
+.md-block .md-h {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--color-fg);
+}
+.md-block .md-h1 { font-size: 18px; font-weight: 600; }
+.md-block .md-h2 { font-size: 16px; font-weight: 600; }
+.md-block .md-h3 { font-size: 14.5px; font-weight: 600; }
+.md-block .md-h4 { font-size: 13.5px; font-weight: 600; }
+.md-block .md-h5 { font-size: 13px; font-weight: 600; color: var(--color-fg-1); }
+.md-block .md-h6 { font-size: 12.5px; font-weight: 600; color: var(--color-fg-2); }
+.md-block .md-code {
+  background: var(--color-bg-2);
+  border: 1px solid var(--color-line);
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--color-fg-1);
+}
+.md-block .md-inline-code {
+  background: var(--color-bg-2);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-fg-1);
+}
+.md-block .md-ul, .md-block .md-ol {
+  margin: 0;
+  padding-left: 20px;
+}
+.md-block .md-ul { list-style: disc; }
+.md-block .md-ol { list-style: decimal; }
+.md-block .md-ul li, .md-block .md-ol li { margin-top: 2px; }
+.md-block .md-bq {
+  border-left: 2px solid var(--color-line-bright);
+  padding-left: 10px;
+  color: var(--color-fg-2);
+  font-style: italic;
+  margin: 0;
+}
+.md-block .md-hr {
+  border: none;
+  height: 1px;
+  background: var(--color-line);
+  margin: 8px 0;
+}
+.md-block .md-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-block .md-link:hover { filter: brightness(1.15); }
+
+/* run-event-stream — structured timeline replacing the bare xterm dump.
+   Lives in components/run-event-{row,stream}.tsx. */
+.run-event-stream { /* container styling provided by .surface */ }
+.run-event-list > div + div { border-top: 1px solid var(--color-bg-2); }
+
+.run-event {
+  padding: 6px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-fg-1);
+}
+
+.run-event-text {
+  display: block;
+  padding: 8px 12px 10px;
+  background: var(--color-bg);
+}
+.run-event-text .md-block { color: var(--color-fg); }
+
+.run-event-tool { background: var(--color-bg-1); }
+.run-event-tool-icon { flex-shrink: 0; color: var(--color-accent); margin-top: 2px; }
+.run-event-tool-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-accent);
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+.run-event-tool-arg {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-fg-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.run-event-commit {
+  background: var(--color-accent-soft);
+  border-top: 1px solid var(--color-accent-line);
+  border-bottom: 1px solid var(--color-accent-line);
+}
+.run-event-commit-icon { flex-shrink: 0; color: var(--color-accent); margin-top: 2px; }
+.run-event-commit-subject { color: var(--color-fg); font-weight: 500; }
+
+.run-event-iteration {
+  background: var(--color-bg-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-3);
+  padding: 4px 12px;
+}
+
+.run-event-exit {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+}
+.run-event-exit-ok {
+  background: var(--color-verdict-greenlit-soft);
+  color: var(--color-verdict-greenlit);
+}
+.run-event-exit-bad {
+  background: var(--color-verdict-trashed-soft);
+  color: var(--color-verdict-trashed);
+}
+
+.run-event-metrics {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-fg-3);
+  padding: 4px 12px;
+  letter-spacing: 0.04em;
+}
+
+.run-event-quality {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+}
+.run-event-quality-ok {
+  color: var(--color-verdict-greenlit);
+  background: var(--color-verdict-greenlit-soft);
+}
+.run-event-quality-bad {
+  color: var(--color-verdict-trashed);
+  background: var(--color-verdict-trashed-soft);
+}
+.run-event-quality-skip {
+  color: var(--color-fg-3);
+  background: var(--color-bg-2);
+}
+
+.run-event-decision {
+  background: var(--color-verdict-trashed-soft);
+  border-left: 2px solid var(--color-verdict-trashed);
+  padding: 8px 12px;
+  align-items: flex-start;
+}
+.run-event-decision-title {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-verdict-trashed);
+}
+.run-event-decision-q {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-fg);
+}
+.run-event-decision-opts {
+  margin: 4px 0 0 14px;
+  list-style: disc;
+  font-size: 12px;
+  color: var(--color-fg-1);
+}
+
+.run-event-iter-divider {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-fg-3);
+  padding: 8px 0 6px;
+  background: var(--color-bg-2);
+  border-bottom: 1px solid var(--color-line);
+  margin: 0;
+}
+
 /* swipe affordance background — appears under the card as it drags */
 .swipe-tray {
   position: absolute;
