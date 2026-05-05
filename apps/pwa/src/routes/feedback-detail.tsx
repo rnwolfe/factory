@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, ListPlus, Loader2, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useFeedbackChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
 
 interface FeedbackRow {
@@ -58,7 +59,8 @@ export function FeedbackDetail() {
     queryKey: ["feedback.get", id],
     queryFn: () => trpc.feedback.get.query({ id }) as unknown as Promise<FeedbackRow | null>,
     enabled: id.length > 0,
-    refetchInterval: 4_000,
+    // WS now drives invalidations; poll only as a fallback for dropped events.
+    refetchInterval: 30_000,
   });
 
   const comments = useQuery({
@@ -66,8 +68,14 @@ export function FeedbackDetail() {
     queryFn: () =>
       trpc.feedback.comments.query({ feedbackId: id }) as unknown as Promise<FeedbackComment[]>,
     enabled: id.length > 0,
-    refetchInterval: 4_000,
+    refetchInterval: 30_000,
   });
+
+  // Per-feedback scoped channel — agent reply lands here without a poll.
+  useFeedbackChannel(id || null, [
+    ["feedback.get", id],
+    ["feedback.comments", id],
+  ]);
 
   const config = useQuery({
     queryKey: ["feedback.config"],

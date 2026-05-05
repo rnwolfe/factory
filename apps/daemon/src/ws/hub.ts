@@ -23,7 +23,8 @@ export type EventsScope =
   | { kind: "project"; id: string }
   | { kind: "audit"; id: string }
   | { kind: "plan"; id: string }
-  | { kind: "decision"; id: string };
+  | { kind: "decision"; id: string }
+  | { kind: "feedback"; id: string };
 
 export interface WsClientData {
   channel: WsChannel;
@@ -48,7 +49,8 @@ export function parseScope(raw: string | null): EventsScope | null {
     kind === "project" ||
     kind === "audit" ||
     kind === "plan" ||
-    kind === "decision"
+    kind === "decision" ||
+    kind === "feedback"
   ) {
     return { kind, id };
   }
@@ -227,6 +229,11 @@ export function attachWsChannel(ws: ServerWebSocket<WsClientData>, ctx: DaemonCo
       if (e.channel !== "inbox") return false;
       const evDecisionId = (e as { decisionId?: string }).decisionId;
       return evDecisionId === scope.id;
+    }
+    if (scope.kind === "feedback") {
+      if (e.channel !== "inbox") return false;
+      const evFeedbackId = (e as { feedbackId?: string }).feedbackId;
+      return evFeedbackId === scope.id;
     }
     if (scope.kind === "project") {
       const direct = eventProjectId(e);
