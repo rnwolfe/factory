@@ -6,6 +6,13 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { ImportError, importFromPath, importFromUrl } from "../projects/import.ts";
 import {
+  archiveProject,
+  deleteProject,
+  LifecycleError,
+  previewDelete,
+  unarchiveProject,
+} from "../projects/lifecycle.ts";
+import {
   createTask,
   listTasks,
   readTaskFile,
@@ -306,6 +313,90 @@ export const projectsRouter = router({
             err.code === "clone_failed" || err.code === "clone_timeout"
               ? "INTERNAL_SERVER_ERROR"
               : "BAD_REQUEST";
+          throw new TRPCError({ code, message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  archive: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        archiveProject(ctx.db, input.id);
+      } catch (err) {
+        if (err instanceof LifecycleError) {
+          throw new TRPCError({ code: "NOT_FOUND", message: err.message });
+        }
+        throw err;
+      }
+      return { ok: true };
+    }),
+
+  unarchive: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        unarchiveProject(ctx.db, input.id);
+      } catch (err) {
+        if (err instanceof LifecycleError) {
+          throw new TRPCError({ code: "NOT_FOUND", message: err.message });
+        }
+        throw err;
+      }
+      return { ok: true };
+    }),
+
+  /** Compute a preview the operator sees in the typed-confirm modal. */
+  previewDelete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await previewDelete(ctx.config, ctx.db, input.id);
+      } catch (err) {
+        if (err instanceof LifecycleError) {
+          throw new TRPCError({ code: "NOT_FOUND", message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  /**
+   * Hard delete. The PWA must verify the operator typed the slug; the daemon
+   * additionally requires the operator-supplied `slugConfirm` to match the
+   * project row's slug as a defense-in-depth check.
+   */
+  delete: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        slugConfirm: z.string(),
+        removeWorkdir: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.id))
+        .get();
+      if (!project) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+      }
+      if (input.slugConfirm !== project.slug) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `confirm slug must match "${project.slug}"`,
+        });
+      }
+      try {
+        const result = await deleteProject(ctx.config, ctx.db, input.id, {
+          removeWorkdir: input.removeWorkdir,
+        });
+        return result;
+      } catch (err) {
+        if (err instanceof LifecycleError) {
+          const code = err.code === "running_run" ? "PRECONDITION_FAILED" : "NOT_FOUND";
           throw new TRPCError({ code, message: err.message });
         }
         throw err;

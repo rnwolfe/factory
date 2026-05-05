@@ -15,6 +15,7 @@ import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
+import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { type Tier, TierPicker } from "../components/tier-picker.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
@@ -177,7 +178,10 @@ export function ProjectDetail() {
               />
             </div>
           </div>
-          <TagChip projectId={p.id} tag={p.tag as Tag} />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <TagChip projectId={p.id} tag={p.tag as Tag} />
+            <ProjectOverflowMenu projectId={p.id} archived={p.tag === "past"} />
+          </div>
         </div>
 
         {headerActiveRun ? (

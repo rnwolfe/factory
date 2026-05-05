@@ -212,6 +212,12 @@ export const projects = sqliteTable("projects", {
   autoAdvance: integer("auto_advance", { mode: "boolean" }).notNull().default(true),
   /** Claude model id used for runs in this project. Null = CLI default. */
   model: text("model"),
+  /**
+   * Set when the operator soft-archives the project. The project's `tag` also
+   * moves to "past" so existing queries that filter on tag continue to work;
+   * `archivedAt` is the explicit timestamp for sort order in the archive view.
+   */
+  archivedAt: integer("archived_at"),
 });
 
 export const rubricVersions = sqliteTable(
