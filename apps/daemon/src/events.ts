@@ -12,18 +12,40 @@ export type DaemonRunEvent = {
   overall: "pass" | "fail" | "skipped";
 };
 
+/**
+ * `projectId` is attached opportunistically at publish sites so that the
+ * scoped `/ws/events?scope=project:<id>` channel can fan out without a
+ * per-event DB lookup. Variants where the publisher doesn't have the
+ * project in scope simply omit it; the project channel ignores them.
+ */
 export type DaemonEvent =
-  | ({ channel: "events" } & RuntimeEvent)
-  | ({ channel: "events" } & DaemonRunEvent)
+  | ({ channel: "events"; projectId?: string | null } & RuntimeEvent)
+  | ({ channel: "events"; projectId?: string | null } & DaemonRunEvent)
   | { channel: "inbox"; kind: "idea_captured"; ideaId: string }
-  | { channel: "inbox"; kind: "decision_created"; decisionId: string }
-  | { channel: "inbox"; kind: "decision_actioned"; decisionId: string }
-  | { channel: "inbox"; kind: "decision_updated"; decisionId: string }
+  | {
+      channel: "inbox";
+      kind: "decision_created";
+      decisionId: string;
+      projectId?: string | null;
+    }
+  | {
+      channel: "inbox";
+      kind: "decision_actioned";
+      decisionId: string;
+      projectId?: string | null;
+    }
+  | {
+      channel: "inbox";
+      kind: "decision_updated";
+      decisionId: string;
+      projectId?: string | null;
+    }
   | {
       channel: "inbox";
       kind: "comment_added";
       decisionId: string;
       role: "operator" | "agent";
+      projectId?: string | null;
     }
   | {
       channel: "inbox";
@@ -32,12 +54,18 @@ export type DaemonEvent =
       planKind: "project_spec" | "task_plan" | "refinement" | "feature_plan" | "project_vision";
       projectId?: string | null;
     }
-  | { channel: "inbox"; kind: "plan_updated"; planId: string }
+  | {
+      channel: "inbox";
+      kind: "plan_updated";
+      planId: string;
+      projectId?: string | null;
+    }
   | {
       channel: "inbox";
       kind: "plan_comment_added";
       planId: string;
       role: "operator" | "agent";
+      projectId?: string | null;
     }
   | {
       channel: "inbox";
@@ -46,8 +74,19 @@ export type DaemonEvent =
       projectId?: string | null;
       taskId?: string | null;
     }
-  | { channel: "inbox"; kind: "plan_abandoned"; planId: string }
-  | { channel: "inbox"; kind: "plan_superseded"; planId: string; supersededBy: string }
+  | {
+      channel: "inbox";
+      kind: "plan_abandoned";
+      planId: string;
+      projectId?: string | null;
+    }
+  | {
+      channel: "inbox";
+      kind: "plan_superseded";
+      planId: string;
+      supersededBy: string;
+      projectId?: string | null;
+    }
   | {
       channel: "inbox";
       kind: "audit_started";
@@ -64,13 +103,19 @@ export type DaemonEvent =
       reportPath: string;
     }
   | { channel: "inbox"; kind: "audit_rejected"; auditId: string; projectId: string }
-  | { channel: "inbox"; kind: "audit_updated"; auditId: string }
+  | {
+      channel: "inbox";
+      kind: "audit_updated";
+      auditId: string;
+      projectId?: string | null;
+    }
   | {
       channel: "inbox";
       kind: "finding_promoted";
       auditId: string;
       findingId: string;
       promotedTo: { kind: "plan" | "task"; id: string };
+      projectId?: string | null;
     }
   | { channel: "pane"; runId: string; bytes: Uint8Array };
 

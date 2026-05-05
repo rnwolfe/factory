@@ -51,7 +51,7 @@ export function LivePane() {
     queryKey: ["runs.get", runId],
     queryFn: () => trpc.runs.get.query({ id: runId }),
     enabled: runId.length > 0,
-    refetchInterval: 3_000,
+    refetchInterval: 30_000,
   });
 
   // Seed the ticker from persisted events so completed runs aren't blank.

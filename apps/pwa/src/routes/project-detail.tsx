@@ -17,6 +17,7 @@ import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { type Tier, TierPicker } from "../components/tier-picker.tsx";
+import { useProjectChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
 
 interface RunRow {
@@ -48,14 +49,14 @@ export function ProjectDetail() {
     queryKey: ["projects.get", id],
     queryFn: () => trpc.projects.get.query({ id }),
     enabled: id.length > 0,
-    refetchInterval: 4_000,
+    refetchInterval: 30_000,
   });
 
   const runs = useQuery({
     queryKey: ["runs.list", id],
     queryFn: () => trpc.runs.list.query({ projectId: id }) as unknown as Promise<RunRow[]>,
     enabled: id.length > 0,
-    refetchInterval: 4_000,
+    refetchInterval: 30_000,
   });
 
   const runIds = (runs.data ?? []).map((r) => r.id);
@@ -85,15 +86,25 @@ export function ProjectDetail() {
     queryKey: ["projects.workdir", id],
     queryFn: () => trpc.projects.workdir.query({ id }) as unknown as Promise<WorkdirSnapshot>,
     enabled: id.length > 0,
-    refetchInterval: 8_000,
+    refetchInterval: 30_000,
   });
 
   const projectPlans = useQuery({
     queryKey: ["plans.list", id],
     queryFn: () => trpc.plans.list.query({ projectId: id }) as unknown as Promise<PlanRow[]>,
     enabled: id.length > 0,
-    refetchInterval: 8_000,
+    refetchInterval: 30_000,
   });
+
+  // Live updates pushed via /ws/events?scope=project:<id>. The slow polling
+  // above is a safety net for missed events / WS reconnect windows.
+  useProjectChannel(id || null, [
+    ["projects.get", id],
+    ["runs.list", id],
+    ["projects.workdir", id],
+    ["plans.list", id],
+    ["audits.list", id],
+  ]);
 
   const start = useMutation({
     mutationFn: (vars: { taskId?: string }) =>

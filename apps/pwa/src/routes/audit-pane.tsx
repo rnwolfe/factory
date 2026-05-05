@@ -6,7 +6,7 @@ import type { AuditFinding, AuditRow } from "../components/audit-card.tsx";
 import { FindingCard } from "../components/finding-card.tsx";
 import { AuditMetricsChip } from "../components/metrics-chip.tsx";
 import { PromoteFindingsModal } from "../components/promote-findings-modal.tsx";
-import { getToken } from "../lib/auth.ts";
+import { useAuditChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
 
 function parseFindings(raw: string | null | undefined): AuditFinding[] {
@@ -41,10 +41,13 @@ export function AuditPane() {
     queryKey: ["audits.get", auditId],
     queryFn: () => trpc.audits.get.query({ id: auditId }) as unknown as Promise<AuditRow | null>,
     enabled: auditId.length > 0,
+    // Slow safety-net poll. Live updates arrive via the scoped /ws/events
+    // channel below; running audits still poll faster so the operator sees
+    // mid-run progress in case a WS message is dropped.
     refetchInterval: (q) => {
       const data = q.state.data as AuditRow | null | undefined;
-      if (!data) return 3000;
-      return data.status === "running" ? 2000 : 8000;
+      if (!data) return 30_000;
+      return data.status === "running" ? 5_000 : 30_000;
     },
   });
 
@@ -63,24 +66,8 @@ export function AuditPane() {
     }
   }, [audit.data?.status, auditId]);
 
-  // WS push for audit_*  events
-  useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/inbox?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(url);
-      ws.onmessage = () => {
-        qc.invalidateQueries({ queryKey: ["audits.get", auditId] });
-      };
-    } catch {
-      // ignore
-    }
-    return () => {
-      ws?.close();
-    };
-  }, [qc, auditId]);
+  // Scoped WS push for audit_* events on this audit only.
+  useAuditChannel(auditId || null, [["audits.get", auditId]]);
 
   const approve = useMutation({
     mutationFn: () => trpc.audits.approve.mutate({ auditId }),
