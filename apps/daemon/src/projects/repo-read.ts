@@ -328,6 +328,204 @@ export async function readImageBlob(
   };
 }
 
+export type DiffStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "type_changed";
+
+export interface DiffFileSummary {
+  path: string;
+  /** For renames/copies, the source path. Null otherwise. */
+  oldPath: string | null;
+  status: DiffStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+export interface DiffSummary {
+  base: string;
+  target: string;
+  /** Merge-base sha when both refs resolve. Null on bad refs (caller throws). */
+  mergeBase: string | null;
+  files: DiffFileSummary[];
+  truncated: boolean;
+}
+
+const MAX_DIFF_FILES = 500;
+const MAX_DIFF_FILE_BYTES = 1 * 1024 * 1024;
+
+function statusFromCode(code: string): DiffStatus {
+  // git --name-status emits: M, A, D, T, C<n>, R<n>
+  const c = code[0] ?? "";
+  if (c === "A") return "added";
+  if (c === "D") return "deleted";
+  if (c === "R") return "renamed";
+  if (c === "C") return "copied";
+  if (c === "T") return "type_changed";
+  return "modified";
+}
+
+/**
+ * Two-ref diff summary using `git diff --name-status -z` + `--numstat -z`.
+ * Uses the symmetric three-dot range so both branches' merge-base is used —
+ * matches what Github calls a "comparison" rather than "diff".
+ */
+export async function diffSummary(
+  workdirPath: string,
+  base: string,
+  target: string,
+): Promise<DiffSummary> {
+  // Resolve merge-base for display; non-fatal if missing.
+  let mergeBase: string | null = null;
+  const mb = await git(["merge-base", base, target], workdirPath);
+  if (mb.exitCode === 0) {
+    mergeBase = mb.stdout.trim() || null;
+  }
+
+  const range = `${base}...${target}`;
+
+  const nameStatus = await git(["diff", "--name-status", "-z", range], workdirPath);
+  if (nameStatus.exitCode !== 0) {
+    if (/unknown revision|ambiguous argument|bad revision/i.test(nameStatus.stderr)) {
+      throw new RepoReadError("bad_ref", `unknown ref in range: ${range}`);
+    }
+    throw new RepoReadError("git_failed", nameStatus.stderr || "git diff --name-status failed");
+  }
+
+  // -z output: NUL-separated. Renames/copies emit three records: status, old, new.
+  const ns = nameStatus.stdout.split("\0").filter((s) => s.length > 0);
+  const entries: Array<{ status: DiffStatus; oldPath: string | null; path: string }> = [];
+  for (let i = 0; i < ns.length; i++) {
+    const code = ns[i] ?? "";
+    if (!code) continue;
+    if (code.startsWith("R") || code.startsWith("C")) {
+      const oldPath = ns[i + 1] ?? "";
+      const newPath = ns[i + 2] ?? "";
+      entries.push({ status: statusFromCode(code), oldPath, path: newPath });
+      i += 2;
+    } else {
+      const path = ns[i + 1] ?? "";
+      entries.push({ status: statusFromCode(code), oldPath: null, path });
+      i += 1;
+    }
+  }
+
+  // Numstat — additions/deletions per file (or "-" "-" for binary).
+  const numstat = await git(["diff", "--numstat", "-z", range], workdirPath);
+  if (numstat.exitCode !== 0) {
+    throw new RepoReadError("git_failed", numstat.stderr || "git diff --numstat failed");
+  }
+  // numstat -z format: "A\tD\tpath\0" per file (renames embed an extra path block).
+  // Records use a single trailing NUL per file; renames break path with \0.
+  // Easiest robust parse: split on \0 and treat each non-empty token as file row when it has \t.
+  type NumRow = { additions: number; deletions: number; binary: boolean; path: string };
+  const numRows: NumRow[] = [];
+  const tokens = numstat.stdout.split("\0");
+  let j = 0;
+  while (j < tokens.length) {
+    const tok = tokens[j] ?? "";
+    if (!tok) {
+      j++;
+      continue;
+    }
+    if (!tok.includes("\t")) {
+      j++;
+      continue;
+    }
+    const parts = tok.split("\t");
+    const a = parts[0] ?? "";
+    const d = parts[1] ?? "";
+    const pathField = parts[2] ?? "";
+    const binary = a === "-" && d === "-";
+    if (pathField) {
+      numRows.push({
+        additions: binary ? 0 : Number(a) || 0,
+        deletions: binary ? 0 : Number(d) || 0,
+        binary,
+        path: pathField,
+      });
+      j++;
+    } else {
+      // Rename: this row carries the additions/deletions; next two tokens are old, new path.
+      const oldP = tokens[j + 1] ?? "";
+      const newP = tokens[j + 2] ?? "";
+      numRows.push({
+        additions: binary ? 0 : Number(a) || 0,
+        deletions: binary ? 0 : Number(d) || 0,
+        binary,
+        path: newP || oldP,
+      });
+      j += 3;
+    }
+  }
+  const numByPath = new Map<string, NumRow>();
+  for (const r of numRows) numByPath.set(r.path, r);
+
+  const files: DiffFileSummary[] = entries.map((e) => {
+    const n = numByPath.get(e.path);
+    return {
+      path: e.path,
+      oldPath: e.oldPath,
+      status: e.status,
+      additions: n?.additions ?? 0,
+      deletions: n?.deletions ?? 0,
+      binary: n?.binary ?? false,
+    };
+  });
+
+  const truncated = files.length > MAX_DIFF_FILES;
+  return {
+    base,
+    target,
+    mergeBase,
+    files: truncated ? files.slice(0, MAX_DIFF_FILES) : files,
+    truncated,
+  };
+}
+
+export type DiffFileResult =
+  | { kind: "patch"; patch: string; sizeBytes: number }
+  | { kind: "binary"; sizeBytes: number }
+  | { kind: "too_large"; sizeBytes: number };
+
+/**
+ * Unified diff for a single file across the symmetric `base...target` range.
+ * Returns the raw patch (no `---/+++` colorization — the client styles it).
+ * Caps at 1 MB; binary files don't carry a patch.
+ */
+export async function diffFile(
+  workdirPath: string,
+  base: string,
+  target: string,
+  filePath: string,
+): Promise<DiffFileResult> {
+  const range = `${base}...${target}`;
+  const proc = bunSpawn({
+    cmd: ["git", "diff", "--no-color", "--no-ext-diff", "--unified=3", range, "--", filePath],
+    cwd: workdirPath,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: process.env,
+  });
+  const buf = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+  const stderrBuf = await new Response(proc.stderr).text();
+  const code = await proc.exited;
+  if (code !== 0) {
+    if (/unknown revision|ambiguous argument|bad revision/i.test(stderrBuf)) {
+      throw new RepoReadError("bad_ref", `unknown ref in range: ${range}`);
+    }
+    throw new RepoReadError("git_failed", stderrBuf || "git diff failed");
+  }
+  const sizeBytes = buf.length;
+  if (sizeBytes > MAX_DIFF_FILE_BYTES) {
+    return { kind: "too_large", sizeBytes };
+  }
+  // Detect binary diff (git emits "Binary files ... differ" instead of a patch).
+  const text = new TextDecoder().decode(buf);
+  if (/^Binary files .* differ$/m.test(text)) {
+    return { kind: "binary", sizeBytes };
+  }
+  return { kind: "patch", patch: text, sizeBytes };
+}
+
 async function git(
   args: string[],
   cwd: string,

@@ -3,6 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+  diffFile,
+  diffSummary,
   listBranches,
   listCommits,
   listTree,
@@ -149,6 +151,57 @@ export const repoRouter = router({
       }
       try {
         return await readBlob(wd, ref, path);
+      } catch (err) {
+        throw mapError(err);
+      }
+    }),
+
+  /**
+   * Two-ref diff summary. Uses symmetric `base...target` range so the diff
+   * is anchored at the merge-base — same shape as a Github comparison.
+   */
+  diff: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        base: z.string().default("main"),
+        target: z.string().default("HEAD"),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const wd = await projectWorkdir(ctx, input.projectId);
+      const base = validateRef(input.base);
+      const target = validateRef(input.target);
+      try {
+        return await diffSummary(wd, base, target);
+      } catch (err) {
+        throw mapError(err);
+      }
+    }),
+
+  /**
+   * Unified diff for a single file across the symmetric base...target range.
+   * The summary lists files; this is the per-file expansion.
+   */
+  diffFile: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        base: z.string().default("main"),
+        target: z.string().default("HEAD"),
+        path: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const wd = await projectWorkdir(ctx, input.projectId);
+      const base = validateRef(input.base);
+      const target = validateRef(input.target);
+      const path = validatePath(input.path);
+      if (!path) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "path required" });
+      }
+      try {
+        return await diffFile(wd, base, target, path);
       } catch (err) {
         throw mapError(err);
       }

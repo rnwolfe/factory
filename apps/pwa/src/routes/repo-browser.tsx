@@ -72,14 +72,23 @@ function fmtSize(n: number): string {
 export function RepoBrowser() {
   const { id = "" } = useParams<{ id: string }>();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") ?? "tree") as "tree" | "commits" | "branches" | "blob";
+  const tab = (params.get("tab") ?? "tree") as "tree" | "commits" | "branches" | "blob" | "diff";
   const ref = params.get("ref") ?? "HEAD";
   const treePath = params.get("path") ?? "";
+  const diffBase = params.get("base") ?? "main";
+  const diffTarget = params.get("target") ?? ref;
 
-  const setTab = (next: "tree" | "commits" | "branches" | "blob") => {
+  const setTab = (next: "tree" | "commits" | "branches" | "blob" | "diff") => {
     const p = new URLSearchParams(params);
     p.set("tab", next);
     if (next === "branches") p.delete("path");
+    setParams(p);
+  };
+
+  const setDiffRef = (which: "base" | "target", value: string) => {
+    const p = new URLSearchParams(params);
+    p.set(which, value);
+    p.set("tab", "diff");
     setParams(p);
   };
 
@@ -126,7 +135,7 @@ export function RepoBrowser() {
       </header>
 
       <div className="flex items-center gap-1 border-b border-[var(--color-line)]">
-        {(["tree", "commits", "branches"] as const).map((t) => (
+        {(["tree", "commits", "branches", "diff"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -154,6 +163,14 @@ export function RepoBrowser() {
         <CommitsView projectId={id} commitRef={ref} />
       ) : tab === "branches" ? (
         <BranchesView branches={branches.data ?? []} loading={branches.isLoading} onPick={setRef} />
+      ) : tab === "diff" ? (
+        <DiffView
+          projectId={id}
+          base={diffBase}
+          target={diffTarget}
+          branches={branches.data ?? []}
+          onPickRef={setDiffRef}
+        />
       ) : (
         <BlobView projectId={id} blobRef={ref} blobPath={treePath} />
       )}
@@ -577,5 +594,268 @@ function ImageBlobView({
         </div>
       )}
     </div>
+  );
+}
+
+type DiffStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "type_changed";
+
+interface DiffFileSummary {
+  path: string;
+  oldPath: string | null;
+  status: DiffStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+interface DiffSummaryData {
+  base: string;
+  target: string;
+  mergeBase: string | null;
+  files: DiffFileSummary[];
+  truncated: boolean;
+}
+
+type DiffFilePayload =
+  | { kind: "patch"; patch: string; sizeBytes: number }
+  | { kind: "binary"; sizeBytes: number }
+  | { kind: "too_large"; sizeBytes: number };
+
+const STATUS_LABEL: Record<DiffStatus, string> = {
+  added: "A",
+  modified: "M",
+  deleted: "D",
+  renamed: "R",
+  copied: "C",
+  type_changed: "T",
+};
+
+function statusColor(s: DiffStatus): string {
+  if (s === "added") return "text-[var(--color-verdict-greenlit)]";
+  if (s === "deleted") return "text-[var(--color-verdict-trashed)]";
+  if (s === "renamed" || s === "copied") return "text-[var(--color-accent)]";
+  return "text-[var(--color-fg-2)]";
+}
+
+function DiffView({
+  projectId,
+  base,
+  target,
+  branches,
+  onPickRef,
+}: {
+  projectId: string;
+  base: string;
+  target: string;
+  branches: BranchInfo[];
+  onPickRef: (which: "base" | "target", value: string) => void;
+}) {
+  const summary = useQuery({
+    queryKey: ["repo.diff", projectId, base, target],
+    queryFn: () =>
+      trpc.repo.diff.query({ projectId, base, target }) as unknown as Promise<DiffSummaryData>,
+    enabled: projectId.length > 0,
+  });
+
+  return (
+    <div className="space-y-2">
+      <div className="surface px-3 py-2 flex items-center gap-2 flex-wrap">
+        <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          base
+        </span>
+        <DiffRefPicker current={base} branches={branches} onPick={(v) => onPickRef("base", v)} />
+        <span className="mono text-[11px] text-[var(--color-fg-3)]">…</span>
+        <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          target
+        </span>
+        <DiffRefPicker
+          current={target}
+          branches={branches}
+          onPick={(v) => onPickRef("target", v)}
+        />
+      </div>
+      {summary.isLoading ? (
+        <div className="surface px-3 py-3">
+          <div className="skel h-3 w-2/3 mb-1.5" />
+          <div className="skel h-3 w-1/2" />
+        </div>
+      ) : summary.error ? (
+        <div className="surface px-3 py-3 mono text-[11px] text-[var(--color-verdict-trashed)]">
+          {(summary.error as Error).message}
+        </div>
+      ) : !summary.data ? null : summary.data.files.length === 0 ? (
+        <div className="surface px-3 py-6 text-center text-[13px] text-[var(--color-fg-3)]">
+          no changes between {base} and {target}.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            {summary.data.files.length} file{summary.data.files.length === 1 ? "" : "s"} changed
+            {summary.data.truncated ? " (truncated to 500)" : ""}
+            {summary.data.mergeBase ? ` · merge-base ${summary.data.mergeBase.slice(0, 8)}` : ""}
+          </div>
+          <ul className="surface divide-y divide-[var(--color-line)]">
+            {summary.data.files.map((f) => (
+              <DiffFileRow
+                key={f.path}
+                projectId={projectId}
+                base={base}
+                target={target}
+                file={f}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiffRefPicker({
+  current,
+  branches,
+  onPick,
+}: {
+  current: string;
+  branches: BranchInfo[];
+  onPick: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="chip flex items-center gap-1"
+      >
+        <GitBranch size={11} />
+        <span className="mono text-[11px]">{current}</span>
+      </button>
+      {open ? (
+        <div className="absolute z-20 left-0 top-full mt-1 surface min-w-[220px] max-h-[60vh] overflow-y-auto">
+          {branches.length === 0 ? (
+            <div className="px-3 py-2 text-[12px] text-[var(--color-fg-3)]">no branches</div>
+          ) : (
+            branches.map((b) => (
+              <button
+                type="button"
+                key={b.name}
+                onClick={() => {
+                  onPick(b.name);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 hover:bg-[var(--color-bg-2)] block ${
+                  b.name === current ? "bg-[var(--color-bg-2)]" : ""
+                }`}
+              >
+                <div className="mono text-[12px] truncate">{b.name}</div>
+              </button>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DiffFileRow({
+  projectId,
+  base,
+  target,
+  file,
+}: {
+  projectId: string;
+  base: string;
+  target: string;
+  file: DiffFileSummary;
+}) {
+  const [open, setOpen] = useState(false);
+  const patch = useQuery({
+    queryKey: ["repo.diffFile", projectId, base, target, file.path],
+    queryFn: () =>
+      trpc.repo.diffFile.query({
+        projectId,
+        base,
+        target,
+        path: file.path,
+      }) as unknown as Promise<DiffFilePayload>,
+    enabled: open && projectId.length > 0,
+  });
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left px-3 py-2 hover:bg-[var(--color-bg-2)] flex items-center gap-2.5"
+      >
+        <span className={`mono text-[11px] tabular-nums w-4 shrink-0 ${statusColor(file.status)}`}>
+          {STATUS_LABEL[file.status]}
+        </span>
+        <span className="mono text-[12.5px] truncate flex-1">
+          {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+        </span>
+        <span className="mono text-[10.5px] tabular-nums shrink-0 text-[var(--color-verdict-greenlit)]">
+          +{file.additions}
+        </span>
+        <span className="mono text-[10.5px] tabular-nums shrink-0 text-[var(--color-verdict-trashed)]">
+          -{file.deletions}
+        </span>
+        <ChevronRight
+          size={12}
+          className={`text-[var(--color-fg-3)] shrink-0 transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+        />
+      </button>
+      {open ? (
+        <div className="border-t border-[var(--color-line)] bg-[var(--color-bg-1)]">
+          {patch.isLoading ? (
+            <div className="px-3 py-2 mono text-[11px] text-[var(--color-fg-3)]">loading…</div>
+          ) : patch.error ? (
+            <div className="px-3 py-2 mono text-[11px] text-[var(--color-verdict-trashed)]">
+              {(patch.error as Error).message}
+            </div>
+          ) : patch.data?.kind === "patch" ? (
+            <DiffPatch patch={patch.data.patch} />
+          ) : patch.data?.kind === "binary" ? (
+            <div className="px-3 py-2 mono text-[11px] text-[var(--color-fg-3)]">
+              binary file — diff not shown.
+            </div>
+          ) : patch.data?.kind === "too_large" ? (
+            <div className="px-3 py-2 mono text-[11px] text-[var(--color-fg-3)]">
+              diff too large for preview ({fmtSize(patch.data.sizeBytes)}).
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function DiffPatch({ patch }: { patch: string }) {
+  const lines = patch.split("\n");
+  return (
+    <pre className="mono text-[11.5px] leading-[1.5] overflow-x-auto px-3 py-2 whitespace-pre">
+      {lines.map((l, i) => {
+        let cls = "text-[var(--color-fg-2)]";
+        if (l.startsWith("+++") || l.startsWith("---")) {
+          cls = "text-[var(--color-fg-3)]";
+        } else if (l.startsWith("@@")) {
+          cls = "text-[var(--color-accent)]";
+        } else if (l.startsWith("+")) {
+          cls = "text-[var(--color-verdict-greenlit)]";
+        } else if (l.startsWith("-")) {
+          cls = "text-[var(--color-verdict-trashed)]";
+        } else if (l.startsWith("diff --git") || l.startsWith("index ")) {
+          cls = "text-[var(--color-fg-3)]";
+        }
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: patch lines have no stable id
+          <div key={i} className={cls}>
+            {l || " "}
+          </div>
+        );
+      })}
+    </pre>
   );
 }
