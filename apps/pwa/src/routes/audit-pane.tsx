@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { AuditFinding, AuditRow } from "../components/audit-card.tsx";
 import { FindingCard } from "../components/finding-card.tsx";
+import { MarkdownView } from "../components/markdown-view.tsx";
 import { AuditMetricsChip } from "../components/metrics-chip.tsx";
 import { PromoteFindingsModal } from "../components/promote-findings-modal.tsx";
 import { useAuditChannel } from "../lib/channels.ts";
@@ -147,9 +148,11 @@ export function AuditPane() {
           <div className="display text-[13.5px] text-[var(--color-verdict-trashed)] mb-1">
             audit failed
           </div>
-          <pre className="mono text-[11px] text-[var(--color-fg-2)] whitespace-pre-wrap">
-            {a.reportMarkdown ?? "(no report)"}
-          </pre>
+          <MarkdownView
+            source={a.reportMarkdown ?? "(no report)"}
+            storageKey={`mdView.audit-failed.${auditId}`}
+            defaultMode="raw"
+          />
         </div>
       ) : null}
 
@@ -158,9 +161,7 @@ export function AuditPane() {
           <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2">
             report
           </div>
-          <pre className="text-[13px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap break-words">
-            {a.reportMarkdown}
-          </pre>
+          <MarkdownView source={a.reportMarkdown} storageKey={`mdView.audit-report.${auditId}`} />
         </div>
       ) : null}
 

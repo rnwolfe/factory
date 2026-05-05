@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Snowflake, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { MarkdownView } from "../components/markdown-view.tsx";
 import { MetricsChip } from "../components/metrics-chip.tsx";
 import {
   type AnyDraftView,
@@ -227,7 +228,7 @@ export function PlanDetail() {
           <div className="hairline flex-1" />
         </div>
         {parsedDraft ? (
-          <PlanDraftViewer draft={parsedDraft} />
+          <PlanDraftViewer draft={parsedDraft} planId={id} />
         ) : (
           <div className="surface px-4 py-3 text-[12.5px] text-[var(--color-fg-3)]">
             (draft unavailable — agent has not produced a parseable payload yet.)
@@ -270,9 +271,9 @@ export function PlanDetail() {
                       {fmtDate(c.createdAt)}
                     </span>
                   </div>
-                  <p className="text-[14px] leading-relaxed text-[var(--color-fg)] whitespace-pre-wrap">
-                    {c.body}
-                  </p>
+                  <div className="text-[14px] leading-relaxed text-[var(--color-fg)]">
+                    <MarkdownView source={c.body} storageKey={`mdView.plan-comment.${c.id}`} />
+                  </div>
                 </li>
               ))}
               {sendComment.isPending ||

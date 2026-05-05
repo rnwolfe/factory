@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { MarkdownView } from "../components/markdown-view.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -313,9 +314,9 @@ export function DecisionDetail() {
                       {fmtDate(c.createdAt)}
                     </span>
                   </div>
-                  <p className="text-[14px] leading-relaxed text-[var(--color-fg)] whitespace-pre-wrap">
-                    {c.body}
-                  </p>
+                  <div className="text-[14px] leading-relaxed text-[var(--color-fg)]">
+                    <MarkdownView source={c.body} storageKey={`mdView.decision-comment.${c.id}`} />
+                  </div>
                 </li>
               ))}
               {sendComment.isPending ||
