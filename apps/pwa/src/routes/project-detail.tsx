@@ -2,13 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ChevronRight,
+  ExternalLink,
   Eye,
   FileText,
   Folder,
   GitBranch,
   ListTree,
   Play,
+  Upload,
 } from "lucide-react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuditsSection } from "../components/audits-section.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
@@ -16,6 +19,7 @@ import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
+import { PublishGithubModal } from "../components/publish-github-modal.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { type Tier, TierPicker } from "../components/tier-picker.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
@@ -29,6 +33,11 @@ interface RunRow {
 }
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
+
+function githubHtmlUrlFromClone(cloneUrl: string): string {
+  // GitHub HTTPS clone URLs are `https://github.com/<owner>/<name>.git`.
+  return cloneUrl.replace(/\.git$/, "");
+}
 
 interface WorkdirSnapshot {
   exists: boolean;
@@ -45,12 +54,19 @@ export function ProjectDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const nav = useNavigate();
   const qc = useQueryClient();
+  const [showPublish, setShowPublish] = useState(false);
 
   const project = useQuery({
     queryKey: ["projects.get", id],
     queryFn: () => trpc.projects.get.query({ id }),
     enabled: id.length > 0,
     refetchInterval: 30_000,
+  });
+
+  const githubTokenStatus = useQuery({
+    queryKey: ["projects.hasGithubToken"],
+    queryFn: () => trpc.projects.hasGithubToken.query() as unknown as Promise<{ has: boolean }>,
+    staleTime: 60_000,
   });
 
   const runs = useQuery({
@@ -142,7 +158,20 @@ export function ProjectDetail() {
     );
   }
 
-  const { project: p, tasks } = project.data;
+  const { project: p, tasks } = project.data as unknown as {
+    project: {
+      id: string;
+      slug: string;
+      name: string;
+      tier: string;
+      tag: string;
+      goal: string;
+      autoAdvance: boolean;
+      model: string | null;
+      githubRemote: string | null;
+    };
+    tasks: Array<{ id: string; status: string; title: string; estimate: string | null }>;
+  };
   const allRuns = runs.data ?? [];
   const activeRuns = allRuns.filter((r) => ACTIVE_RUN_STATUSES.has(r.status));
   const activeRunByTask = new Map<string, RunRow>();
@@ -154,6 +183,14 @@ export function ProjectDetail() {
 
   return (
     <div className="space-y-4">
+      {showPublish ? (
+        <PublishGithubModal
+          projectId={p.id}
+          defaultName={p.slug}
+          onClose={() => setShowPublish(false)}
+          onPublished={() => setShowPublish(false)}
+        />
+      ) : null}
       <header className="surface p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -214,11 +251,29 @@ export function ProjectDetail() {
           </div>
         ) : null}
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
           <FeaturePlanLaunch projectId={id} />
           <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">
             deepen
           </Link>
+          {p.githubRemote ? (
+            <a
+              href={githubHtmlUrlFromClone(p.githubRemote)}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="btn btn-ghost text-[12px]"
+            >
+              <ExternalLink size={12} /> github
+            </a>
+          ) : githubTokenStatus.data?.has ? (
+            <button
+              type="button"
+              onClick={() => setShowPublish(true)}
+              className="btn btn-ghost text-[12px]"
+            >
+              <Upload size={12} /> publish to github
+            </button>
+          ) : null}
         </div>
 
         <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--color-fg-2)] cursor-pointer select-none">

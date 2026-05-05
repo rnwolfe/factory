@@ -23,6 +23,12 @@ export interface FactoryConfig {
   defaultRunBudgetSeconds: number;
   /** Git author identity for project bootstrap commits. */
   gitAuthor: { name: string; email: string };
+  /**
+   * v0.4 cut 4 — GitHub Personal Access Token used by `projects.publishToGithub`.
+   * Loaded from `auth.githubToken` in config.yaml; null when unset. Required
+   * `repo` scope for private repos, `public_repo` is enough for public.
+   */
+  githubToken: string | null;
 }
 
 export interface ConfigSource {
@@ -43,7 +49,7 @@ function generateToken(): string {
 interface PartialConfig {
   port?: number;
   host?: string;
-  auth?: { token?: string };
+  auth?: { token?: string; githubToken?: string | null };
   workdir?: string;
   worktreesRoot?: string;
   dbPath?: string;
@@ -69,6 +75,7 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
       name: p.gitAuthor?.name ?? process.env.FACTORY_GIT_NAME ?? "Factory",
       email: p.gitAuthor?.email ?? process.env.FACTORY_GIT_EMAIL ?? "factory@localhost",
     },
+    githubToken: p.auth?.githubToken ?? process.env.FACTORY_GITHUB_TOKEN ?? null,
   };
 }
 

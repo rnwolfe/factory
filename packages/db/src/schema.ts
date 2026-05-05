@@ -218,6 +218,12 @@ export const projects = sqliteTable("projects", {
    * `archivedAt` is the explicit timestamp for sort order in the archive view.
    */
   archivedAt: integer("archived_at"),
+  /**
+   * v0.4 cut 4 — clone URL of the GitHub repo this project was published to.
+   * Set by `publishToGithub` after a successful create + push. Null until
+   * the operator publishes.
+   */
+  githubRemote: text("github_remote"),
 });
 
 export const rubricVersions = sqliteTable(

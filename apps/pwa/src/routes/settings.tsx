@@ -44,6 +44,9 @@ export function Settings() {
             {token ? `…${token.slice(-6)}` : "—"}
           </span>
         </Row>
+        <Row label="github token">
+          <GithubTokenStatus />
+        </Row>
         <div className="px-3 pb-3">
           <button type="button" className="btn btn-danger w-full" onClick={clear}>
             forget token
@@ -124,6 +127,25 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-[13px] text-[var(--color-fg-1)]">{label}</span>
       {children}
     </div>
+  );
+}
+
+function GithubTokenStatus() {
+  const status = useQuery({
+    queryKey: ["projects.hasGithubToken"],
+    queryFn: () => trpc.projects.hasGithubToken.query() as unknown as Promise<{ has: boolean }>,
+    staleTime: 60_000,
+  });
+  if (status.isLoading) {
+    return <span className="mono text-[12px] text-[var(--color-fg-3)]">…</span>;
+  }
+  return status.data?.has ? (
+    <span className="chip chip-greenlit">configured</span>
+  ) : (
+    <span className="mono text-[11px] text-[var(--color-fg-3)]">
+      add to ~/.factory/config.yaml under{" "}
+      <span className="text-[var(--color-fg-2)]">auth.githubToken</span>
+    </span>
   );
 }
 

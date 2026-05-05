@@ -4,6 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { createRepo, GithubError, pushToNewRemote } from "../projects/github.ts";
 import { ImportError, importFromPath, importFromUrl } from "../projects/import.ts";
 import {
   archiveProject,
@@ -401,6 +402,113 @@ export const projectsRouter = router({
         }
         throw err;
       }
+    }),
+
+  /**
+   * Daemon-side capability check for the PWA: does the operator have a token
+   * configured? Returns `true | false` only, never the token itself.
+   */
+  hasGithubToken: protectedProcedure.query(async ({ ctx }) => {
+    return { has: Boolean(ctx.config.githubToken) };
+  }),
+
+  /**
+   * Create a new GitHub repo and push the project's `main` to it. Refuses
+   * if the project already has a `githubRemote` (operator must clear via
+   * separate path if they want to re-publish). Refuses if no token.
+   */
+  publishToGithub: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        ownerKind: z.enum(["user", "org"]),
+        org: z.string().min(1).max(100).optional(),
+        name: z
+          .string()
+          .min(1)
+          .max(100)
+          .regex(/^[A-Za-z0-9._-]+$/),
+        visibility: z.enum(["public", "private"]),
+        description: z.string().max(350).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.config.githubToken) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "no GitHub token configured — set auth.githubToken in ~/.factory/config.yaml",
+        });
+      }
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.id))
+        .get();
+      if (!project) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+      }
+      if (project.githubRemote) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `project already published to ${project.githubRemote}`,
+        });
+      }
+      if (input.ownerKind === "org" && !input.org) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "org owner requires `org` field",
+        });
+      }
+
+      let result: { cloneUrlHttps: string; htmlUrl: string; fullName: string };
+      try {
+        result = await createRepo({
+          token: ctx.config.githubToken,
+          owner:
+            input.ownerKind === "org"
+              ? { kind: "org", org: input.org as string }
+              : { kind: "user" },
+          name: input.name,
+          visibility: input.visibility,
+          description: input.description,
+        });
+      } catch (err) {
+        if (err instanceof GithubError) {
+          const code =
+            err.code === "bad_token"
+              ? "UNAUTHORIZED"
+              : err.code === "name_conflict"
+                ? "CONFLICT"
+                : err.code === "rate_limited"
+                  ? "TOO_MANY_REQUESTS"
+                  : "INTERNAL_SERVER_ERROR";
+          throw new TRPCError({ code, message: err.message });
+        }
+        throw err;
+      }
+
+      try {
+        await pushToNewRemote({
+          workdirPath: project.workdirPath,
+          cloneUrlHttps: result.cloneUrlHttps,
+          token: ctx.config.githubToken,
+        });
+      } catch (err) {
+        if (err instanceof GithubError) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `repo created at ${result.htmlUrl} but push failed: ${err.message}`,
+          });
+        }
+        throw err;
+      }
+
+      await ctx.db
+        .update(schema.projects)
+        .set({ githubRemote: result.cloneUrlHttps, lastActivityAt: Date.now() })
+        .where(eq(schema.projects.id, input.id));
+
+      return { htmlUrl: result.htmlUrl, fullName: result.fullName };
     }),
 
   tasks: tasksRouter,
