@@ -84,3 +84,23 @@ Per-package: `bun --filter '@factory/<name>' <script>`. DB scripts: `bun run db:
 ## What v0.1 promised vs. what's deferred
 
 See `docs/vision.md` for the lived-experience refresh. The original §13 backlog in `spec.md` still applies; the vision doc reorders priorities based on what actually frustrated the operator during v0.1 use.
+
+## When to suggest a release
+
+After any commit-batch that is a coherent unit of operator-visible change, suggest invoking the release skill (`skills/release/SKILL.md`). The Factory daemon installed via `factory install` upgrades on `factory upgrade --channel=stable`, which only sees released tags — so without periodic releases, the live host drifts arbitrarily far behind the dev checkout and the upgrade story stops working.
+
+Concretely, suggest a release after:
+- A merged side-cuts batch (or larger).
+- Any meaningful bugfix that operators on the stable channel would benefit from — not the same as "every fix"; gauge whether someone running `factory upgrade` next would hit the bug.
+- Any breaking schema or contract change. These need a release boundary so operators can pause at a known-good sha before crossing.
+
+Do **not** suggest releases for:
+- Docs-only changes that don't touch operator-facing surface (e.g. an internal ADR).
+- Refactors with no observable diff.
+- Internal tooling changes that don't reach the operator (`bun run cli:install`, biome config tweaks, etc.).
+
+When in doubt, name the operator-visible delta and let the operator decide. ("This batch added a `factory upgrade` command — worth cutting v0.5.0?")
+
+The release skill handles the version bump, changelog generation, annotated tag, and prints the push commands. **Do not push tags yourself** — that's an operator-authorized action. The skill stops at "here are the commands; you run them."
+
+`channel: stable` resolves the highest `v*.*.*` tag on origin; channel resolution skips pre-release identifiers (e.g. `v1.2.0-rc.1`). If the release isn't ready for the stable channel yet, leave the tag off — operators on `nightly`/`dev` will still pick the change up at the next upgrade.
