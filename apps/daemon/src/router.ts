@@ -1,5 +1,6 @@
 import { auditsRouter } from "./routers/audits.ts";
 import { decisionsRouter } from "./routers/decisions.ts";
+import { feedbackRouter } from "./routers/feedback.ts";
 import { healthRouter } from "./routers/health.ts";
 import { ideasRouter } from "./routers/ideas.ts";
 import { metricsRouter } from "./routers/metrics.ts";
@@ -15,6 +16,7 @@ export const appRouter = router({
   health: healthRouter,
   ideas: ideasRouter,
   decisions: decisionsRouter,
+  feedback: feedbackRouter,
   plans: plansRouter,
   projects: projectsRouter,
   prompts: promptsRouter,

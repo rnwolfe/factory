@@ -539,3 +539,35 @@ export const claudeMetrics = sqliteTable(
 
 export type ClaudeMetrics = typeof claudeMetrics.$inferSelect;
 export type NewClaudeMetrics = typeof claudeMetrics.$inferInsert;
+
+export const feedbackVoteEnum = ["up", "down"] as const;
+export const feedbackStatusEnum = ["open", "in_progress", "resolved", "dismissed"] as const;
+export type FeedbackVote = (typeof feedbackVoteEnum)[number];
+export type FeedbackStatus = (typeof feedbackStatusEnum)[number];
+
+/**
+ * v0.4 cut 5 — operator-captured feedback on Factory itself. The text body
+ * + auto-captured route + context hint feed the home inbox. Cut 6 (D2)
+ * extends with an agent thread.
+ */
+export const feedback = sqliteTable(
+  "feedback",
+  {
+    id: text("id").primaryKey(),
+    vote: text("vote", { enum: feedbackVoteEnum }).notNull(),
+    body: text("body").notNull(),
+    contextRoute: text("context_route"),
+    contextHint: text("context_hint"),
+    status: text("status", { enum: feedbackStatusEnum }).notNull().default("open"),
+    createdAt: integer("created_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+    /** "plan:<id>" | "task:<projectId>:<taskId>" | null. Set by promote (D2). */
+    resolvedTarget: text("resolved_target"),
+    /** D2 resume mechanic — captured on the first agent turn. */
+    claudeSessionId: text("claude_session_id"),
+  },
+  (t) => [index("feedback_status_created_idx").on(t.status, t.createdAt)],
+);
+
+export type Feedback = typeof feedback.$inferSelect;
+export type NewFeedback = typeof feedback.$inferInsert;

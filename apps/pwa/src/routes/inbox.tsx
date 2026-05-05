@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuditCard, type AuditRow } from "../components/audit-card.tsx";
@@ -7,6 +7,15 @@ import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx"
 import { PlanCard, type PlanRow } from "../components/plan-card.tsx";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
+
+interface FeedbackInboxRow {
+  id: string;
+  vote: "up" | "down";
+  body: string;
+  contextHint: string | null;
+  status: "open" | "in_progress" | "resolved" | "dismissed";
+  createdAt: number;
+}
 
 interface TriagingIdea {
   id: string;
@@ -24,7 +33,8 @@ interface ProjectRow {
 type InboxItem =
   | { kind: "decision"; row: DecisionRow }
   | { kind: "plan"; row: PlanRow }
-  | { kind: "audit"; row: AuditRow };
+  | { kind: "audit"; row: AuditRow }
+  | { kind: "feedback"; row: FeedbackInboxRow };
 
 export function Inbox() {
   const qc = useQueryClient();
@@ -45,6 +55,12 @@ export function Inbox() {
   const auditInbox = useQuery({
     queryKey: ["audits.inbox"],
     queryFn: () => trpc.audits.inbox.query() as unknown as Promise<AuditRow[]>,
+    refetchInterval: 6_000,
+  });
+
+  const feedbackInbox = useQuery({
+    queryKey: ["feedback.inbox"],
+    queryFn: () => trpc.feedback.inbox.query() as unknown as Promise<FeedbackInboxRow[]>,
     refetchInterval: 6_000,
   });
 
@@ -75,12 +91,13 @@ export function Inbox() {
     try {
       ws = new WebSocket(url);
       ws.onmessage = () => {
-        // Coarse invalidation — inbox + plan inbox + triaging + audit inbox
+        // Coarse invalidation — inbox + plan inbox + triaging + audit + feedback
         // all refetch on any inbox-channel event. Set is small and queries
         // are cheap.
         qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
         qc.invalidateQueries({ queryKey: ["plans.inbox"] });
         qc.invalidateQueries({ queryKey: ["audits.inbox"] });
+        qc.invalidateQueries({ queryKey: ["feedback.inbox"] });
         qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
       };
     } catch {
@@ -140,6 +157,7 @@ export function Inbox() {
   const decisionRows = inbox.data ?? [];
   const planRows = planInbox.data ?? [];
   const auditRows = auditInbox.data ?? [];
+  const feedbackRows = feedbackInbox.data ?? [];
   const ideasById = new Map(ideasList.data?.map((i) => [i.id, i.rawText]) ?? []);
   const projectNameById = new Map(projectsList.data?.map((p) => [p.id, p.name]) ?? []);
 
@@ -153,6 +171,7 @@ export function Inbox() {
       row,
       ts: row.completedAt ?? row.startedAt,
     })),
+    ...feedbackRows.map((row) => ({ kind: "feedback" as const, row, ts: row.createdAt })),
   ]
     .sort((a, b) => b.ts - a.ts)
     .map(({ ts: _ts, ...rest }) => rest as InboxItem);
@@ -196,6 +215,9 @@ export function Inbox() {
           const p = item.row;
           return <PlanCard key={p.id} plan={p} index={i} onOpen={() => nav(`/plans/${p.id}`)} />;
         }
+        if (item.kind === "feedback") {
+          return <FeedbackCard key={item.row.id} row={item.row} />;
+        }
         const a = item.row;
         return (
           <AuditCard
@@ -208,6 +230,36 @@ export function Inbox() {
         );
       })}
     </div>
+  );
+}
+
+function FeedbackCard({ row }: { row: FeedbackInboxRow }) {
+  const elapsed = Math.max(0, Math.floor((Date.now() - row.createdAt) / 1000));
+  const elapsedLabel =
+    elapsed < 60
+      ? `${elapsed}s`
+      : elapsed < 3600
+        ? `${Math.floor(elapsed / 60)}m`
+        : `${Math.floor(elapsed / 3600)}h`;
+  return (
+    <Link
+      to={`/feedback/${row.id}`}
+      className="surface drop-in px-4 py-3 flex flex-col gap-1.5 active:bg-[var(--color-bg-2)]"
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="chip flex items-center gap-1.5">
+          {row.vote === "up" ? <ThumbsUp size={11} /> : <ThumbsDown size={11} />}
+          feedback
+        </span>
+        {row.contextHint ? <span className="chip">{row.contextHint}</span> : null}
+        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+          {elapsedLabel} ago
+        </span>
+      </div>
+      <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)] line-clamp-2">
+        {row.body}
+      </p>
+    </Link>
   );
 }
 
