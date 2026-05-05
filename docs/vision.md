@@ -397,9 +397,48 @@ Worth flagging so they don't become invisible:
   override-pattern logging — and v0.1 already logs operator overrides on
   decisions. Worth surfacing the data even before the iteration mechanic
   exists.
-- **Runtime metrics.** Run wall-time, token spend (where derivable), cache
-  hit rate. We don't measure today; we'd need this before any "is the
-  factory paying for itself" conversation.
+- **Runtime metrics.** ✓ Shipped post-v0.3 — `claude_metrics` table +
+  `/metrics` route + per-entity chips. `is the factory paying for itself`
+  is now an answerable question.
+- **Prompt editing + versioning in the PWA.** Today operators must edit
+  prompts on disk and re-seed; the schema already has `active`+`version`
+  columns. Monaco editor + `prompts.upsertVersion` would close the loop
+  without requiring code changes for prompt iteration. **In flight as
+  the post-v0.4-spec side cut.**
+- **Onboarding existing projects from outside Factory.** Path B was
+  unlocked in v0.3 for projects already in Factory; bringing a separate
+  external repo into Factory has no flow today. Largest-scope item on
+  this list — touches clone, slug allocation, deepening, audit
+  installation. Worth doing once external projects start asking for it.
+- **Feedback mechanism throughout Factory.** Every "this isn't working /
+  try again" → automatic re-prompt or override path. Currently ad-hoc
+  per surface (decisions have follow-up; plans have comments; audits
+  have `comment`). Unifying these would make the operator → agent
+  feedback loop one shape instead of three.
+- **Better terminal experience in the PWA.** Live pane uses xterm.js but
+  scrollback search, copy / paste, font sizing, etc. are minimal. Cheap
+  ergonomics wins as time-on-pane increases.
+- **Better reactivity between live backend state and PWA.** Most queries
+  poll on 4–8s intervals; only `/ws/inbox` pushes invalidations.
+  Per-route event subscriptions (a project page subscribes to its own
+  events, etc.) would tighten the loop without a global pub-sub
+  refactor.
+- **Better run-log formatting.** Live pane currently dumps raw stream-
+  json or pane bytes. Parsing tool calls (which file, which command),
+  rendering assistant text as markdown, and chip-styling commit lines
+  would make the daily-driver surface much less ugly. Compounds with
+  any work that produces more runs.
+- **Project archive/delete.** No way to remove a project from Factory.
+  Will become urgent as experiments accumulate.
+- **Cost budgets per project.** Natural compound on runtime metrics —
+  cap spend per project per day / per week. Premature until we have a
+  few weeks of actual cost data; surface, then maybe gate.
+- **Run replay.** Re-execute a past run with the same prompt. Cheap,
+  useful for debugging non-deterministic agent behavior.
+- **Worktree disk-usage tracker / cleanup.** Worktrees accumulate at
+  `~/.factory/worktrees/`; cleanup is manual today. A small "size +
+  age + last-touched-by-run" view + a "remove orphaned worktrees"
+  action would prevent disk creep.
 
 ## 8. Discipline
 
