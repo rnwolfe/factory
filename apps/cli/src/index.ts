@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { runChannel } from "./commands/channel.ts";
 import { runDown } from "./commands/down.ts";
 import { parseInstallArgs, runInstall } from "./commands/install.ts";
 import { parseLogsArgs, runLogs } from "./commands/logs.ts";
@@ -30,6 +31,8 @@ async function main(argv: string[]): Promise<number> {
       return await runInstall(parseInstallArgs(rest));
     case "uninstall":
       return await runUninstall();
+    case "channel":
+      return await runChannel(rest);
     default:
       process.stderr.write(`factory: unknown command '${cmd}'\n\n`);
       process.stdout.write(HELP);

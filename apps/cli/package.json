@@ -11,5 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
     "build": "bun build --compile --outfile dist/factory ./src/index.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.8.4"
   }
 }

@@ -20,6 +20,9 @@
       "bin": {
         "factory": "./src/index.ts",
       },
+      "dependencies": {
+        "yaml": "^2.8.4",
+      },
     },
     "apps/daemon": {
       "name": "@factory/daemon",

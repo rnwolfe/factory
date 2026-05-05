@@ -21,7 +21,10 @@ unit lifecycle:
   factory uninstall     disable, remove the unit, daemon-reload (data is preserved)
 
 upgrade lifecycle:
-  factory channel       view or set the upgrade channel                    (cut 4)
+  factory channel                       show current channel + last-good sha
+  factory channel <stable|nightly|dev>  set the upgrade channel
+                        --dev-branch=<name>  override the dev-channel branch
+  factory channel resolve               dry-run: print the sha the channel maps to
   factory upgrade       fetch + restart on the current channel             (cut 5)
   factory doctor        preflight checks                                   (cut 7)
 `;
