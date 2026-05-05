@@ -60,6 +60,13 @@ export function Settings() {
           <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
         </Link>
         <Link
+          to="/settings/rubrics"
+          className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
+        >
+          <span className="text-[13px] text-[var(--color-fg-1)]">rubrics</span>
+          <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
+        </Link>
+        <Link
           to="/metrics"
           className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
         >

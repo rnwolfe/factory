@@ -15,6 +15,8 @@ import { ProjectDetail } from "./routes/project-detail.tsx";
 import { Projects } from "./routes/projects.tsx";
 import { PromptDetail } from "./routes/prompt-detail.tsx";
 import { PromptsViewer } from "./routes/prompts-viewer.tsx";
+import { RubricDetail } from "./routes/rubric-detail.tsx";
+import { RubricsViewer } from "./routes/rubrics-viewer.tsx";
 import { Settings } from "./routes/settings.tsx";
 import { TaskDetail } from "./routes/task-detail.tsx";
 import { WorktreesAdmin } from "./routes/worktrees.tsx";
@@ -39,6 +41,8 @@ export function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/prompts" element={<PromptsViewer />} />
         <Route path="/settings/prompts/:key" element={<PromptDetail />} />
+        <Route path="/settings/rubrics" element={<RubricsViewer />} />
+        <Route path="/settings/rubrics/:key" element={<RubricDetail />} />
         <Route path="/settings/worktrees" element={<WorktreesAdmin />} />
         <Route path="/metrics" element={<Metrics />} />
         <Route path="*" element={<Inbox />} />
