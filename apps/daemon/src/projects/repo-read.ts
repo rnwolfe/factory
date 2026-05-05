@@ -254,6 +254,80 @@ export async function readBlob(
   return { kind: "text", content: new TextDecoder().decode(buf), sizeBytes: size };
 }
 
+const IMAGE_EXT_TO_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  avif: "image/avif",
+  // SVG goes through the image path so the PWA can render it via a data
+  // URL (which sandboxes any embedded scripts) rather than inlining HTML.
+  svg: "image/svg+xml",
+};
+
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+export type ImageBlobResult =
+  | { kind: "image"; contentType: string; base64: string; sizeBytes: number }
+  | { kind: "too_large"; sizeBytes: number };
+
+/**
+ * Read an image blob and return its bytes as base64 plus a guessed
+ * content-type. Caller decides whether to invoke this based on the path
+ * extension; the daemon refuses non-image extensions to keep the surface
+ * narrow. Capped at 2MB — large images aren't useful inline previews.
+ */
+export async function readImageBlob(
+  workdirPath: string,
+  ref: string,
+  blobPath: string,
+): Promise<ImageBlobResult> {
+  const ext = (blobPath.split(".").pop() ?? "").toLowerCase();
+  const contentType = IMAGE_EXT_TO_MIME[ext];
+  if (!contentType) {
+    throw new RepoReadError("bad_path", `not a supported image extension: .${ext}`);
+  }
+  const sizeRes = await git(["cat-file", "-s", `${ref}:${blobPath}`], workdirPath);
+  if (sizeRes.exitCode !== 0) {
+    if (
+      /Not a valid object name|exists on disk, but not in|does not exist in|fatal: path /i.test(
+        sizeRes.stderr,
+      )
+    ) {
+      throw new RepoReadError("not_found", `blob not found: ${blobPath}`);
+    }
+    throw new RepoReadError("git_failed", sizeRes.stderr || "git cat-file -s failed");
+  }
+  const size = Number.parseInt(sizeRes.stdout.trim(), 10);
+  if (!Number.isFinite(size)) {
+    throw new RepoReadError("git_failed", "could not parse blob size");
+  }
+  if (size > MAX_IMAGE_BYTES) {
+    return { kind: "too_large", sizeBytes: size };
+  }
+  const proc = bunSpawn({
+    cmd: ["git", "cat-file", "-p", `${ref}:${blobPath}`],
+    cwd: workdirPath,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: process.env,
+  });
+  const buf = Buffer.from(await new Response(proc.stdout).arrayBuffer());
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    throw new RepoReadError("git_failed", "git cat-file -p failed");
+  }
+  return {
+    kind: "image",
+    contentType,
+    base64: buf.toString("base64"),
+    sizeBytes: size,
+  };
+}
+
 async function git(
   args: string[],
   cwd: string,

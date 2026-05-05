@@ -8,6 +8,7 @@ import {
   listTree,
   RepoReadError,
   readBlob,
+  readImageBlob,
 } from "../projects/repo-read.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
@@ -148,6 +149,32 @@ export const repoRouter = router({
       }
       try {
         return await readBlob(wd, ref, path);
+      } catch (err) {
+        throw mapError(err);
+      }
+    }),
+
+  /**
+   * Image blobs returned as base64 + content-type so the PWA can render them
+   * inline via a data URL. Refuses non-image extensions and large files.
+   */
+  imageBlob: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        ref: z.string().default("HEAD"),
+        path: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const wd = await projectWorkdir(ctx, input.projectId);
+      const ref = validateRef(input.ref);
+      const path = validatePath(input.path);
+      if (!path) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "path required" });
+      }
+      try {
+        return await readImageBlob(wd, ref, path);
       } catch (err) {
         throw mapError(err);
       }

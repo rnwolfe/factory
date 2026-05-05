@@ -2,9 +2,27 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronRight, FileText, Folder, GitBranch, Link2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { MarkdownView } from "../components/markdown-view.tsx";
 import { MonacoYamlEditor } from "../components/monaco-yaml-editor.tsx";
 import { langFromPath } from "../lib/lang-from-extension.ts";
 import { trpc } from "../lib/trpc.ts";
+
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "ico",
+  "avif",
+  "svg",
+]);
+const MARKDOWN_EXTENSIONS = new Set(["md", "mdx", "markdown"]);
+
+function pathExt(p: string): string {
+  return (p.split(".").pop() ?? "").toLowerCase();
+}
 
 interface BranchInfo {
   name: string;
@@ -409,6 +427,24 @@ function BlobView({
   blobRef: string;
   blobPath: string;
 }) {
+  const ext = pathExt(blobPath);
+  if (IMAGE_EXTENSIONS.has(ext)) {
+    return <ImageBlobView projectId={projectId} blobRef={blobRef} blobPath={blobPath} />;
+  }
+  return <TextBlobView projectId={projectId} blobRef={blobRef} blobPath={blobPath} ext={ext} />;
+}
+
+function TextBlobView({
+  projectId,
+  blobRef,
+  blobPath,
+  ext,
+}: {
+  projectId: string;
+  blobRef: string;
+  blobPath: string;
+  ext: string;
+}) {
   const blob = useQuery({
     queryKey: ["repo.blob", projectId, blobRef, blobPath],
     queryFn: () =>
@@ -437,6 +473,7 @@ function BlobView({
   }
   const data = blob.data;
   if (!data) return null;
+  const isMarkdown = MARKDOWN_EXTENSIONS.has(ext);
   return (
     <div className="space-y-2">
       <div className="mono text-[11px] text-[var(--color-fg-3)] flex items-center gap-2 flex-wrap">
@@ -446,14 +483,26 @@ function BlobView({
         <span className="tabular-nums">{fmtSize(data.sizeBytes)}</span>
       </div>
       {data.kind === "text" ? (
-        <MonacoYamlEditor
-          key={`${blobRef}:${blobPath}`}
-          initialContent={data.content}
-          language={langFromPath(blobPath)}
-          readOnly
-          height="70vh"
-          label={blobPath}
-        />
+        isMarkdown ? (
+          /* MarkdownView has its own raw/rendered toggle (sticky per-path). */
+          <div className="surface px-3 py-3">
+            <MarkdownView
+              key={`${blobRef}:${blobPath}`}
+              source={data.content}
+              storageKey={`mdView.code-blob:${blobPath}`}
+              defaultMode="rendered"
+            />
+          </div>
+        ) : (
+          <MonacoYamlEditor
+            key={`${blobRef}:${blobPath}`}
+            initialContent={data.content}
+            language={langFromPath(blobPath)}
+            readOnly
+            height="70vh"
+            label={blobPath}
+          />
+        )
       ) : data.kind === "binary" ? (
         <div className="surface px-3 py-6 text-center text-[13px] text-[var(--color-fg-3)]">
           binary file ({fmtSize(data.sizeBytes)}) — preview not available.
@@ -461,6 +510,70 @@ function BlobView({
       ) : (
         <div className="surface px-3 py-6 text-center text-[13px] text-[var(--color-fg-3)]">
           file too large for preview ({fmtSize(data.sizeBytes)}).
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ImageBlobResult {
+  kind: "image" | "too_large";
+  contentType?: string;
+  base64?: string;
+  sizeBytes: number;
+}
+
+function ImageBlobView({
+  projectId,
+  blobRef,
+  blobPath,
+}: {
+  projectId: string;
+  blobRef: string;
+  blobPath: string;
+}) {
+  const blob = useQuery({
+    queryKey: ["repo.imageBlob", projectId, blobRef, blobPath],
+    queryFn: () =>
+      trpc.repo.imageBlob.query({
+        projectId,
+        ref: blobRef,
+        path: blobPath,
+      }) as unknown as Promise<ImageBlobResult>,
+    enabled: projectId.length > 0 && blobPath.length > 0,
+  });
+  if (blob.isLoading) {
+    return <div className="surface px-3 py-6 skel h-32" />;
+  }
+  if (blob.error) {
+    return (
+      <div className="surface px-3 py-3 mono text-[11px] text-[var(--color-verdict-trashed)]">
+        {(blob.error as Error).message}
+      </div>
+    );
+  }
+  const data = blob.data;
+  if (!data) return null;
+  return (
+    <div className="space-y-2">
+      <div className="mono text-[11px] text-[var(--color-fg-3)] flex items-center gap-2 flex-wrap">
+        <FileText size={11} />
+        <span className="truncate">{blobPath}</span>
+        <span>·</span>
+        <span className="tabular-nums">{fmtSize(data.sizeBytes)}</span>
+      </div>
+      {data.kind === "image" && data.base64 && data.contentType ? (
+        <div className="surface px-3 py-4 flex items-center justify-center bg-[var(--color-bg-2)]">
+          <img
+            src={`data:${data.contentType};base64,${data.base64}`}
+            alt={blobPath}
+            className="max-w-full max-h-[70vh]"
+            style={{ imageRendering: "pixelated" }}
+          />
+        </div>
+      ) : (
+        <div className="surface px-3 py-6 text-center text-[13px] text-[var(--color-fg-3)]">
+          image too large for preview ({fmtSize(data.sizeBytes)}).
         </div>
       )}
     </div>
