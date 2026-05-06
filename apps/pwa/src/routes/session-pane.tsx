@@ -35,6 +35,7 @@ export function SessionPane() {
   const qc = useQueryClient();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const [paneStatus, setPaneStatus] = useState<"connecting" | "open" | "closed">("connecting");
 
   const session = useQuery({
@@ -45,9 +46,12 @@ export function SessionPane() {
     refetchInterval: 4_000,
   });
 
-  // Boot the terminal once.
+  // Boot the terminal once and wire onData here. Keystrokes route through
+  // wsRef so the terminal lifetime is decoupled from the WS lifetime —
+  // reconnects don't drop the keyboard.
   useEffect(() => {
     if (!containerRef.current) return;
+    const container = containerRef.current;
     const term = new Terminal({
       cursorBlink: false,
       cursorStyle: "underline",
@@ -66,9 +70,25 @@ export function SessionPane() {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(containerRef.current);
+    term.open(container);
     fit.fit();
     termRef.current = term;
+
+    // Forward operator keystrokes via wsRef. Registering here (not inside
+    // the WS effect) means the handler survives reconnects and is wired
+    // before the first WS open/onmessage cycle finishes.
+    const dataDisposer = term.onData((d) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(d);
+    });
+
+    // Mobile keyboards only appear on an explicit focus. Auto-focus on
+    // mount and re-focus on container click so taps anywhere over the
+    // terminal grab the keyboard.
+    term.focus();
+    const onContainerPointer = () => term.focus();
+    container.addEventListener("pointerdown", onContainerPointer);
+
     const onResize = () => {
       try {
         fit.fit();
@@ -78,17 +98,21 @@ export function SessionPane() {
     };
     window.addEventListener("resize", onResize);
     const ro = new ResizeObserver(onResize);
-    if (containerRef.current) ro.observe(containerRef.current);
+    ro.observe(container);
     return () => {
       window.removeEventListener("resize", onResize);
       ro.disconnect();
+      container.removeEventListener("pointerdown", onContainerPointer);
+      dataDisposer.dispose();
       term.dispose();
       termRef.current = null;
     };
   }, []);
 
   // Subscribe to /ws/pane using the sessionId as the carrier (sessions
-  // reuse the pane channel; cuid namespace is shared with runs).
+  // reuse the pane channel; cuid namespace is shared with runs). Stores
+  // the socket in wsRef so the terminal-boot effect's onData handler
+  // can reach it.
   useEffect(() => {
     if (!sessionId) return;
     const token = getToken();
@@ -96,6 +120,7 @@ export function SessionPane() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const url = `${proto}://${location.host}/ws/pane?runId=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(url);
+    wsRef.current = ws;
     ws.binaryType = "arraybuffer";
     ws.onopen = () => setPaneStatus("open");
     ws.onclose = () => setPaneStatus("closed");
@@ -109,15 +134,8 @@ export function SessionPane() {
         term.write(new Uint8Array(ev.data));
       }
     };
-    // Forward operator keystrokes to the daemon, which routes them to tmux
-    // send-keys for the underlying claude/shell process. xterm.js gives us
-    // raw byte strings (already encoded for the terminal protocol).
-    const term = termRef.current;
-    const dataDisposer = term?.onData((d) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(d);
-    });
     return () => {
-      dataDisposer?.dispose();
+      wsRef.current = null;
       ws.close();
     };
   }, [sessionId]);
