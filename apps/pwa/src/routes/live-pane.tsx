@@ -10,6 +10,7 @@ import { RunEventStream } from "../components/run-event-stream.tsx";
 import { getToken } from "../lib/auth.ts";
 import { useRunChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
+import { wireXtermTouchScroll } from "../lib/xterm-touch.ts";
 
 interface RunDiff {
   base: string | null;
@@ -127,10 +128,14 @@ export function LivePane() {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(containerRef.current);
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    term.open(container);
     fit.fit();
     termRef.current = term;
     fitRef.current = fit;
+
+    const detachTouch = wireXtermTouchScroll(term, container);
 
     const onResize = () => {
       try {
@@ -141,11 +146,12 @@ export function LivePane() {
     };
     window.addEventListener("resize", onResize);
     const ro = new ResizeObserver(onResize);
-    if (containerRef.current) ro.observe(containerRef.current);
+    ro.observe(container);
 
     return () => {
       window.removeEventListener("resize", onResize);
       ro.disconnect();
+      detachTouch();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

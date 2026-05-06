@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
+import { wireXtermTouchScroll } from "../lib/xterm-touch.ts";
 
 interface SessionRow {
   id: string;
@@ -89,6 +90,10 @@ export function SessionPane() {
     const onContainerPointer = () => term.focus();
     container.addEventListener("pointerdown", onContainerPointer);
 
+    // Touch swipes scroll the scrollback buffer (xterm doesn't do this
+    // natively — its viewport sits behind the screen layer).
+    const detachTouch = wireXtermTouchScroll(term, container);
+
     const onResize = () => {
       try {
         fit.fit();
@@ -103,6 +108,7 @@ export function SessionPane() {
       window.removeEventListener("resize", onResize);
       ro.disconnect();
       container.removeEventListener("pointerdown", onContainerPointer);
+      detachTouch();
       dataDisposer.dispose();
       term.dispose();
       termRef.current = null;
