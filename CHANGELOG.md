@@ -4,6 +4,76 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.4.0 — 2026-05-06
+
+The project-types release. The old single-axis `tier` enum (overlapping
+awkwardly with `goal`) splits into orthogonal `ceremony × role` plus a
+SPDX `license` metadata field. Triage gets five anchored rubrics keyed
+on that pair instead of one. Several mobile-pane fixes round out the
+shell-as-first-class-tool work.
+
+### Added
+- Project model: `ceremony` (tinker / personal / shared / production —
+  renamed from `tier`), `role` (owner / contributor — new), and SPDX
+  `license` metadata. Forward-only migration backfills (`share`→`shared`,
+  `productize`→`production`, all existing rows default to `owner`).
+- Five-rubric triage matrix: `rubric-owner-{tinker,personal,shared,
+  production}` plus a single `rubric-contributor` for all upstream
+  ceremonies. Each rubric carries positive/negative signals and
+  per-band scoring anchors so the agent must cite specific evidence to
+  score above a threshold. The contributor rubric blocks greenlight
+  when `alignment_with_upstream < 6` regardless of weighted score.
+- Triage prompts v2: `triage-prompt-v1` rewritten to consume
+  `INTENT_CEREMONY` / `INTENT_ROLE` (replacing `GOAL_HINT`) and to
+  treat anchors literally. New `triage-contributor-v1` for the
+  contributor flow — the deliverable is a PR plan, not a project_spec.
+- `RolePicker` chip beside `CeremonyPicker` on the project header.
+  Both now close on outside-click. License auto-detected on import
+  from `package.json` or LICENSE file (SPDX recognized for MIT,
+  Apache-2.0, MPL-2.0, GPL-2/3, AGPL-3.0, BSD-2/3-Clause, Unlicense).
+- `sessions.tail` tRPC endpoint that reads the last 128 KiB of the
+  tmux pipe-pane log and replays it on session-pane mount, so PWA
+  reload / revisit reconstitutes prior scrollback. Survives daemon
+  restarts since the log is on disk.
+- Touch-scroll handling for xterm panes: vertical swipes navigate
+  scrollback (`term.scrollLines`); the keyboard only opens on real
+  taps (<250ms, <8px); preventDefault stops the page shell from
+  pull-to-refresh during terminal swipes. Wired into SessionPane,
+  ScriptPane, LivePane.
+
+### Changed
+- `bun run dev` now seeds first (`bun run seed && ...dev`) so dev
+  checkouts auto-pick up new rubrics / prompts on restart instead of
+  needing a manual seed step.
+- Triage refuses approval for contributor-intent ideas — the operator
+  is redirected to `/projects/import` since fresh-init bootstrap
+  doesn't apply when contributing to someone else's repo.
+- Vision filter for `feature_plan` freezes and auto-creation of
+  `project_vision` on bootstrap now require `role=owner` plus
+  `ceremony ≥ personal`. Tinker projects and contributor projects
+  skip vision ceremony entirely.
+- Seed deactivates legacy rubric keys (`rubric-me-tinker`) not in the
+  current matrix on each run, keeping the rubrics list tidy after the
+  schema split.
+
+### Fixed
+- Shell session input now reaches tmux: `term.onData` is wired
+  alongside terminal boot (not inside the WS effect) and routes
+  through a `wsRef` so the handler survives reconnects.
+- Per-character pty echo flushes immediately. `tmux pipe-pane` is
+  wrapped with `stdbuf -o0 cat` to disable cat's line buffering, and
+  the daemon's pane fan-out switched from `followFileLines` to a new
+  `followFileBytes` (raw 30ms-poll byte tail).
+- `projects.get` reconciles `githubRemote` against the workdir's
+  origin on every call, so importing a local repo and running
+  `git remote add origin …` out-of-band is detected next page load.
+  Never null-clobbers a stored remote — origin can be temporarily
+  renamed mid-edit.
+- Picker dropdowns close on outside tap (mousedown + touchstart
+  document listener while open).
+- Project-detail meta row dropped its `truncate` class — `overflow:
+  hidden` was clipping the absolute-positioned picker dropdowns.
+
 ## v0.3.3 — 2026-05-05
 
 The operator-lifecycle release. Factory becomes a real long-running
