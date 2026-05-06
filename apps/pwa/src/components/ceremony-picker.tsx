@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "../lib/trpc.ts";
 
 const CEREMONIES = ["tinker", "personal", "shared", "production"] as const;
@@ -14,6 +14,7 @@ interface Props {
 
 export function CeremonyPicker({ projectId, ceremony, onChanged }: Props) {
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const setCeremony = useMutation({
     mutationFn: (next: Ceremony) =>
@@ -26,8 +27,24 @@ export function CeremonyPicker({ projectId, ceremony, onChanged }: Props) {
     },
   });
 
+  useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node | null;
+      if (target && wrapRef.current && !wrapRef.current.contains(target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("touchstart", onDocDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("touchstart", onDocDown);
+    };
+  }, [open]);
+
   return (
-    <div className={`relative inline-block ${open ? "z-50" : ""}`}>
+    <div ref={wrapRef} className={`relative inline-block ${open ? "z-50" : ""}`}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

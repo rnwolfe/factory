@@ -132,6 +132,30 @@ function validatePath(p: string): void {
   }
 }
 
+/**
+ * Inspect the workdir's `origin` remote and return its URL when it points
+ * at GitHub (https://github.com/owner/repo or git@github.com:owner/repo).
+ * Other hosts and missing remotes return null. The repo is considered
+ * already-published when this is non-null — `publishToGithub` is skipped
+ * and the existing remote is surfaced on the project header.
+ */
+async function readGithubOriginRemote(workdirPath: string): Promise<string | null> {
+  const proc = bunSpawn({
+    cmd: ["git", "remote", "get-url", "origin"],
+    cwd: workdirPath,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  const code = await proc.exited;
+  if (code !== 0) return null;
+  const url = stdout.trim();
+  if (!url) return null;
+  if (url.startsWith("https://github.com/")) return url;
+  if (/^git@github\.com:[^/]+\/.+$/.test(url)) return url;
+  return null;
+}
+
 async function isGitRepoWithCommits(workdirPath: string): Promise<boolean> {
   // git rev-parse --is-inside-work-tree handles the "is repo" check; HEAD
   // dereference handles the "has at least one commit" check.
@@ -321,6 +345,12 @@ async function registerProject(
   // neither is present or parseable; the operator can set it manually later.
   const license = await readLicenseHint(args.workdirPath);
 
+  // Detect an existing github origin so the publish-to-github affordance
+  // is hidden for repos that are already on GitHub. URL-clone imports
+  // always have a github origin if the source URL was github; path
+  // imports get whatever the local checkout has.
+  const githubRemote = await readGithubOriginRemote(args.workdirPath);
+
   await db.insert(schema.projects).values({
     id: projectId,
     slug: args.slug,
@@ -334,6 +364,7 @@ async function registerProject(
     createdAt: now,
     lastActivityAt: now,
     model: null,
+    githubRemote,
   });
 
   return { projectId, slug: args.slug, workdirPath: args.workdirPath };
