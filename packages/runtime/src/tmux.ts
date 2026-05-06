@@ -65,9 +65,19 @@ export async function startTmuxSession(init: TmuxSessionInit): Promise<TmuxSessi
   // loop in the host sandbox never breaks and the runtime hangs.
   await tmux(["set-option", "-t", sessionName, "remain-on-exit", "off"]);
 
-  // -o appends; -O captures the existing scrollback first. We use -o for stream-style.
+  // -o appends; -O captures the existing scrollback first. We use -o for
+  // stream-style. `stdbuf -o0` disables stdout buffering on cat so each
+  // byte tmux emits hits the log immediately — without it, an interactive
+  // shell's per-character pty echo would line-buffer through cat and the
+  // browser would only see typed characters after Enter.
   await tmux(
-    ["pipe-pane", "-o", "-t", `${sessionName}:0.0`, `cat >> ${shellQuote(logSocketPath)}`],
+    [
+      "pipe-pane",
+      "-o",
+      "-t",
+      `${sessionName}:0.0`,
+      `stdbuf -o0 cat >> ${shellQuote(logSocketPath)}`,
+    ],
     { check: true },
   );
 

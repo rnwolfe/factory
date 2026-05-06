@@ -100,3 +100,85 @@ export function followFileLines(
     },
   };
 }
+
+/**
+ * Follow a growing file as raw bytes — emits whatever new bytes appear on
+ * each poll without waiting for newlines. This is what an interactive
+ * shell pane needs: a tty in canonical mode echoes each character as
+ * the user types, and `followFileLines` would buffer that until Enter,
+ * making the terminal feel unresponsive.
+ *
+ * Shape mirrors `followFileLines` so callers can swap freely.
+ */
+export function followFileBytes(
+  filePath: string,
+  onBytes: (chunk: Uint8Array) => void,
+  abort: AbortSignal,
+  opts: { pollMs?: number } = {},
+): TailHandle {
+  const pollMs = opts.pollMs ?? 30;
+  let stopped = false;
+  let offset = 0;
+  let runner: Promise<void> | null = null;
+
+  async function readOnce() {
+    let fh: Awaited<ReturnType<typeof open>>;
+    try {
+      fh = await open(filePath, "r");
+    } catch {
+      return;
+    }
+    try {
+      const stat = await fh.stat();
+      const size = stat.size;
+      if (size > offset) {
+        const chunkSize = size - offset;
+        const buffer = Buffer.alloc(chunkSize);
+        const { bytesRead } = await fh.read(buffer, 0, chunkSize, offset);
+        offset += bytesRead;
+        if (bytesRead > 0) {
+          // Slice to a fresh Uint8Array so the caller can hand it to
+          // structured-clone / WS.send without worrying about Buffer's
+          // shared underlying ArrayBuffer.
+          onBytes(new Uint8Array(buffer.subarray(0, bytesRead)));
+        }
+      } else if (size < offset) {
+        offset = 0;
+      }
+    } finally {
+      await fh.close();
+    }
+  }
+
+  async function loop() {
+    while (!stopped && !abort.aborted) {
+      try {
+        await readOnce();
+      } catch {
+        // Swallow transient errors; poll again.
+      }
+      await Bun.sleep(pollMs);
+    }
+    try {
+      await readOnce();
+    } catch {
+      // ignore
+    }
+  }
+
+  runner = loop();
+
+  return {
+    async stop() {
+      stopped = true;
+      if (runner) await runner;
+    },
+    async drain() {
+      try {
+        await readOnce();
+      } catch {
+        // ignore
+      }
+    },
+  };
+}

@@ -3,7 +3,7 @@ import path from "node:path";
 import { type Db, schema } from "@factory/db";
 import {
   ensureWorktree,
-  followFileLines,
+  followFileBytes,
   mergeIntoMain,
   removeWorktree,
   shellQuote,
@@ -175,16 +175,19 @@ export async function startSession(
     commitCount: 0,
   });
 
-  // Fan tmux pane bytes onto the existing /ws/pane channel using the session
-  // id as the carrier (cuid namespace is shared with runs).
+  // Fan tmux pane bytes onto the existing /ws/pane channel using the
+  // session id as the carrier (cuid namespace is shared with runs).
+  // Byte-level tail (not line-level) so per-character pty echoes flush
+  // immediately — otherwise an interactive shell would only render
+  // typed characters after the user presses Enter.
   const abort = new AbortController();
-  const tail = followFileLines(
+  const tail = followFileBytes(
     logPath,
-    (line) => {
+    (chunk) => {
       events.publish({
         channel: "pane",
         runId: sessionId,
-        bytes: new TextEncoder().encode(`${line}\r\n`),
+        bytes: chunk,
       });
     },
     abort.signal,

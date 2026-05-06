@@ -1,7 +1,7 @@
 export { claudeCodeAgent } from "./agents/claude-code.ts";
 export { runtime } from "./runtime.ts";
 export { hostSandbox } from "./sandboxes/host.ts";
-export { followFileLines, type TailHandle } from "./tail.ts";
+export { followFileBytes, followFileLines, type TailHandle } from "./tail.ts";
 export {
   sendKeysToTmux,
   shellQuote,
