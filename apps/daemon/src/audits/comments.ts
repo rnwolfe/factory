@@ -2,6 +2,7 @@ import type { Db } from "@factory/db";
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { asc, eq } from "drizzle-orm";
+import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { invokeClaudeJson } from "../plans/invoke-claude.ts";
 
@@ -92,7 +93,7 @@ export async function runAgentReply(
     const reply = await invokeClaudeJson(
       `Operator just asked a follow-up on the audit report:\n\n${operatorBody.trim()}\n\nReply in 1–3 short paragraphs of markdown. Do not re-emit the JSON envelope; just prose.`,
       {
-        budgetSeconds: 120,
+        budgetSeconds: getAgentBudgetSeconds(),
         resumeSessionId: audit.claudeSessionId ?? undefined,
       },
     );

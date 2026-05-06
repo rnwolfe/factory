@@ -23,6 +23,7 @@ function makeTempConfig(): { config: FactoryConfig; cleanup: () => void } {
       dbPath,
       maxConcurrentRuns: 1,
       defaultRunBudgetSeconds: 60,
+      agentBudgetSeconds: 0,
       gitAuthor: { name: "Factory Test", email: "test@factory" },
       githubToken: null,
       factoryProjectId: null,

@@ -9,6 +9,7 @@ interface SettingsSnapshot {
   gitAuthor: { name: string; email: string };
   maxConcurrentRuns: number;
   defaultRunBudgetSeconds: number;
+  agentBudgetSeconds: number;
   githubToken: { has: boolean };
   factoryProjectId: string | null;
   overridden: Record<string, boolean>;
@@ -103,9 +104,17 @@ export function Settings() {
               hint="takes effect on next daemon restart"
               type="number"
             />
-            <RunBudgetRow
+            <BudgetRow
+              label="default run budget"
+              settingKey="default-run-budget-seconds"
               seconds={settings.data.defaultRunBudgetSeconds}
               overridden={settings.data.overridden["default-run-budget-seconds"] ?? false}
+            />
+            <BudgetRow
+              label="agent budget (triage/plan/audit/feedback)"
+              settingKey="agent-budget-seconds"
+              seconds={settings.data.agentBudgetSeconds}
+              overridden={settings.data.overridden["agent-budget-seconds"] ?? false}
             />
             <GithubTokenRow has={settings.data.githubToken.has} />
             <FactoryProjectRow
@@ -307,12 +316,21 @@ function EditableRow({
 }
 
 /**
- * Default-run-budget row. 0 = infinite (matches running `claude` directly,
- * where there's no wall-clock cap). Shows a chip toggle alongside the
- * number editor: when "infinite" is on, the number is locked to 0 and
- * displayed as ∞ in the read-only state.
+ * Budget row with an explicit ∞ affordance. 0 = infinite (matches running
+ * `claude` directly). When the chip is toggled on, the number is locked
+ * to 0 and the read-only state shows "infinite" instead of "0s".
  */
-function RunBudgetRow({ seconds, overridden }: { seconds: number; overridden: boolean }) {
+function BudgetRow({
+  label,
+  settingKey,
+  seconds,
+  overridden,
+}: {
+  label: string;
+  settingKey: string;
+  seconds: number;
+  overridden: boolean;
+}) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(seconds));
@@ -325,7 +343,7 @@ function RunBudgetRow({ seconds, overridden }: { seconds: number; overridden: bo
 
   const save = useMutation({
     mutationFn: (next: string) =>
-      trpc.settings.set.mutate({ key: "default-run-budget-seconds" as never, value: next }),
+      trpc.settings.set.mutate({ key: settingKey as never, value: next }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings.get"] });
       setEditing(false);
@@ -333,7 +351,7 @@ function RunBudgetRow({ seconds, overridden }: { seconds: number; overridden: bo
   });
 
   const clearOverride = useMutation({
-    mutationFn: () => trpc.settings.clear.mutate({ key: "default-run-budget-seconds" as never }),
+    mutationFn: () => trpc.settings.clear.mutate({ key: settingKey as never }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings.get"] });
       setEditing(false);
@@ -348,7 +366,7 @@ function RunBudgetRow({ seconds, overridden }: { seconds: number; overridden: bo
     <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[13px] text-[var(--color-fg-1)] truncate">default run budget</span>
+          <span className="text-[13px] text-[var(--color-fg-1)] truncate">{label}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
             {overridden ? "db" : "yaml"}
           </span>
@@ -408,7 +426,7 @@ function RunBudgetRow({ seconds, overridden }: { seconds: number; overridden: bo
             <button
               type="button"
               onClick={() => setEditing(true)}
-              aria-label="edit default run budget"
+              aria-label={`edit ${label}`}
               className="btn btn-ghost text-[11px] !h-7 !px-2"
             >
               <Pencil size={11} />

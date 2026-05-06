@@ -4,6 +4,7 @@ import { claudeCodeAgent, type StreamEvent } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, eq } from "drizzle-orm";
+import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 
 export interface TriageInput {
@@ -41,11 +42,11 @@ export interface TriageOptions {
    * returns the JSON payload string the agent would have produced.
    */
   agentInvoker?: (prompt: string) => Promise<string>;
-  /** Wall-clock cap. Default 120s (matches rubric's `max_wall_seconds`). */
+  /**
+   * Wall-clock cap. Default: `agentBudgetSeconds` from config (0 = unlimited).
+   */
   budgetSeconds?: number;
 }
-
-const TRIAGE_MAX_BUDGET_SECONDS = 120;
 
 function renderPrompt(template: string, vars: Record<string, string>): string {
   let out = template;
@@ -62,7 +63,8 @@ interface TriageInvocation {
 
 async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<TriageInvocation> {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), budgetSeconds * 1000);
+  // budgetSeconds=0 means unlimited (matches running the Claude CLI directly).
+  const timer = budgetSeconds > 0 ? setTimeout(() => ac.abort(), budgetSeconds * 1000) : null;
 
   const { argv, stdin } = claudeCodeAgent.buildArgv(prompt, {});
   const proc = bunSpawn({
@@ -110,7 +112,7 @@ async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<
       handleEvents(claudeCodeAgent.parseLine(buf));
     }
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     reader.releaseLock();
   }
 
@@ -225,10 +227,7 @@ export async function runTriage(
   });
 
   // 3. Invoke the agent.
-  const budget = Math.min(
-    opts.budgetSeconds ?? TRIAGE_MAX_BUDGET_SECONDS,
-    TRIAGE_MAX_BUDGET_SECONDS,
-  );
+  const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
   let responseText: string;
   let metrics: import("@factory/runtime").AgentMetrics | null = null;
   if (opts.agentInvoker) {
@@ -365,10 +364,7 @@ export async function runFollowupTriage(
     THREAD: threadText.length > 0 ? threadText : "(no prior messages)",
   });
 
-  const budget = Math.min(
-    opts.budgetSeconds ?? TRIAGE_MAX_BUDGET_SECONDS,
-    TRIAGE_MAX_BUDGET_SECONDS,
-  );
+  const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
   let responseText: string;
   let metrics: import("@factory/runtime").AgentMetrics | null = null;
   if (opts.agentInvoker) {

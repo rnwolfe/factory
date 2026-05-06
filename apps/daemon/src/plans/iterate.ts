@@ -16,14 +16,13 @@ import {
 } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
+import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "./invoke-claude.ts";
 import { extractJsonObject } from "./json-extract.ts";
 import { planPromptKey } from "./prompts.ts";
-
-const PLAN_BUDGET_SECONDS = 120;
 
 export interface PlanAgentInvocation {
   /** Rendered prompt — full template on a fresh turn, follow-up note on resume. */
@@ -509,7 +508,7 @@ export async function runPlanIteration(
   }
 
   const currentPromptVersion = `${promptKey}@${promptRow.version}`;
-  const budget = Math.min(opts.budgetSeconds ?? PLAN_BUDGET_SECONDS, PLAN_BUDGET_SECONDS);
+  const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
 
   // Resume conditions: we have a captured session id, the prompt version is
   // unchanged since the session started (otherwise the resumed agent is

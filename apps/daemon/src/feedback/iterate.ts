@@ -1,6 +1,7 @@
 import { type Db, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
+import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { extractJsonObject } from "../plans/json-extract.ts";
@@ -98,7 +99,7 @@ export async function runAgentReply(
     invocation = opts.agentInvoker
       ? await opts.agentInvoker(prompt)
       : await invokeClaudeJson(prompt, {
-          budgetSeconds: opts.budgetSeconds ?? 90,
+          budgetSeconds: opts.budgetSeconds ?? getAgentBudgetSeconds(),
           resumeSessionId: fb.claudeSessionId ?? undefined,
         });
   } catch (err) {

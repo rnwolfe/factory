@@ -2,6 +2,7 @@ import { createDb, runMigrations, schema } from "@factory/db";
 import { sendKeysToTmux } from "@factory/runtime";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
+import { bindAgentBudgetConfig } from "./agent-budget.ts";
 import { authorizeRequest } from "./auth.ts";
 import { type FactoryConfig, loadConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
@@ -79,6 +80,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // place so all DaemonContext.config readers see the right values without
   // any rewiring.
   applySettingsFromDb(db, config);
+
+  // Bind the live config to the agent-budget singleton. Triage / plan /
+  // audit / feedback invocations read from this; mutations through the
+  // settings store flow through automatically (config object is shared).
+  bindAgentBudgetConfig(config);
 
   // (Boot-time recovery happens after pool/registry/events are constructed
   //  below — the resume path needs them to re-submit work.)

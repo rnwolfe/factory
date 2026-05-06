@@ -32,6 +32,7 @@ function setupHarness(): Harness {
     dbPath,
     maxConcurrentRuns: 1,
     defaultRunBudgetSeconds: 60,
+    agentBudgetSeconds: 0,
     gitAuthor: { name: "test", email: "test@test" },
     githubToken: null,
     factoryProjectId: null,

@@ -51,7 +51,9 @@ export async function invokeClaudeJson(
   opts: InvokeClaudeOptions,
 ): Promise<InvokeClaudeResult> {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), opts.budgetSeconds * 1000);
+  // budgetSeconds=0 means unlimited (matches running the Claude CLI directly).
+  const timer =
+    opts.budgetSeconds > 0 ? setTimeout(() => ac.abort(), opts.budgetSeconds * 1000) : null;
 
   const { argv, stdin } = claudeCodeAgent.buildArgv(prompt, {
     resumeSessionId: opts.resumeSessionId,
@@ -101,7 +103,7 @@ export async function invokeClaudeJson(
       handleEvents(claudeCodeAgent.parseLine(buf));
     }
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     reader.releaseLock();
   }
 

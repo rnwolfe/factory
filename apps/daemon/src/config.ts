@@ -21,6 +21,12 @@ export interface FactoryConfig {
   maxConcurrentRuns: number;
   /** Default budget seconds for runs that don't specify one. */
   defaultRunBudgetSeconds: number;
+  /**
+   * Wall-clock cap (seconds) for non-run agent invocations: triage, plan
+   * iteration, audit iteration, feedback. 0 = unlimited (matches running
+   * `claude` directly). Quality is more important than speed by default.
+   */
+  agentBudgetSeconds: number;
   /** Git author identity for project bootstrap commits. */
   gitAuthor: { name: string; email: string };
   /**
@@ -68,6 +74,7 @@ interface PartialConfig {
   dbPath?: string;
   maxConcurrentRuns?: number;
   defaultRunBudgetSeconds?: number;
+  agentBudgetSeconds?: number;
   gitAuthor?: { name?: string; email?: string };
   factoryProjectId?: string | null;
 }
@@ -85,6 +92,7 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
     maxConcurrentRuns: p.maxConcurrentRuns ?? Number(process.env.FACTORY_MAX_RUNS ?? 4),
     defaultRunBudgetSeconds:
       p.defaultRunBudgetSeconds ?? Number(process.env.FACTORY_RUN_BUDGET ?? 7200),
+    agentBudgetSeconds: p.agentBudgetSeconds ?? Number(process.env.FACTORY_AGENT_BUDGET ?? 0),
     gitAuthor: {
       name: p.gitAuthor?.name ?? process.env.FACTORY_GIT_NAME ?? "Factory",
       email: p.gitAuthor?.email ?? process.env.FACTORY_GIT_EMAIL ?? "factory@localhost",

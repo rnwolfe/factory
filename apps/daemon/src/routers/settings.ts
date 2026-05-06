@@ -24,6 +24,7 @@ export const settingsRouter = router({
       gitAuthor: snap.gitAuthor,
       maxConcurrentRuns: snap.maxConcurrentRuns,
       defaultRunBudgetSeconds: snap.defaultRunBudgetSeconds,
+      agentBudgetSeconds: snap.agentBudgetSeconds,
       githubToken: { has: snap.githubToken !== null && snap.githubToken.length > 0 },
       factoryProjectId: snap.factoryProjectId,
       overridden: snap.overridden,
@@ -54,6 +55,17 @@ export const settingsRouter = router({
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "default-run-budget-seconds: 0 (infinite) or 60..86400",
+          });
+        }
+      }
+      if (input.key === "agent-budget-seconds") {
+        const n = Number.parseInt(input.value, 10);
+        // 0 = unlimited (default). Otherwise 30..86400 — short-iteration calls
+        // (triage, plan, audit, feedback) should never need more than a day.
+        if (!Number.isFinite(n) || (n !== 0 && (n < 30 || n > 24 * 3600))) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "agent-budget-seconds: 0 (unlimited) or 30..86400",
           });
         }
       }

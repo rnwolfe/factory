@@ -3,14 +3,13 @@ import type { Audit, Db, Project } from "@factory/db";
 import { schema } from "@factory/db";
 import { ensureWorktree, removeWorktree } from "@factory/runtime";
 import { eq } from "drizzle-orm";
+import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import type { FactoryConfig } from "../config.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { readAuditSkill } from "../projects/audit-skills.ts";
 import { parseAuditResponse, writeFindings } from "./findings.ts";
 import { buildAuditPrompt, gatherProjectContext } from "./prompts.ts";
-
-const EXEC_BUDGET_SECONDS = 600;
 
 export interface ExecAuditOptions {
   budgetSeconds?: number;
@@ -83,7 +82,7 @@ export async function runExecAudit(
       projectName: project.name,
     });
     const prompt = buildAuditPrompt({ skill, projectName: project.name, ...context });
-    const budget = Math.min(opts.budgetSeconds ?? EXEC_BUDGET_SECONDS, EXEC_BUDGET_SECONDS);
+    const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
     const invocation = await invokeClaudeJson(prompt, {
       budgetSeconds: budget,
       cwd: wt.worktreePath,

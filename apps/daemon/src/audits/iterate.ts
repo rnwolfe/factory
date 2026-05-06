@@ -1,13 +1,12 @@
 import type { Audit, Db } from "@factory/db";
 import { schema } from "@factory/db";
 import { eq } from "drizzle-orm";
+import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { readAuditSkill } from "../projects/audit-skills.ts";
 import { parseAuditResponse, writeFindings } from "./findings.ts";
 import { buildAuditPrompt, gatherProjectContext } from "./prompts.ts";
-
-const AUDIT_BUDGET_SECONDS = 300;
 
 export interface AuditAgentInvocation {
   prompt: string;
@@ -76,7 +75,7 @@ export async function runAuditIteration(
   });
   const prompt = buildAuditPrompt({ skill, projectName: project.name, ...context });
 
-  const budget = Math.min(opts.budgetSeconds ?? AUDIT_BUDGET_SECONDS, AUDIT_BUDGET_SECONDS);
+  const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
   let invocation: InvokeClaudeResult;
   try {
     if (opts.agentInvoker) {

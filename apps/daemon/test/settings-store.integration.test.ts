@@ -29,6 +29,7 @@ function setup(): {
     dbPath,
     maxConcurrentRuns: 4,
     defaultRunBudgetSeconds: 7200,
+    agentBudgetSeconds: 0,
     gitAuthor: { name: "yaml-name", email: "yaml@example.com" },
     githubToken: null,
     factoryProjectId: null,

@@ -22,6 +22,7 @@ export const SETTING_KEYS = [
   "git-author-email",
   "max-concurrent-runs",
   "default-run-budget-seconds",
+  "agent-budget-seconds",
   "github-token",
   "factory-project-id",
 ] as const;
@@ -36,6 +37,7 @@ interface ConfigDefaults {
   gitAuthor: { name: string; email: string };
   maxConcurrentRuns: number;
   defaultRunBudgetSeconds: number;
+  agentBudgetSeconds: number;
   githubToken: string | null;
   factoryProjectId: string | null;
 }
@@ -50,6 +52,7 @@ function captureDefaults(config: FactoryConfig): ConfigDefaults {
     gitAuthor: { ...config.gitAuthor },
     maxConcurrentRuns: config.maxConcurrentRuns,
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,
+    agentBudgetSeconds: config.agentBudgetSeconds,
     githubToken: config.githubToken,
     factoryProjectId: config.factoryProjectId,
   };
@@ -79,6 +82,7 @@ export function applySettingsFromDb(db: Db, config: FactoryConfig): void {
   config.gitAuthor = { ...defaults.gitAuthor };
   config.maxConcurrentRuns = defaults.maxConcurrentRuns;
   config.defaultRunBudgetSeconds = defaults.defaultRunBudgetSeconds;
+  config.agentBudgetSeconds = defaults.agentBudgetSeconds;
   config.githubToken = defaults.githubToken;
   config.factoryProjectId = defaults.factoryProjectId;
   const map = readAllSettings(db);
@@ -101,6 +105,12 @@ function applySettingsMap(map: Map<SettingKey, string>, config: FactoryConfig): 
     const n = Number.parseInt(budget, 10);
     // 0 = infinite (no timeout); otherwise require a sensible floor.
     if (Number.isFinite(n) && (n === 0 || n >= 60)) config.defaultRunBudgetSeconds = n;
+  }
+  const agentBudget = map.get("agent-budget-seconds");
+  if (agentBudget !== undefined) {
+    const n = Number.parseInt(agentBudget, 10);
+    // 0 = unlimited (default); otherwise require a sensible floor.
+    if (Number.isFinite(n) && (n === 0 || n >= 30)) config.agentBudgetSeconds = n;
   }
   const token = map.get("github-token");
   if (token !== undefined) {
@@ -140,6 +150,7 @@ export interface SettingsView {
   gitAuthor: { name: string; email: string };
   maxConcurrentRuns: number;
   defaultRunBudgetSeconds: number;
+  agentBudgetSeconds: number;
   githubToken: string | null;
   factoryProjectId: string | null;
   /** Which keys have a DB row (true) vs. coming from yaml/env defaults (false). */
@@ -161,6 +172,7 @@ export function snapshotSettings(db: Db, config: FactoryConfig): SettingsView {
     gitAuthor: config.gitAuthor,
     maxConcurrentRuns: config.maxConcurrentRuns,
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,
+    agentBudgetSeconds: config.agentBudgetSeconds,
     githubToken: config.githubToken,
     factoryProjectId: config.factoryProjectId,
     overridden,
