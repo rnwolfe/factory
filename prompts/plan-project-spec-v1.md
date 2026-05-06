@@ -8,8 +8,13 @@ back, surfaces missing constraints, and freezes the plan when satisfied.
 ## Inputs
 
 - `{{IDEA_TEXT}}` — the original idea text.
-- `{{GOAL_HINT}}` — optional goal hint (`me`, `learn`, `share`, `productize`),
-  or `null`.
+- `{{INTENT_CEREMONY}}` — the operator's intent at capture, one of
+  `tinker`, `personal`, `shared`, `production`, or `null`. Tells you how
+  much process and quality investment the operator wants this project to
+  carry — keep the spec proportionate to that ceremony.
+- `{{INTENT_ROLE}}` — `owner` or `contributor`, or `null`. `contributor`
+  projects skip the vision plan and the feature_plan vision filter; the
+  spec should be PR-shaped rather than product-shaped.
 - `{{TRIAGE_PAYLOAD_JSON}}` — the triage decision payload, including the
   initial `spec_stub` you (or a prior agent) emitted.
 - `{{CURRENT_DRAFT_JSON}}` — the current plan draft. May be the seed draft

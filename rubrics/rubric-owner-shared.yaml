@@ -1,0 +1,278 @@
+id: rubric-owner-shared
+version: 1
+ceremony: shared
+role: owner
+
+description: |
+  Triage rubric for projects the operator owns and intends for *other
+  humans* to use. Open-source library, internal tool used by colleagues,
+  small SaaS — anything where the audience is "someone who isn't me."
+
+  Mental anchor: "Other humans will see this. Am I ready for that?"
+
+  The shift from `personal` is significant: usefulness is no longer
+  about the operator alone, polish becomes table stakes, support
+  burden is real, and license/contribution intent must be coherent
+  before greenlighting.
+
+  Differs from `personal` in that:
+    - Value-to-users replaces operator-self-usefulness as the headline
+      axis.
+    - Support burden is its own axis — willing to answer questions,
+      write docs, triage external bugs?
+    - Quality bar is higher; "good enough for me" doesn't suffice.
+    - License clarity is required (operator must have decided OSS
+      vs proprietary, contribution policy, attribution).
+    - Foundation quality is stricter — others will read this code.
+
+  Differs from `production` in that:
+    - Failure tolerance is moderate. Bugs annoy users but don't
+      cause data loss, security incidents, or revenue damage.
+    - No SLA — best-effort support is enough.
+    - On-call is not a concept here.
+
+axes:
+
+  - id: value_to_users
+    weight: 0.25
+    scoring_guidance: |
+      How much do real other people benefit, and how many of them?
+
+      Strong signals (high score):
+        - The operator can name a specific group with a specific pain
+          point this addresses.
+        - There's existing demand evidence: users asking for it,
+          reaching out to the operator, or known competitor gaps.
+        - The benefit is concrete: time saved, problem solved,
+          ergonomics improved meaningfully — not "neat tool."
+        - The audience is reachable — the operator has a way to put
+          this in front of them (existing community, social presence,
+          docs site, distribution channel).
+
+      Weak signals (low score):
+        - "I think people would want this" without evidence.
+        - Audience is "everyone" or "developers" without narrower
+          targeting.
+        - The operator has no way to reach the audience even if the
+          tool is great.
+        - Benefit is marginal vs existing alternatives users already
+          have.
+
+      Anchors:
+        - 9-10: operator can name specific users + specific pain +
+          why existing options don't suffice.
+        - 7-8: clear audience and clear value, distribution channel
+          exists.
+        - 5-6: plausible audience, value is real but incremental.
+        - 3-4: speculative audience, value claim is shaky.
+        - 0-2: no identifiable user benefit beyond the operator
+          themselves.
+
+  - id: support_burden
+    weight: 0.20
+    scoring_guidance: |
+      How much support, doc-writing, and bug-triage will this generate,
+      and is the operator willing to bear it?
+
+      Strong signals (low burden, high score):
+        - Stateless / data-light — most user issues are reproducible
+          and self-contained.
+        - Small surface area — narrow scope reduces edge-case reports.
+        - The operator is comfortable saying "won't fix" and has
+          experience setting expectations with users.
+        - Existing similar projects show that ongoing burden is
+          manageable.
+
+      Weak signals (high burden, low score):
+        - Large, ambiguous scope where users will find dozens of edge
+          cases.
+        - Stateful systems where user data shapes can vary widely.
+        - Integration with platforms that change underneath (browser
+          extensions, mobile OSes) — users will report breakage that
+          isn't the operator's bug.
+        - Operator has historically struggled to set boundaries with
+          users or has explicitly said they don't want to support a
+          community.
+
+      Anchors:
+        - 9-10: tight scope, low ambiguity, operator comfortable
+          with the support load this implies.
+        - 7-8: moderate burden, operator has the bandwidth.
+        - 5-6: notable burden — sustainable but a real cost.
+        - 3-4: high burden — operator will likely tire of this.
+        - 0-2: support cost dominates — the project will exhaust the
+          operator before reaching critical mass.
+
+  - id: quality_bar
+    weight: 0.20
+    scoring_guidance: |
+      Does the idea force a level of polish the operator is prepared
+      to deliver? At shared ceremony, sloppy demos and broken
+      first-runs become embarrassments rather than amusements.
+
+      Strong signals (high score):
+        - The artifact maps cleanly to existing examples of polished
+          work in this space (the operator has a model to imitate).
+        - Polish is achievable incrementally — there's no "must be
+          perfect on launch" trap.
+        - First-run experience is short and well-defined (small
+          surface to make crisp).
+        - The operator has authored similarly polished work before
+          and knows what it costs.
+
+      Weak signals (low score):
+        - Polish is required across many surfaces (UI + CLI + API +
+          docs + onboarding) before *any* of it can land — too many
+          fronts to cover.
+        - The idea has a load-bearing onboarding flow that's hard
+          to make crisp in one pass.
+        - The operator is reaching past their comfort zone for
+          polish-craft (e.g. building UI when they primarily ship
+          CLIs).
+
+      Anchors:
+        - 9-10: polish is incremental, the operator is in their
+          element, the bar is reachable.
+        - 7-8: polish is achievable but will demand sustained effort.
+        - 5-6: polish is a stretch but doable.
+        - 3-4: polish demands skills the operator hasn't yet built.
+        - 0-2: gap between current polish-level and what's required
+          is too wide.
+
+  - id: license_clarity
+    weight: 0.10
+    scoring_guidance: |
+      Has the operator decided the license, contribution model, and
+      attribution before greenlighting? At shared ceremony, this is
+      load-bearing — picking it up later means re-licensing risk if
+      contributors arrive.
+
+      Strong signals:
+        - Operator has named the license (MIT, Apache-2.0, AGPL-3.0,
+          proprietary, etc.).
+        - Contribution policy is clear (PRs welcome / closed source /
+          private with select collaborators).
+        - Attribution / credit policy decided.
+        - License choice fits the dependencies — no GPL/MIT mismatches
+          downstream.
+
+      Weak signals:
+        - "I'll figure it out later" framing.
+        - License choice contradicts dependencies the project will
+          use (e.g., wanting a closed-source product that depends on
+          AGPL libraries).
+        - Operator hasn't considered whether they want contributions
+          and the project is shaped such that contributions will
+          arrive whether they want them or not.
+
+      Anchors:
+        - 9-10: license + contribution + attribution all explicit.
+        - 7-8: license decided, other policies will fall out clearly.
+        - 5-6: operator has a leaning but hasn't committed.
+        - 3-4: operator hasn't thought about it.
+        - 0-2: license intent contradicts the project's likely shape
+          (e.g. closed-source with copyleft dependencies).
+
+      Note: this axis being low is itself a `decompose` signal —
+      ask the operator to declare the license rather than guess.
+
+  - id: agent_buildability
+    weight: 0.15
+    scoring_guidance: |
+      Can a competent agent build a working v1 in 1-3 iterations?
+      Same axis as personal, slightly stricter: at shared ceremony,
+      "working" includes the polish overhead — first-run quality,
+      error messages, basic docs. The agent will need 1-2 extra
+      passes for that polish.
+
+      Strong signals:
+        - Standard tech stack the agent handles well.
+        - Existing libraries cover 80%+ of the work.
+        - Architectural decisions are conventional.
+        - Polish surface is bounded.
+
+      Weak signals:
+        - Specialized domains outside Factory's defaults.
+        - Many architectural decisions to make before code can land.
+        - Polish is required across many surfaces simultaneously.
+        - Depends on data, accounts, or services the operator hasn't
+          set up.
+
+      Anchors:
+        - 9-10: clear path to a polished v1 in 2-3 iterations.
+        - 7-8: solid path, 4-5 iterations to a shareable v1.
+        - 5-6: doable but the agent will need course corrections on
+          polish/quality.
+        - 3-4: parts of this fall outside Factory's strengths;
+          shareable quality is doubtful.
+        - 0-2: not feasible at shareable quality without major
+          operator co-authoring.
+
+  - id: foundation_quality
+    weight: 0.10
+    scoring_guidance: |
+      Does this leave room to grow? At shared ceremony, this is
+      stricter than at personal — others will read the code, file
+      issues against it, and possibly send PRs. A v1 that's
+      structurally awkward generates ongoing friction with users
+      and contributors.
+
+      Strong signals:
+        - Modular architecture with clean boundaries between concerns.
+        - Public API is intentionally narrow and forward-compatible.
+        - Naming and conventions are coherent enough that a new
+          contributor could orient themselves in a session.
+        - Data shape is forgiving — additive evolution doesn't break
+          existing users.
+
+      Weak signals:
+        - V1 conflates concerns the audience will need to disentangle
+          to use it.
+        - Public API is shaped such that breaking changes will be
+          unavoidable.
+        - Internal naming or structure is inconsistent.
+        - Tightly coupled to one external service or library that's
+          itself bleeding-edge.
+
+      Anchors:
+        - 9-10: contributors can orient quickly; API is shaped well
+          for forward evolution.
+        - 7-8: minor refactors expected as audience grows.
+        - 5-6: v2 will need targeted rewrites — survivable.
+        - 3-4: v2 likely demands re-architecture; users will feel it.
+        - 0-2: v1 shape is incompatible with shared audiences.
+
+decision_thresholds:
+  greenlit: 7.0       # weighted_score >= 7.0 AND uncertainty <= 0.3
+  parked_min: 4.5     # weighted_score in [4.5, 7.0) → parked
+  trashed: 4.5        # weighted_score < 4.5 → trashed
+
+decompose_when: |
+  uncertainty > 0.4, OR `license_clarity` < 5 — these are
+  particularly common at shared ceremony where operators name an
+  audience but haven't yet decided distribution terms.
+
+uncertainty_sources:
+  - missing_audience_signal: |
+      The operator names "users" but doesn't say who specifically
+      benefits. Without a target, value_to_users can't be scored
+      confidently.
+  - missing_license_intent: |
+      No license has been declared — drives `license_clarity` to a
+      low score, but is more importantly a `decompose` trigger.
+  - conflicting_signals: |
+      Strong audience claim but weak quality-bar fit, or vice versa.
+  - insufficient_idea_detail: |
+      Idea text leaves the support model, distribution model, or
+      audience scope ambiguous in ways that change the score.
+
+agent_invocation:
+  prompt_key: triage-prompt-v1
+  defaults:
+    ceremony: shared
+    role: owner
+
+freeze_preconditions:
+  feature_plan_vision_filter: required
+  project_vision_plan: required
+  license_declared: required

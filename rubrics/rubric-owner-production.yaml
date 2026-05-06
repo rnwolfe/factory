@@ -1,0 +1,297 @@
+id: rubric-owner-production
+version: 1
+ceremony: production
+role: owner
+
+description: |
+  Triage rubric for projects the operator owns where real users depend
+  on the project for something that *matters*. Paid product, internal
+  tooling that gates other work, anything with SLA implications,
+  anything where downtime or data loss has real consequences.
+
+  Mental anchor: "Other humans depend on this. What breaks if I get
+  this wrong?"
+
+  This is the strictest rubric. The bar shifts from "is this a good
+  idea?" to "am I prepared to be on the hook for this?" Greenlighting
+  a production-tier project commits the operator to ongoing investment
+  — not just code, but operations, support, security, and possibly
+  compliance work.
+
+  Differs from `shared` in that:
+    - Risk profile is a load-bearing axis. Security, data loss,
+      regulatory exposure, downtime — all weighted explicitly.
+    - Support capacity becomes "am I willing to be on-call?" rather
+      than "am I willing to write docs?"
+    - Differentiation matters — there has to be a reason this exists
+      vs. existing battle-tested alternatives.
+    - Foundation quality is strictest — production rewrites are
+      expensive in user-facing ways (downtime, migration, breaking
+      changes for paying customers).
+
+  Differs from anything below in that:
+    - Failure has *consequences for other people*: lost revenue,
+      broken trust, data corruption, security exposure, regulatory
+      penalties.
+
+axes:
+
+  - id: problem_severity
+    weight: 0.25
+    scoring_guidance: |
+      Do real users have real, costly pain that this addresses, and
+      is the cost concrete?
+
+      Strong signals (high score):
+        - The pain is *measured*: lost time per week, lost revenue,
+          incidents per month, hours of toil eliminated.
+        - Existing solutions are clearly insufficient for the named
+          users (not just "I think we can do better").
+        - The operator can name 3+ specific users/orgs that have
+          articulated this exact pain.
+        - The pain has compounded — users are actively shopping for
+          alternatives or have built fragile workarounds.
+
+      Weak signals (low score):
+        - Pain is hypothesized rather than observed.
+        - Users described in generic terms ("teams that need X").
+        - Existing alternatives are "fine but I think mine could be
+          better" — a marginal improvement isn't production-tier
+          motivation.
+        - The pain is real but small per-user, and there isn't a
+          large enough population to justify production investment.
+
+      Anchors:
+        - 9-10: pain is measured in concrete units (dollars, hours,
+          incidents); users are named; workarounds are documented.
+        - 7-8: pain is concrete and well-described; user names exist
+          but per-user cost is harder to quantify.
+        - 5-6: real pain, but the magnitude argument is hand-wavy.
+        - 3-4: pain is plausible but unmeasured.
+        - 0-2: speculative pain.
+
+  - id: risk_profile
+    weight: 0.20
+    scoring_guidance: |
+      What's the blast radius of getting this wrong? Does the operator
+      have the capacity to manage that risk?
+
+      Strong signals (low risk, high score):
+        - Stateless or near-stateless — failure mode is "service
+          unavailable" not "data corrupted."
+        - No regulated data (PII, PHI, payment data, biometrics).
+        - Failure is locally isolated (a bad request fails one
+          request, not a cascading outage).
+        - Operator has security and ops experience commensurate with
+          the project's needs.
+        - Existing patterns for this kind of project are well-known
+          and the operator can follow them.
+
+      Weak signals (high risk, low score):
+        - Holds user data that would be costly to lose, expensive to
+          re-acquire, or impossible to reconstruct.
+        - Holds regulated data the operator hasn't built compliance
+          experience for (HIPAA, GDPR, PCI, SOC2).
+        - Failure modes cascade — a bug in one component takes down
+          downstream services.
+        - Authentication, payment, or identity surfaces — bugs here
+          are security incidents, not just outages.
+        - Operator has not yet built operational muscle for this
+          risk class.
+
+      Anchors:
+        - 9-10: low-risk shape; operator's existing practice is
+          sufficient.
+        - 7-8: real risk, but well within operator's competence.
+        - 5-6: meaningful risk; operator will have to build ops
+          discipline as the project scales.
+        - 3-4: high risk with notable gaps in operator's operational
+          experience.
+        - 0-2: risk class outpaces the operator's preparation;
+          launching is reckless.
+
+      Note: a low score here can produce `decompose` (operator should
+      narrow scope or invest in ops first) or `parked` (idea is right
+      but timing is wrong). Don't auto-trash on risk alone; the right
+      response is often "yes but smaller / yes but later."
+
+  - id: support_capacity
+    weight: 0.15
+    scoring_guidance: |
+      Is the operator willing and able to be on-call for this? Real
+      users have real expectations.
+
+      Strong signals (high capacity, high score):
+        - Operator has named what their support model will be (hours,
+          response-time targets, escalation path).
+        - Operator has done on-call before and knows what it costs.
+        - The project's failure modes are bounded enough that
+          on-call doesn't dominate the operator's life.
+        - There's a co-operator, contractor, or community-of-trust
+          that can share the load.
+
+      Weak signals (low capacity, low score):
+        - "I'll figure it out" framing for support model.
+        - Operator has historically struggled with on-call burden or
+          has explicitly avoided projects with this characteristic.
+        - The project is inherently 24/7 (dependent globally) with
+          only the operator on rotation.
+        - No fallback for operator illness, vacation, or other life
+          events.
+
+      Anchors:
+        - 9-10: operator has a credible support model + history of
+          executing on similar commitments.
+        - 7-8: realistic plan with acknowledged tradeoffs.
+        - 5-6: plan exists but is untested.
+        - 3-4: plan is hand-wavy; risk of operator burnout is real.
+        - 0-2: no credible support model — production launch would
+          likely collapse under operator burden.
+
+  - id: differentiation
+    weight: 0.15
+    scoring_guidance: |
+      Does this exist already, better, free? At production ceremony,
+      "I want to build my own" isn't enough — users won't pay for
+      (or trust) a worse-or-equal alternative.
+
+      Strong signals (high differentiation, high score):
+        - There's a specific gap in the market the operator can name
+          precisely: "X exists but doesn't handle Y" or "X exists
+          but is closed-source and our buyers need open."
+        - The operator has insight (domain, technical, distribution)
+          that incumbents don't.
+        - The differentiator is durable — it isn't trivially
+          replicable by an incumbent who notices.
+        - User research backs the differentiation: real users have
+          said they'd switch.
+
+      Weak signals (low differentiation, low score):
+        - "Mine will be better" without articulated specifics.
+        - The differentiator is "open source vs theirs is closed" or
+          "ours is cheaper" — both easy for incumbents to neutralize.
+        - The space is crowded with battle-tested options.
+        - Differentiation rests on aesthetic / preference rather than
+          functional gaps.
+
+      Anchors:
+        - 9-10: clear, specific, durable differentiator backed by
+          user research.
+        - 7-8: clear differentiator; durability is plausible.
+        - 5-6: differentiator exists but is narrow or fragile.
+        - 3-4: differentiator is mostly a preference claim.
+        - 0-2: no real differentiation vs existing options.
+
+  - id: foundation_quality
+    weight: 0.15
+    scoring_guidance: |
+      Does the v1 architecture survive growth without expensive
+      rewrites? At production ceremony, rewrites cost real money —
+      downtime, migrations, breaking changes that anger paying users.
+
+      Strong signals:
+        - Boundaries between subsystems are clear and stable from
+          v1 (data layer, business logic, API surface, UI).
+        - Public API is intentionally narrow and forward-compatible —
+          the operator has thought about deprecation and versioning.
+        - Data layer is shaped for evolution: schema migrations are
+          forward-only, additive changes don't break consumers.
+        - Operational concerns (logging, metrics, error reporting,
+          backups) are first-class from v1, not retrofitted.
+        - The project has well-known reference architectures in this
+          domain that the operator is aware of.
+
+      Weak signals:
+        - V1 architecture conflates concerns; refactoring will require
+          touching everything.
+        - Public API is shaped such that breaking changes are
+          inevitable as scope grows.
+        - No plan for backups, recovery, observability — adding
+          these later is far harder than building them in.
+        - Architecture follows no recognizable pattern; the operator
+          will be inventing during operation.
+
+      Anchors:
+        - 9-10: architecture supports v1 → v3 with additive change
+          only; observability and recovery built in from v1.
+        - 7-8: minor refactors expected at v2; architecture is sound.
+        - 5-6: targeted rewrites likely at v2 — manageable but
+          painful.
+        - 3-4: v2 will require structural surgery.
+        - 0-2: v1 shape is incompatible with sustained production
+          operation.
+
+  - id: agent_buildability
+    weight: 0.10
+    scoring_guidance: |
+      Can a competent agent build a working v1 in 1-3 iterations? At
+      production ceremony this includes operational scaffolding —
+      observability, error handling, testing, recovery paths — not
+      just feature code.
+
+      Strong signals:
+        - Standard production patterns the agent has seen many times.
+        - Existing libraries cover the load-bearing concerns.
+        - Operational scaffolding is conventional and decomposable.
+        - Architectural decisions are well-understood; few hard forks.
+
+      Weak signals:
+        - Specialized domains outside Factory's defaults.
+        - Operational requirements (e.g. exotic monitoring, custom
+          authentication) require significant agent judgment.
+        - Many architectural decisions need operator input.
+        - Real-time, high-throughput, or otherwise demanding
+          performance constraints.
+
+      Anchors:
+        - 9-10: clear path to production-ready v1 in 3-5 iterations
+          including operational scaffolding.
+        - 7-8: solid path; 5-7 iterations including hardening.
+        - 5-6: doable but the agent will need many course corrections
+          on operational concerns.
+        - 3-4: outside Factory's strong suit; production quality is
+          doubtful without operator co-design.
+        - 0-2: not feasible without substantial operator co-authoring.
+
+decision_thresholds:
+  greenlit: 7.5       # weighted_score >= 7.5 AND uncertainty <= 0.25
+  parked_min: 5.5     # weighted_score in [5.5, 7.5) → parked
+  trashed: 5.5        # weighted_score < 5.5 → trashed
+
+  # Stricter than personal/shared. At production ceremony, "marginal"
+  # ideas should not greenlight — the cost of being wrong is high
+  # enough that we'd rather park-or-decompose than commit.
+
+decompose_when: |
+  uncertainty > 0.3, OR any axis < 4. Production triage at low
+  confidence or with weak axis evidence is dangerous; better to
+  resolve the unknown via clarifying questions than commit.
+
+uncertainty_sources:
+  - unmeasured_problem: |
+      Pain is described qualitatively but not quantitatively — at
+      production ceremony, "users have asked for X" needs to be
+      "this many users, this often, with this cost."
+  - undefined_risk_class: |
+      Risk profile depends on data shape, hosting model, or
+      compliance regime that the idea doesn't specify.
+  - undefined_support_model: |
+      No credible answer to "who is on-call" or "what hours" — at
+      production this is load-bearing.
+  - missing_differentiation_evidence: |
+      Differentiation claim is operator's opinion without user
+      research backing.
+  - conflicting_signals: |
+      Strong demand but weak operator capacity, or vice versa.
+
+agent_invocation:
+  prompt_key: triage-prompt-v1
+  defaults:
+    ceremony: production
+    role: owner
+
+freeze_preconditions:
+  feature_plan_vision_filter: required
+  project_vision_plan: required
+  license_declared: required
+  risk_review: required

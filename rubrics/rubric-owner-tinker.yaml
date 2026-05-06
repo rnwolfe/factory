@@ -1,0 +1,201 @@
+id: rubric-owner-tinker
+version: 1
+ceremony: tinker
+role: owner
+
+description: |
+  Triage rubric for tinker-tier ideas where the operator owns the
+  project. Throwaway scope: experiments, learning exercises, "let me
+  try this and see if it's useful," tools the operator may use once
+  and discard.
+
+  Mental anchor: "Worth a few hours? Will I be glad I tried?"
+
+  This is the lowest-ceremony rubric. Maintenance, distribution,
+  vision, license — none of it applies. The decision is essentially:
+  is this fun, fast, and pointed at a real (even small) curiosity?
+
+  Differs from `personal` in that:
+    - Maintenance cost is not weighted. Tinker projects are allowed
+      to bitrot.
+    - No vision plan is created on bootstrap.
+    - The `feature_plan` vision filter is skipped at this ceremony.
+    - The bar for usefulness is lower — "I want to learn how X works"
+      is a valid driver here even with no end-product use case.
+
+  Differs from `shared`/`production` in every meaningful way: this
+  is not headed toward other humans, ever (until it gets promoted to
+  a higher ceremony, which is an explicit operator action).
+
+axes:
+
+  - id: personal_fit
+    weight: 0.25
+    scoring_guidance: |
+      Does this connect to themes the operator already cares about,
+      or is it a wandering "ooh shiny" suggestion?
+
+      Strong signals (high score):
+        - Touches an area the operator returns to repeatedly (infra
+          tooling, agent workflows, dev utilities, knowledge systems,
+          CLI ergonomics, networking, observability).
+        - The operator can articulate why they'd be the right person
+          to build this — they have context, taste, or motivation.
+        - There's a specific moment the idea came from (frustration,
+          conversation, blog post the operator engaged with).
+        - The idea would teach the operator something they want to
+          learn, even if the artifact itself is throwaway.
+
+      Weak / negative signals (low score):
+        - Idea is generic ("a habit tracker") with nothing connecting
+          it to the operator's interests or strengths.
+        - Operator has shown no sustained interest in the domain.
+        - Idea is recycled from a recent trend without the operator
+          having a genuine question about it.
+
+      Anchors:
+        - 9-10: operator can name a concrete moment this idea came
+          from, and it sits in a domain they actively explore.
+        - 7-8: lands in a familiar space the operator has dabbled in.
+        - 5-6: adjacent to operator interests but not central.
+        - 3-4: outside operator's usual orbit; would be a stretch
+          motivation-wise.
+        - 0-2: nothing connects this to the operator personally.
+
+  - id: time_to_first_value
+    weight: 0.25
+    scoring_guidance: |
+      How quickly does this produce *something*, even if rough? At
+      tinker ceremony, momentum matters more than polish — a
+      half-working prototype in 2 hours teaches more than a clean
+      v1 in 2 weeks.
+
+      Strong signals:
+        - Smallest meaningful artifact is genuinely small (a script,
+          a CLI, a single page).
+        - The operator can see output (logs, a webpage, a file) within
+          the first iteration.
+        - There's a clear minimal demo loop — input X, get output Y.
+
+      Weak signals:
+        - Substantial scaffolding required before anything runs (data
+          ingest, model training, multi-service orchestration).
+        - Value depends on accumulated history that takes time to
+          build up.
+        - Useful only end-to-end; no informative midpoint.
+
+      Anchors:
+        - 9-10: working demo within first run.
+        - 7-8: demo within 1-2 iterations.
+        - 5-6: useful after a few iterations.
+        - 3-4: significant runway before any signal.
+        - 0-2: requires extensive scaffolding before any value emerges.
+
+  - id: agent_buildability
+    weight: 0.25
+    scoring_guidance: |
+      Can a competent agent build a working tinker-tier prototype in
+      a single overnight run (~6-8 hours of agent time)?
+
+      Strong signals:
+        - Standard web/CLI/library shape.
+        - Well-trodden stack: TypeScript, Bun/Node, SQLite, plain HTTP,
+          local files.
+        - Heavy lifting handled by existing libraries the agent can
+          look up.
+        - No external coordination needed (no API keys behind paid
+          tiers, no review-required services).
+
+      Weak signals:
+        - Requires ML training, hardware, or specialized infra.
+        - Needs services without a free tier the operator hasn't paid
+          for.
+        - Depends on data the operator doesn't have.
+        - Architecture decisions are nontrivial and the rubric/plan
+          stages can't decompose them cleanly.
+
+      Anchors:
+        - 9-10: clearly buildable in one overnight run.
+        - 7-8: tight but doable; a few course corrections expected.
+        - 5-6: doable in 2-3 runs.
+        - 3-4: outside Factory's defaults; significant operator
+          co-design needed.
+        - 0-2: fundamentally not feasible for an agent at tinker scale.
+
+  - id: usefulness
+    weight: 0.15
+    scoring_guidance: |
+      Will the operator get *something* out of this, even if the
+      artifact is throwaway? At tinker ceremony, "I learned how X
+      works" counts. The bar is "non-zero return on time invested,"
+      not "this becomes a daily tool."
+
+      Strong signals:
+        - Operator gets a working demo to show themselves or others.
+        - Operator learns a technique, library, or pattern they
+          wanted to learn.
+        - Solves a real if small annoyance.
+
+      Weak signals:
+        - Operator already knows the techniques involved.
+        - There's no clear return — neither learning, nor a tool,
+          nor a demo worth keeping.
+
+      Anchors:
+        - 9-10: operator will use this OR learn something they wanted.
+        - 7-8: clearly useful for one of those two purposes.
+        - 5-6: maybe useful, depending on how it shakes out.
+        - 3-4: thin return on time.
+        - 0-2: no clear payoff.
+
+  - id: stack_fit
+    weight: 0.10
+    scoring_guidance: |
+      Does this leverage the operator's strengths (TS/Bun/Node, infra,
+      networking, K8s, agent tooling) or force a stretch? At tinker,
+      a stretch isn't disqualifying — it can even be the point — but
+      it's a friction signal worth flagging.
+
+      Anchors:
+        - 9-10: right in the wheelhouse.
+        - 7-8: comfortable adjacent.
+        - 5-6: meaningful stretch into less familiar territory.
+        - 3-4: significant new domain — operator may struggle to
+          steer the agent.
+        - 0-2: entirely new domain with no operator scaffolding.
+
+      Note: a low score here is a *flag*, not necessarily a veto.
+      If `personal_fit` is high (operator wants to learn this), a
+      stack_fit of 3 can still produce a greenlit verdict.
+
+decision_thresholds:
+  greenlit: 7.0       # weighted_score >= 7.0 AND uncertainty <= 0.3
+  parked_min: 5.0     # weighted_score in [5.0, 7.0) → parked
+  trashed: 5.0        # weighted_score < 5.0 → trashed
+
+decompose_when: |
+  uncertainty > 0.4 — too thin to score with confidence; ask 1-3
+  clarifying questions instead of guessing.
+
+uncertainty_sources:
+  - missing_axis_evidence: |
+      Idea text doesn't address one or more axes — usually the
+      operator's motivation or the smallest meaningful artifact.
+  - conflicting_signals: |
+      Idea scores high on personal_fit but low on agent_buildability,
+      or vice versa, and the operator hasn't indicated which weighs
+      more.
+  - insufficient_idea_detail: |
+      Idea is one sentence and several plausible interpretations
+      exist with different scores.
+
+agent_invocation:
+  prompt_key: triage-prompt-v1
+  defaults:
+    ceremony: tinker
+    role: owner
+
+freeze_preconditions:
+  # Tinker projects skip vision and the feature_plan filter.
+  feature_plan_vision_filter: skipped
+  project_vision_plan: not_created

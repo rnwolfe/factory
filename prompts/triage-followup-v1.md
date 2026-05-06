@@ -7,10 +7,13 @@ and respond conversationally to the operator's latest message.
 ## Inputs
 
 - `{{IDEA_TEXT}}` — the original idea text.
-- `{{GOAL_HINT}}` — the original goal hint (one of `me`, `learn`, `share`,
-  `productize`), or `null`.
-- `{{RUBRIC_YAML}}` — the active rubric (authoritative). Each axis carries an
-  `id`, a `weight`, and a per-axis scoring `prompt`.
+- `{{INTENT_CEREMONY}}` — the operator's intent at capture, one of
+  `tinker`, `personal`, `shared`, `production`, or `null`.
+- `{{INTENT_ROLE}}` — `owner` or `contributor`, or `null`.
+- `{{RUBRIC_YAML}}` — the rubric used for the original decision (the
+  follow-up reuses the same rubric so anchors are consistent across the
+  thread). Treat as authoritative; each axis carries an `id`, a `weight`,
+  and a `scoring_guidance` block with anchored bands.
 - `{{PRIOR_DECISION_JSON}}` — your previous decision payload for this idea.
 - `{{THREAD}}` — the conversation so far, in chronological order. Operator
   messages are new evidence; agent messages are your own prior replies.
@@ -61,6 +64,11 @@ required for every follow-up.
 
 ## Rules
 
-- Same rules as initial triage: be decisive, optimize for personal fit at the
-  current tier, tinker means one overnight run.
+- Same rules as initial triage: treat the rubric's anchors literally
+  (cite specific evidence to score above an anchor's threshold), be
+  decisive, match scoring to the rubric's ceremony, honor the intent
+  fields the operator declared.
+- Operator messages may answer prior clarifying questions, but they don't
+  have to reopen the verdict — re-score honestly. If new info doesn't
+  cross an anchor's threshold, the score stays where it was.
 - Output JSON only. The first character of your response must be `{`.

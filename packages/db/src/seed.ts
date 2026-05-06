@@ -9,10 +9,22 @@ import { prompts, rubricVersions } from "./schema.ts";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 
-const RUBRIC_FILE = path.join(repoRoot, "rubrics/rubric-me-tinker.yaml");
+// Rubric matrix: four owner-* rubrics keyed on ceremony, plus a single
+// rubric-contributor that handles all contributor work regardless of
+// upstream ceremony. All five must be seeded as active simultaneously
+// — orchestrate.ts picks the right one per (intentCeremony, intentRole).
+const RUBRIC_FILES: string[] = [
+  path.join(repoRoot, "rubrics/rubric-owner-tinker.yaml"),
+  path.join(repoRoot, "rubrics/rubric-owner-personal.yaml"),
+  path.join(repoRoot, "rubrics/rubric-owner-shared.yaml"),
+  path.join(repoRoot, "rubrics/rubric-owner-production.yaml"),
+  path.join(repoRoot, "rubrics/rubric-contributor.yaml"),
+];
 const PROMPT_FILE = path.join(repoRoot, "prompts/triage-prompt-v1.md");
 const FOLLOWUP_PROMPT_FILE = path.join(repoRoot, "prompts/triage-followup-v1.md");
 const FOLLOWUP_PROMPT_KEY = "triage-followup-v1";
+const CONTRIBUTOR_PROMPT_FILE = path.join(repoRoot, "prompts/triage-contributor-v1.md");
+const CONTRIBUTOR_PROMPT_KEY = "triage-contributor-v1";
 
 const PLAN_PROMPT_FILES: Array<{ key: string; file: string }> = [
   { key: "plan-project-spec-v1", file: "prompts/plan-project-spec-v1.md" },
@@ -42,17 +54,24 @@ async function main() {
 
   const db = createDb(target);
 
-  const [rubricRaw, promptContent, followupContent] = await Promise.all([
-    readFile(RUBRIC_FILE, "utf8"),
+  const [promptContent, followupContent, contributorPromptContent] = await Promise.all([
     readFile(PROMPT_FILE, "utf8"),
     readFile(FOLLOWUP_PROMPT_FILE, "utf8"),
+    readFile(CONTRIBUTOR_PROMPT_FILE, "utf8"),
   ]);
 
-  const parsed = yaml.load(rubricRaw) as RubricYaml;
-  if (!parsed?.id || typeof parsed.version !== "number") {
-    throw new Error(`invalid rubric: missing id or version (${RUBRIC_FILE})`);
+  // Load all rubric YAMLs upfront so we can validate before touching the DB.
+  const rubricRaws: Array<{ file: string; raw: string; parsed: RubricYaml }> = [];
+  for (const file of RUBRIC_FILES) {
+    const raw = await readFile(file, "utf8");
+    const parsed = yaml.load(raw) as RubricYaml;
+    if (!parsed?.id || typeof parsed.version !== "number") {
+      throw new Error(`invalid rubric: missing id or version (${file})`);
+    }
+    rubricRaws.push({ file, raw, parsed });
   }
-  const promptKey = parsed.agent_invocation?.prompt_key ?? "triage-prompt-v1";
+
+  const promptKey = "triage-prompt-v1";
   const now = Date.now();
 
   // Prompt: insert if missing, then set as the only active row for this key.
@@ -212,39 +231,77 @@ async function main() {
       sql`${prompts.promptKey} = ${AUDIT_BRIDGE_PROMPT_KEY} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${AUDIT_BRIDGE_PROMPT_KEY})`,
     );
 
-  // Rubric: same shape.
-  const existingRubric = await db
-    .select({ id: rubricVersions.id })
-    .from(rubricVersions)
-    .where(eq(rubricVersions.rubricKey, parsed.id))
+  // Contributor triage prompt: separate prompt key for the contributor flow,
+  // since contributor inputs/outputs differ from owner-mode triage.
+  const existingContribPrompt = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(eq(prompts.promptKey, CONTRIBUTOR_PROMPT_KEY))
     .all();
-
-  if (existingRubric.length === 0) {
-    await db.insert(rubricVersions).values({
+  if (existingContribPrompt.length === 0) {
+    await db.insert(prompts).values({
       id: createId(),
-      rubricKey: parsed.id,
-      version: parsed.version,
-      yaml: rubricRaw,
-      promptKey,
+      promptKey: CONTRIBUTOR_PROMPT_KEY,
+      version: 1,
+      content: contributorPromptContent,
       active: true,
       createdAt: now,
-      message: "seed: initial import",
     });
-    console.log(`  + rubric ${parsed.id}@${parsed.version}`);
+    console.log(`  + prompt ${CONTRIBUTOR_PROMPT_KEY}@1`);
   } else {
-    console.log(`  · rubric ${parsed.id} already present (${existingRubric.length} row(s))`);
+    console.log(
+      `  · prompt ${CONTRIBUTOR_PROMPT_KEY} already present (${existingContribPrompt.length} row(s))`,
+    );
   }
-
   await db
-    .update(rubricVersions)
+    .update(prompts)
     .set({ active: false })
-    .where(eq(rubricVersions.rubricKey, parsed.id));
+    .where(eq(prompts.promptKey, CONTRIBUTOR_PROMPT_KEY));
   await db
-    .update(rubricVersions)
+    .update(prompts)
     .set({ active: true })
     .where(
-      sql`${rubricVersions.rubricKey} = ${parsed.id} AND ${rubricVersions.version} = (SELECT MAX(${rubricVersions.version}) FROM ${rubricVersions} WHERE ${rubricVersions.rubricKey} = ${parsed.id})`,
+      sql`${prompts.promptKey} = ${CONTRIBUTOR_PROMPT_KEY} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${CONTRIBUTOR_PROMPT_KEY})`,
     );
+
+  // Rubrics: upsert each of the 5 (4 owner-* + 1 contributor) and mark
+  // the highest-version row of each key as active. Multiple active
+  // rubrics is the new normal — orchestrate.ts selects per request.
+  for (const { raw, parsed } of rubricRaws) {
+    const rubricPromptKey = parsed.agent_invocation?.prompt_key ?? promptKey;
+    const existingRubric = await db
+      .select({ id: rubricVersions.id })
+      .from(rubricVersions)
+      .where(eq(rubricVersions.rubricKey, parsed.id))
+      .all();
+
+    if (existingRubric.length === 0) {
+      await db.insert(rubricVersions).values({
+        id: createId(),
+        rubricKey: parsed.id,
+        version: parsed.version,
+        yaml: raw,
+        promptKey: rubricPromptKey,
+        active: true,
+        createdAt: now,
+        message: "seed: initial import",
+      });
+      console.log(`  + rubric ${parsed.id}@${parsed.version}`);
+    } else {
+      console.log(`  · rubric ${parsed.id} already present (${existingRubric.length} row(s))`);
+    }
+
+    await db
+      .update(rubricVersions)
+      .set({ active: false })
+      .where(eq(rubricVersions.rubricKey, parsed.id));
+    await db
+      .update(rubricVersions)
+      .set({ active: true })
+      .where(
+        sql`${rubricVersions.rubricKey} = ${parsed.id} AND ${rubricVersions.version} = (SELECT MAX(${rubricVersions.version}) FROM ${rubricVersions} WHERE ${rubricVersions.rubricKey} = ${parsed.id})`,
+      );
+  }
 
   // Verify acceptance: exactly one active rubric and one active prompt
   const activeRubrics = await db
@@ -263,23 +320,28 @@ async function main() {
   console.log(`active prompts: ${activePrompts.length}`);
   for (const p of activePrompts) console.log(`  - ${p.key}@${p.version}`);
 
-  // One active rubric; one active prompt per key (triage + follow-up + plan kinds).
+  // Five active rubrics (4 owner-* + 1 contributor); one active prompt per key.
+  const expectedRubricKeys = new Set(rubricRaws.map((r) => r.parsed.id));
   const expectedPromptKeys = new Set([
     promptKey,
     FOLLOWUP_PROMPT_KEY,
+    CONTRIBUTOR_PROMPT_KEY,
     ...PLAN_PROMPT_FILES.map((p) => p.key),
     AUDIT_BRIDGE_PROMPT_KEY,
     FEEDBACK_PROMPT_KEY,
   ]);
   const activePromptKeys = new Set(activePrompts.map((p) => p.key));
+  const activeRubricKeys = new Set(activeRubrics.map((r) => r.key));
   const missingKeys = [...expectedPromptKeys].filter((k) => !activePromptKeys.has(k));
+  const missingRubricKeys = [...expectedRubricKeys].filter((k) => !activeRubricKeys.has(k));
   if (
-    activeRubrics.length !== 1 ||
+    activeRubrics.length !== expectedRubricKeys.size ||
+    missingRubricKeys.length > 0 ||
     activePrompts.length !== expectedPromptKeys.size ||
     missingKeys.length > 0
   ) {
     throw new Error(
-      `seed acceptance failed: expected one active rubric and one active prompt for each of [${[...expectedPromptKeys].join(", ")}]`,
+      `seed acceptance failed: expected active rubrics [${[...expectedRubricKeys].join(", ")}] and active prompts [${[...expectedPromptKeys].join(", ")}]`,
     );
   }
 }

@@ -1,0 +1,290 @@
+id: rubric-contributor
+version: 1
+ceremony: any
+role: contributor
+
+description: |
+  Triage rubric for ideas where the operator is contributing to
+  *someone else's* project. The deliverable is a PR (or a proposed
+  change), not a product. The audience is the upstream maintainers
+  first, end-users second.
+
+  Mental anchor: "Will this PR get merged, and is the cost of writing
+  it worth that probability?"
+
+  Used for all upstream ceremonies — a contribution to a hobby
+  project and a contribution to a Fortune 500 monorepo share most
+  of their decision shape (alignment, reviewability, breakage risk).
+  We can split later if upstream-ceremony genuinely changes the
+  scoring.
+
+  Differs from owner rubrics in fundamental ways:
+    - The operator does NOT set the vision; alignment with the
+      maintainers' direction is the dominant axis.
+    - Reviewability matters more than ambition. A small focused PR
+      that lands beats a sprawling one that doesn't.
+    - Breaking-change risk is owned by the upstream project, but
+      the operator pays for it in reviewer attention and rejection
+      probability.
+    - License is whatever the upstream uses. The operator must
+      respect that, not pick.
+    - No `project_vision` plan is created on bootstrap.
+    - The `feature_plan` vision filter does not apply.
+
+axes:
+
+  - id: alignment_with_upstream
+    weight: 0.30
+    scoring_guidance: |
+      Do the maintainers actually want this? This is the single most
+      load-bearing question — a perfectly executed PR for something
+      maintainers don't want is a wasted weekend.
+
+      Strong signals (high score):
+        - There's an open issue in the upstream repo describing this
+          exact problem, with positive maintainer reactions (👍, "yes
+          please," "PRs welcome").
+        - The maintainers' published roadmap, RFC, or discussion
+          mentions this direction.
+        - The operator has had a direct conversation with a
+          maintainer who said yes.
+        - Similar PRs in this area have landed recently with light
+          friction.
+
+      Weak signals (low score):
+        - No issue exists, and the operator is about to file an
+          unsolicited PR.
+        - The relevant issue exists but maintainers have been silent
+          or noncommittal.
+        - The maintainers have explicitly said "out of scope" or
+          "we considered this and decided no."
+        - The change conflicts with the project's stated direction
+          or principles.
+        - Recent similar PRs have been closed or stalled.
+
+      Anchors:
+        - 9-10: explicit maintainer ask (issue + 👍, prior
+          conversation, RFC).
+        - 7-8: aligned with stated direction; no explicit ask but
+          no contradiction.
+        - 5-6: plausibly aligned but unconfirmed.
+        - 3-4: ambiguous fit; risk of "out of scope" rejection.
+        - 0-2: contradicts stated direction or maintainer position.
+
+      Note: a low score here should usually produce `decompose` —
+      ask the operator to file an issue first, get maintainer
+      reaction, then re-triage. Don't greenlight contribution work
+      with no maintainer signal.
+
+  - id: reviewability
+    weight: 0.20
+    scoring_guidance: |
+      Is the change small enough that a reviewer can hold it in their
+      head, focused enough to defend its scope, and mergeable in one
+      pass?
+
+      Strong signals (high reviewability, high score):
+        - Single concern: one bug fix, one feature addition, one
+          refactor — not a bundle.
+        - Small diff: hundreds of lines, not thousands.
+        - Touches a bounded set of files; doesn't cross subsystem
+          boundaries unnecessarily.
+        - Clearly testable: change has obvious test surface and the
+          operator can extend the project's existing test conventions.
+
+      Weak signals:
+        - Bundles unrelated changes ("while I was in there, I also
+          fixed...").
+        - Cross-cutting refactor that will touch dozens of files.
+        - Reaches into multiple subsystems with different ownership
+          patterns in the upstream project.
+        - Change is hard to test in isolation — requires complex
+          fixtures or environmental setup.
+
+      Anchors:
+        - 9-10: small, surgical, single-concern, easily testable.
+        - 7-8: focused but a few files / moderate diff size.
+        - 5-6: moderate scope; reviewer effort meaningful but
+          manageable.
+        - 3-4: large diff, multiple concerns; high reviewer load.
+        - 0-2: should be split into multiple PRs before submitting.
+
+      Note: a low score here is usually a `decompose` — propose
+      splitting into smaller PRs rather than rejecting outright.
+
+  - id: breaking_change_risk
+    weight: 0.15
+    scoring_guidance: |
+      Does this require coordinating with downstream consumers,
+      deprecation cycles, migration guides, or major version bumps?
+      Maintainers are often hesitant to absorb this cost.
+
+      Strong signals (low risk, high score):
+        - Pure addition — adds new functionality without changing
+          existing behavior.
+        - Internal refactor with identical external behavior.
+        - Deprecation-friendly change (new API, old API still works
+          with a warning).
+
+      Weak signals (high risk, low score):
+        - Removes or renames a public API.
+        - Changes default behavior in ways consumers will notice.
+        - Requires a major-version bump.
+        - Requires a migration script or upgrade guide.
+        - Removes deprecated-but-still-used functionality.
+
+      Anchors:
+        - 9-10: no breaking change, fully additive.
+        - 7-8: behavior-preserving refactor; low risk.
+        - 5-6: minor breaking change, deprecation path available.
+        - 3-4: meaningful breaking change requiring coordination.
+        - 0-2: major breaking change; unlikely to land without
+          significant negotiation.
+
+  - id: test_and_doc_burden
+    weight: 0.15
+    scoring_guidance: |
+      Does the project have testing/doc conventions the operator
+      needs to follow? Are they easy to extend? At contribution
+      ceremony, "I didn't add tests" is a frequent rejection reason.
+
+      Strong signals (low burden, high score):
+        - Project has clear, well-documented test conventions.
+        - The operator can extend the existing test suite using
+          patterns already present.
+        - Doc requirements for this kind of change are standard
+          (changelog entry, README touch, JSDoc).
+        - The operator is comfortable with the project's testing
+          tools (jest, vitest, pytest, etc.).
+
+      Weak signals (high burden, low score):
+        - Project has unusual or strict testing infrastructure
+          (custom harnesses, generative testing, snapshot tests
+          requiring specific tooling).
+        - Doc requirements are extensive (full RFC + spec changes +
+          migration guide).
+        - The operator doesn't know the project's testing tools
+          well enough to write idiomatic tests.
+        - Project has CI requirements (style, type checks, security
+          scans) the operator has to ensure pass.
+
+      Anchors:
+        - 9-10: standard test/doc shape; the operator can extend
+          existing patterns.
+        - 7-8: clear conventions; moderate effort to follow.
+        - 5-6: notable burden; the operator may need a few attempts
+          to land idiomatic tests.
+        - 3-4: heavy test/doc burden — significant fraction of the
+          PR effort.
+        - 0-2: test/doc requirements alone may sink the contribution.
+
+  - id: agent_buildability
+    weight: 0.10
+    scoring_guidance: |
+      Can a competent agent build this PR in 1-2 iterations? Includes
+      reading the upstream codebase, matching its style, writing
+      tests in its conventions, and producing a clean diff.
+
+      Strong signals:
+        - Upstream codebase is in a language/stack the agent handles
+          well (TS, Python, Go, etc.).
+        - The change pattern is one the agent can follow from existing
+          examples in the same repo.
+        - Test conventions are clear from existing test files.
+        - The diff size is bounded — the agent doesn't need to
+          orchestrate dozens of file touches.
+
+      Weak signals:
+        - Codebase is in a niche language or has heavy macros / DSLs.
+        - The change requires deep understanding of project-specific
+          internals not visible from the diff context.
+        - Test infrastructure is non-trivial to navigate.
+        - Style requirements are strict and idiosyncratic.
+
+      Anchors:
+        - 9-10: clear path; agent matches style + tests easily.
+        - 7-8: solid path; agent will need 1-2 corrections on style.
+        - 5-6: doable but the agent will need course corrections
+          on conventions.
+        - 3-4: significant operator co-authoring expected.
+        - 0-2: not feasible for an agent without substantial human
+          guidance.
+
+  - id: mergeability_evidence
+    weight: 0.10
+    scoring_guidance: |
+      Have similar PRs landed recently? Is the project active?
+      Maintainers responsive in the last 90 days? At contribution
+      ceremony, a stalled project absorbs PRs and never merges them.
+
+      Strong signals (high mergeability, high score):
+        - Maintainers have merged PRs in the last 30 days.
+        - Issues opened in the last 90 days have received
+          maintainer responses.
+        - Similar-shape PRs (size, type of change) have landed in
+          the last 6 months.
+        - The project has a clear PR-review cadence.
+
+      Weak signals:
+        - The project hasn't seen merges in 60+ days.
+        - Issues sit unanswered for weeks/months.
+        - The project is "in maintenance mode" or has a single
+          overworked maintainer.
+        - Past PRs of similar shape have stalled or been closed
+          without merge.
+
+      Anchors:
+        - 9-10: highly active project; similar PRs land routinely.
+        - 7-8: active enough; landing is plausible within a sprint.
+        - 5-6: slower project but PRs do land eventually.
+        - 3-4: stale or near-stale; landing is uncertain.
+        - 0-2: project appears abandoned or maintainer-resistant.
+
+      Note: a low score here is rarely "trash" — the contribution
+      may still be worth doing for the operator's own use (a fork,
+      a private patch). But it should be clearly framed as such,
+      not as a contribution.
+
+decision_thresholds:
+  greenlit: 7.0       # weighted_score >= 7.0 AND uncertainty <= 0.3
+                      # AND alignment_with_upstream >= 6
+  parked_min: 5.0     # weighted_score in [5.0, 7.0) → parked
+  trashed: 5.0        # weighted_score < 5.0 → trashed
+
+  # Special rule: alignment_with_upstream < 6 cannot greenlight,
+  # regardless of weighted score. A perfectly executed PR that
+  # contradicts maintainer direction is a wasted weekend; the
+  # right outcome is `decompose` (file an issue first) or
+  # `parked` (wait for the maintainer's roadmap to evolve).
+
+decompose_when: |
+  - uncertainty > 0.4, OR
+  - alignment_with_upstream < 6 (almost always: file an issue,
+    get reaction, then re-triage), OR
+  - reviewability < 5 (propose splitting into smaller PRs).
+
+uncertainty_sources:
+  - missing_upstream_signal: |
+      The operator hasn't said whether maintainers want this. Without
+      that, alignment_with_upstream can't be scored confidently.
+  - missing_project_activity: |
+      The operator hasn't shared recent project activity (last merge,
+      last issue response, etc.). Without that, mergeability_evidence
+      is a guess.
+  - undefined_scope: |
+      The operator hasn't said how big the change is. Reviewability
+      depends on diff size and concern count.
+  - conflicting_signals: |
+      Maintainers want it but the change is too big to review, or
+      the change is small but maintainers haven't engaged.
+
+agent_invocation:
+  prompt_key: triage-contributor-v1
+  defaults:
+    role: contributor
+
+freeze_preconditions:
+  # Contributor projects skip vision-related preconditions entirely.
+  feature_plan_vision_filter: skipped
+  project_vision_plan: not_created
+  upstream_alignment_evidence: required

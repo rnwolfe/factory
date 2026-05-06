@@ -40,7 +40,10 @@ function makeTempConfig(): { config: FactoryConfig; cleanup: () => void } {
 
 async function seedActiveRubricAndPrompt(dbPath: string) {
   const repoRoot = path.resolve(import.meta.dir, "../../..");
-  const rubricYaml = readFileSync(path.join(repoRoot, "rubrics/rubric-me-tinker.yaml"), "utf8");
+  const rubricYaml = readFileSync(
+    path.join(repoRoot, "rubrics/rubric-owner-personal.yaml"),
+    "utf8",
+  );
   const promptText = readFileSync(path.join(repoRoot, "prompts/triage-prompt-v1.md"), "utf8");
   const db = createDb(dbPath);
   await db.insert(schema.prompts).values({
@@ -53,7 +56,7 @@ async function seedActiveRubricAndPrompt(dbPath: string) {
   });
   await db.insert(schema.rubricVersions).values({
     id: createId(),
-    rubricKey: "rubric-me-tinker",
+    rubricKey: "rubric-owner-personal",
     version: 1,
     yaml: rubricYaml,
     promptKey: "triage-prompt-v1",

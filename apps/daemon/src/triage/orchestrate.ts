@@ -3,9 +3,10 @@ import { schema } from "@factory/db";
 import { claudeCodeAgent, type StreamEvent } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
+import { selectRubricKey } from "./select-rubric.ts";
 
 export interface TriageInput {
   ideaId: string;
@@ -203,13 +204,22 @@ export async function runTriage(
   input: TriageInput,
   opts: TriageOptions = {},
 ): Promise<{ decisionId: string; payload: TriageDecisionPayload }> {
-  // 1. Load active rubric + prompt.
+  // 1. Load rubric (selected from intentCeremony × intentRole) + prompt.
+  const rubricKey = selectRubricKey({
+    ceremony: input.intentCeremony ?? null,
+    role: input.intentRole ?? null,
+  });
   const rubric = await db
     .select()
     .from(schema.rubricVersions)
-    .where(eq(schema.rubricVersions.active, true))
+    .where(
+      and(eq(schema.rubricVersions.rubricKey, rubricKey), eq(schema.rubricVersions.active, true)),
+    )
+    .orderBy(desc(schema.rubricVersions.version))
     .get();
-  if (!rubric) throw new Error("no active rubric — did you run `bun run seed`?");
+  if (!rubric) {
+    throw new Error(`no active rubric for key ${rubricKey} — did you run \`bun run seed\`?`);
+  }
 
   const promptRow = await db
     .select()
@@ -323,6 +333,10 @@ export async function runFollowupTriage(
     .get();
   if (!idea) throw new Error(`idea ${decision.ideaId} not found`);
 
+  const rubricKey = selectRubricKey({
+    ceremony: idea.intentCeremony ?? null,
+    role: idea.intentRole ?? null,
+  });
   const rubric = decision.rubricVersionId
     ? await db
         .select()
@@ -332,7 +346,13 @@ export async function runFollowupTriage(
     : await db
         .select()
         .from(schema.rubricVersions)
-        .where(eq(schema.rubricVersions.active, true))
+        .where(
+          and(
+            eq(schema.rubricVersions.rubricKey, rubricKey),
+            eq(schema.rubricVersions.active, true),
+          ),
+        )
+        .orderBy(desc(schema.rubricVersions.version))
         .get();
   if (!rubric) throw new Error("no rubric available for follow-up triage");
 

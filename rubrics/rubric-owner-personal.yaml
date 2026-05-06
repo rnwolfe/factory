@@ -1,0 +1,218 @@
+id: rubric-owner-personal
+version: 1
+ceremony: personal
+role: owner
+
+description: |
+  Triage rubric for personal-use projects where the operator is the
+  owner. The operator will use this regularly but no one else will.
+
+  Mental anchor: "Will I still want this in 6 months without it
+  feeling like a chore?"
+
+  Differs from `tinker` in that:
+    - Maintenance cost matters. A quick hack that breaks on every
+      upstream update isn't acceptable here — the operator will
+      actually live with it.
+    - The foundation has to leave room to grow without rewrites,
+      because the operator will likely build on it.
+    - Vision becomes a precondition for feature work — the
+      `feature_plan` vision filter applies at this ceremony.
+
+  Differs from `shared` in that:
+    - No external users. Onboarding, docs, and license can stay
+      informal.
+    - Failure tolerance is high — bugs annoy the operator, but don't
+      embarrass them or affect anyone else.
+
+axes:
+
+  - id: usefulness
+    weight: 0.30
+    scoring_guidance: |
+      How often will the operator actually use this?
+
+      Strong signals (high score):
+        - Solves a problem the operator hits weekly or more.
+        - Replaces an annoyance the operator currently has a
+          workaround for.
+        - The operator can name 2+ recent moments where they would
+          have used it if it had existed.
+        - It compounds: usage gets better as data or history
+          accumulates.
+
+      Weak / negative signals (low score):
+        - "Nice to have" framing or "I might use this occasionally."
+        - The operator already has a tool that does this acceptably,
+          and the new idea is just a marginal improvement.
+        - Use case is hypothetical (no concrete moment of need).
+        - Hits a problem the operator only encounters once a quarter.
+
+      Anchors:
+        - 9-10: operator names 3+ specific recent moments of need.
+        - 7-8: clearly solves a real problem; usage cadence ambiguous.
+        - 5-6: useful in principle; concrete trigger unclear.
+        - 3-4: speculative — would be cool but no driving need.
+        - 0-2: idea is purely "wouldn't it be neat if..."
+
+  - id: maintenance_cost
+    weight: 0.20
+    scoring_guidance: |
+      How much ongoing care will this need to keep working over the
+      months/years the operator wants to use it?
+
+      Strong signals (low cost, high score):
+        - Self-contained: no external services, APIs, or data feeds
+          that can change shape underneath it.
+        - Stable dependencies — well-maintained libraries on long
+          release cycles, not bleeding-edge.
+        - Failure modes are obvious and locally recoverable (a clear
+          error in the logs, no cascading state corruption).
+        - No recurring operator work needed (no daily key rotation,
+          no manual data refreshes, no quota tracking).
+
+      Weak signals (high cost, low score):
+        - Depends on third-party APIs that break or rate-limit
+          unpredictably.
+        - Requires periodic data refresh, scraping, or ETL.
+        - Has flaky integrations with platforms that update aggressively
+          (Apple ecosystem APIs, browser extensions, social media
+          platforms).
+        - Needs reauthentication, key rotation, or active quota
+          management to keep working.
+        - State that needs hand-curation (the operator has to
+          periodically prune, label, or sort).
+
+      Anchors:
+        - 9-10: fire-and-forget. Once built, it works.
+        - 7-8: small periodic care (monthly check-in).
+        - 5-6: weekly attention or breakage-prone.
+        - 3-4: depends on something the operator knows is fragile.
+        - 0-2: maintenance burden likely exceeds operator's tolerance.
+
+  - id: agent_buildability
+    weight: 0.25
+    scoring_guidance: |
+      Can a competent agent build a working v1 in 1-3 iterations?
+
+      Strong signals:
+        - Clear specification path: the rubric output, plan template,
+          and an existing audit set can decompose this without
+          significant judgement calls left to the agent.
+        - Standard tech stack: TypeScript, SQLite, web UI, CLI — what
+          Factory's defaults handle natively.
+        - No specialized domains (ML model training, real-time audio,
+          distributed consensus, graphics, embedded).
+        - Existing code or libraries handle 80%+ of the heavy lifting.
+
+      Weak signals:
+        - Requires expertise outside Factory's defaults (Rust, embedded,
+          GPU compute, complex networking, native mobile UI).
+        - Significant architecture decisions need to be made before any
+          feature code can land — many forks in the road, each with
+          long-term consequences.
+        - Depends on data the operator hasn't yet acquired or licensed.
+        - Needs agreement with external systems (OAuth approvals, API
+          allowlists, paid tier prerequisites).
+
+      Anchors:
+        - 9-10: a good plan + good prompt + 1-2 iterations produces
+          a v1 that works.
+        - 7-8: solid path, 3-4 iterations to v1.
+        - 5-6: doable but the agent will need a few course corrections
+          on architecture.
+        - 3-4: parts of this are well outside Factory's sweet spot.
+        - 0-2: not feasible without operator co-authoring most of it.
+
+  - id: foundation_quality
+    weight: 0.15
+    scoring_guidance: |
+      Does this idea leave room to grow, or paint itself into a corner?
+
+      This matters more than at `tinker` ceremony because the operator
+      will likely build on it. A v1 that has to be rewritten to add v2's
+      obvious-next-feature is a tax that compounds.
+
+      Strong signals:
+        - Modular at its core. Features are additive — the v2 feature
+          slots in next to the v1 feature, not on top of it.
+        - Data shape is forgiving — adding fields doesn't break older
+          rows; new entity kinds slot into existing tables.
+        - The "good v1" path and the "good v2" path are the same path.
+        - Boundaries between concerns are clear (UI / data / business
+          logic / external integrations are not all the same module).
+
+      Weak signals:
+        - Idea conflates many concerns; carving out a clean v1 would
+          itself be a design exercise.
+        - Architecture is rigid — adding the obvious next feature would
+          require rewriting the core.
+        - Couples to a single external service such that switching
+          providers means rewriting half of it.
+        - Implicitly assumes single-user / single-tenant in ways that
+          would break down if the operator wanted to share it later.
+
+      Anchors:
+        - 9-10: the operator can sketch v1 → v3 without major rework.
+        - 7-8: minor refactors expected at v2.
+        - 5-6: v2 will need targeted rewrites of one or two modules.
+        - 3-4: v2 likely means re-architecting from scratch.
+        - 0-2: idea is shaped such that any v1 is a dead-end.
+
+  - id: friction_to_start
+    weight: 0.10
+    scoring_guidance: |
+      How quickly can the operator have a working v1 in their hands?
+
+      Strong signals:
+        - All prerequisites (data, accounts, infra) already exist.
+        - The first useful version doesn't need much before it's useful
+          (no bulk data import, no model training, no extensive seed
+          data).
+
+      Weak signals:
+        - Requires onboarding paperwork, account creation, key setup,
+          or tier upgrades on external services.
+        - Useful only after significant data ingestion or training.
+        - Needs hardware the operator hasn't bought.
+
+      Anchors:
+        - 9-10: working v1 within a single Factory session.
+        - 7-8: v1 within a few days, mostly Factory time.
+        - 5-6: v1 in a week, gated on operator setup tasks.
+        - 3-4: significant operator-side prerequisites.
+        - 0-2: weeks of operator setup before Factory can help.
+
+decision_thresholds:
+  greenlit: 7.0       # weighted_score >= 7.0 AND uncertainty <= 0.3
+  parked_min: 4.5     # weighted_score in [4.5, 7.0) → parked
+  trashed: 4.5        # weighted_score < 4.5 → trashed
+
+decompose_when: |
+  uncertainty > 0.4 — too thin to score with confidence; ask 1-3
+  clarifying questions instead of guessing.
+
+uncertainty_sources:
+  - missing_axis_evidence: |
+      The operator's idea text doesn't address one or more axes (e.g.
+      no signal about how often they'd use it).
+  - conflicting_signals: |
+      Different axes pull in opposite directions strongly — the idea
+      scores 9 on usefulness but 2 on agent_buildability, and the
+      operator hasn't indicated which they care about more.
+  - insufficient_idea_detail: |
+      Idea is one or two sentences and could mean several different
+      things — e.g. "build a habit tracker" without saying what makes
+      it different from existing ones.
+
+agent_invocation:
+  prompt_key: triage-prompt-v1
+  defaults:
+    ceremony: personal
+    role: owner
+
+freeze_preconditions:
+  # When this rubric's verdict produces a project, these must hold
+  # before the bootstrap plan can freeze.
+  feature_plan_vision_filter: required
+  project_vision_plan: required
