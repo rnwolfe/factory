@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCheck, Download, Loader2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { type Tier, TierPicker } from "../components/tier-picker.tsx";
+import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx";
 import { trpc } from "../lib/trpc.ts";
 
 interface TemplateSummary {
@@ -22,12 +22,12 @@ interface InstalledSkill {
 }
 
 /**
- * Tier-based recommendations are UI advice, not template metadata — they
- * indicate which shipped templates a project at a given tier benefits most
- * from. Templates not listed here aren't recommended for any tier and only
- * show up under "other available."
+ * Ceremony-based recommendations are UI advice, not template metadata —
+ * they indicate which shipped templates a project at a given ceremony
+ * benefits most from. Templates not listed here aren't recommended for
+ * any ceremony and only show up under "other available."
  */
-const RECOMMENDED_FOR: Record<string, Tier[]> = {
+const RECOMMENDED_FOR: Record<string, Ceremony[]> = {
   "docs-audit": ["personal", "shared", "production"],
   "task-sweep": ["personal", "shared", "production"],
   "drift-check": ["personal", "shared", "production"],
@@ -73,7 +73,7 @@ export function Deepen() {
   });
 
   const installedNames = new Set(installed.data?.map((s) => s.name) ?? []);
-  const ceremony = (project.data?.project?.ceremony ?? "tinker") as Tier;
+  const ceremony = (project.data?.project?.ceremony ?? "tinker") as Ceremony;
   const tmplRows = templates.data ?? [];
 
   return (
@@ -99,7 +99,7 @@ export function Deepen() {
         <div className="surface p-4 flex items-center gap-3 flex-wrap">
           <span className="text-[14px]">project tier is</span>
           {project.data ? (
-            <TierPicker
+            <CeremonyPicker
               projectId={id}
               ceremony={ceremony}
               onChanged={() => qc.invalidateQueries({ queryKey: ["projects.get", id] })}

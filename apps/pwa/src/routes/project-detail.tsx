@@ -14,16 +14,17 @@ import {
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuditsSection } from "../components/audits-section.tsx";
+import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
 import { PublishGithubModal } from "../components/publish-github-modal.tsx";
+import { type ProjectRole, RolePicker } from "../components/role-picker.tsx";
 import { ScriptsSection } from "../components/scripts-section.tsx";
 import { SessionsList } from "../components/sessions-list.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
-import { type Tier, TierPicker } from "../components/tier-picker.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -209,9 +210,9 @@ export function ProjectDetail() {
             <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 truncate flex items-center gap-2 flex-wrap">
               <span>{p.slug}</span>
               <span>·</span>
-              <TierPicker projectId={p.id} ceremony={p.ceremony as Tier} />
+              <CeremonyPicker projectId={p.id} ceremony={p.ceremony as Ceremony} />
               <span>·</span>
-              <span>{p.role}</span>
+              <RolePicker projectId={p.id} role={p.role as ProjectRole} />
               {p.license ? (
                 <>
                   <span>·</span>

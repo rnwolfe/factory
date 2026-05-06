@@ -5,9 +5,6 @@ import { trpc } from "../lib/trpc.ts";
 
 const CEREMONIES = ["tinker", "personal", "shared", "production"] as const;
 export type Ceremony = (typeof CEREMONIES)[number];
-// Re-export under the old name so callers built before the rename still
-// resolve. New code should import `Ceremony` directly.
-export type Tier = Ceremony;
 
 interface Props {
   projectId: string;
@@ -60,6 +57,3 @@ export function CeremonyPicker({ projectId, ceremony, onChanged }: Props) {
     </div>
   );
 }
-
-// Back-compat alias for files mid-rename.
-export const TierPicker = CeremonyPicker;
