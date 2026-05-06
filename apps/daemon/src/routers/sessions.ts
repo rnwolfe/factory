@@ -1,3 +1,6 @@
+import { existsSync, statSync } from "node:fs";
+import { open } from "node:fs/promises";
+import path from "node:path";
 import { schema } from "@factory/db";
 import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
@@ -6,6 +9,11 @@ import { abortSession, endSession, SessionError, startSession } from "../session
 import { protectedProcedure, router } from "../trpc.ts";
 
 const ModeEnum = z.enum(["claude", "shell"]);
+
+// Cap per-request tail read so a long-running session doesn't ship a
+// multi-megabyte log on every reconnect. 128 KiB ≈ a few thousand lines
+// of typical shell output — plenty for "what was I doing?" recovery.
+const MAX_SESSION_TAIL_BYTES = 128 * 1024;
 
 function mapError(err: unknown): TRPCError {
   if (err instanceof SessionError) {
@@ -81,4 +89,65 @@ export const sessionsRouter = router({
       .get();
     return row ?? null;
   }),
+
+  /**
+   * Read the tail of the session's tmux pipe-pane log. Used by the
+   * session pane on mount + on reconnect so revisiting a session
+   * shows the prior scrollback before live bytes arrive.
+   *
+   * The log is the same file pipe-pane writes to:
+   *   <worktreesRoot>/<slug>/_session-logs/<sessionId>.log
+   * It survives daemon restarts and the PWA reload, so closing and
+   * reopening the page reconstitutes the terminal view.
+   */
+  tail: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        offset: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db
+        .select()
+        .from(schema.sessions)
+        .where(eq(schema.sessions.id, input.id))
+        .get();
+      if (!session) return { content: "", offset: 0, size: 0, truncated: false };
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, session.projectId))
+        .get();
+      if (!project) return { content: "", offset: 0, size: 0, truncated: false };
+
+      const logPath = path.join(
+        ctx.config.worktreesRoot,
+        project.slug,
+        "_session-logs",
+        `${session.id}.log`,
+      );
+      if (!existsSync(logPath)) {
+        return { content: "", offset: 0, size: 0, truncated: false };
+      }
+      const size = statSync(logPath).size;
+      const start = input.offset ?? Math.max(0, size - MAX_SESSION_TAIL_BYTES);
+      const length = Math.min(MAX_SESSION_TAIL_BYTES, Math.max(0, size - start));
+      if (length === 0) {
+        return { content: "", offset: size, size, truncated: false };
+      }
+      const fh = await open(logPath, "r");
+      try {
+        const buf = Buffer.alloc(length);
+        await fh.read(buf, 0, length, start);
+        return {
+          content: buf.toString("utf8"),
+          offset: start + length,
+          size,
+          truncated: start > 0,
+        };
+      } finally {
+        await fh.close();
+      }
+    }),
 });

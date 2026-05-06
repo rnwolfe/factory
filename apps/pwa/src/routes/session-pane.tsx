@@ -31,12 +31,20 @@ function chipClass(status: SessionRow["status"]): string {
   return "";
 }
 
+interface SessionTail {
+  content: string;
+  offset: number;
+  size: number;
+  truncated: boolean;
+}
+
 export function SessionPane() {
   const { id = "", sessionId = "" } = useParams<{ id: string; sessionId: string }>();
   const qc = useQueryClient();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const replayedRef = useRef(false);
   const [paneStatus, setPaneStatus] = useState<"connecting" | "open" | "closed">("connecting");
 
   const session = useQuery({
@@ -45,6 +53,17 @@ export function SessionPane() {
       trpc.sessions.get.query({ id: sessionId }) as unknown as Promise<SessionRow | null>,
     enabled: sessionId.length > 0,
     refetchInterval: 4_000,
+  });
+
+  // One-shot tail read on mount so revisiting / reloading shows prior
+  // scrollback before live bytes arrive. The log file is on disk and
+  // survives daemon restarts.
+  const tail = useQuery({
+    queryKey: ["sessions.tail", sessionId],
+    queryFn: () => trpc.sessions.tail.query({ id: sessionId }) as unknown as Promise<SessionTail>,
+    enabled: sessionId.length > 0,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
   });
 
   // Boot the terminal once and wire onData here. Keystrokes route through
@@ -83,15 +102,24 @@ export function SessionPane() {
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(d);
     });
 
-    // Mobile keyboards only appear on an explicit focus. Auto-focus on
-    // mount and re-focus on container click so taps anywhere over the
-    // terminal grab the keyboard.
+    // Auto-focus on mount so a fresh shell is ready to type into. On
+    // desktop, mouse clicks focus too. Touch handling lives in
+    // wireXtermTouchScroll, which only focuses on real taps (not swipes
+    // that should scroll scrollback) — opening the keyboard on every
+    // swipe was disruptive.
     term.focus();
-    const onContainerPointer = () => term.focus();
-    container.addEventListener("pointerdown", onContainerPointer);
+    const onMouseDown = (e: MouseEvent) => {
+      // Pointer-type "mouse" only — pointerdown also fires on touch and
+      // we don't want double-handling.
+      if ((e as MouseEvent & { pointerType?: string }).pointerType === "touch") return;
+      term.focus();
+    };
+    container.addEventListener("mousedown", onMouseDown);
 
     // Touch swipes scroll the scrollback buffer (xterm doesn't do this
-    // natively — its viewport sits behind the screen layer).
+    // natively — its viewport sits behind the screen layer). The handler
+    // also gates focus to actual taps so the keyboard doesn't pop on
+    // every swipe.
     const detachTouch = wireXtermTouchScroll(term, container);
 
     const onResize = () => {
@@ -107,13 +135,29 @@ export function SessionPane() {
     return () => {
       window.removeEventListener("resize", onResize);
       ro.disconnect();
-      container.removeEventListener("pointerdown", onContainerPointer);
+      container.removeEventListener("mousedown", onMouseDown);
       detachTouch();
       dataDisposer.dispose();
       term.dispose();
       termRef.current = null;
     };
   }, []);
+
+  // Replay the prior scrollback once the terminal has booted AND the
+  // tail has loaded. Guarded so reconnects / refetches don't double-
+  // write the same bytes; live WS bytes arriving in parallel are
+  // appended after, which is fine — the operator just sees a tiny
+  // stutter at the seam.
+  useEffect(() => {
+    if (replayedRef.current) return;
+    const term = termRef.current;
+    const data = tail.data;
+    if (!term || !data) return;
+    if (data.content.length > 0) {
+      term.write(data.content);
+    }
+    replayedRef.current = true;
+  }, [tail.data]);
 
   // Subscribe to /ws/pane using the sessionId as the carrier (sessions
   // reuse the pane channel; cuid namespace is shared with runs). Stores
