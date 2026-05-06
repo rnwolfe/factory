@@ -138,8 +138,11 @@ function validatePath(p: string): void {
  * Other hosts and missing remotes return null. The repo is considered
  * already-published when this is non-null — `publishToGithub` is skipped
  * and the existing remote is surfaced on the project header.
+ *
+ * Read on import AND reconciled on each `projects.get` call, since the
+ * operator may run `git remote add origin …` out of band after import.
  */
-async function readGithubOriginRemote(workdirPath: string): Promise<string | null> {
+export async function readGithubOriginRemote(workdirPath: string): Promise<string | null> {
   const proc = bunSpawn({
     cmd: ["git", "remote", "get-url", "origin"],
     cwd: workdirPath,

@@ -5,7 +5,12 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { createRepo, GithubError, pushToNewRemote } from "../projects/github.ts";
-import { ImportError, importFromPath, importFromUrl } from "../projects/import.ts";
+import {
+  ImportError,
+  importFromPath,
+  importFromUrl,
+  readGithubOriginRemote,
+} from "../projects/import.ts";
 import {
   archiveProject,
   deleteProject,
@@ -178,8 +183,24 @@ export const projectsRouter = router({
       .where(eq(schema.projects.id, input.id))
       .get();
     if (!project) return null;
+
+    // Reconcile githubRemote with the workdir's actual origin. The operator
+    // can run `git remote add origin …` out of band, so we re-read on each
+    // get. We only fill in missing/changed values — never clobber a stored
+    // remote with a null read, since origin can be temporarily renamed or
+    // unavailable while the operator is mid-edit.
+    let reconciled = project;
+    const liveRemote = await readGithubOriginRemote(project.workdirPath);
+    if (liveRemote && liveRemote !== project.githubRemote) {
+      await ctx.db
+        .update(schema.projects)
+        .set({ githubRemote: liveRemote })
+        .where(eq(schema.projects.id, project.id));
+      reconciled = { ...project, githubRemote: liveRemote };
+    }
+
     const tasks = await listTasks(project.workdirPath);
-    return { project, tasks: tasks.map((t) => t.frontmatter) };
+    return { project: reconciled, tasks: tasks.map((t) => t.frontmatter) };
   }),
 
   tag: protectedProcedure
