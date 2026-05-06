@@ -207,7 +207,7 @@ export function ProjectDetail() {
             <h1 className="display text-[22px] leading-tight text-[var(--color-fg)] truncate">
               {p.name}
             </h1>
-            <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 truncate flex items-center gap-2 flex-wrap">
+            <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 flex items-center gap-2 flex-wrap">
               <span>{p.slug}</span>
               <span>·</span>
               <CeremonyPicker projectId={p.id} ceremony={p.ceremony as Ceremony} />
