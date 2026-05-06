@@ -44,7 +44,13 @@ export interface ConfigSource {
 }
 
 const DEFAULT_HOME = path.join(os.homedir(), "factory");
-const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".factory", "config.yaml");
+
+function defaultConfigPath(): string {
+  const home = process.env.FACTORY_HOME;
+  if (home) return path.join(home, "config.yaml");
+  return path.join(os.homedir(), ".factory", "config.yaml");
+}
+const DEFAULT_CONFIG_PATH = defaultConfigPath();
 
 function generateToken(): string {
   // 32 bytes → 43 char base64url. Plenty.

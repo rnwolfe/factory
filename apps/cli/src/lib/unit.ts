@@ -28,6 +28,10 @@ export interface UnitVars {
  * READY=1 once it's actually serving — that gives systemd (and the
  * post-upgrade health probe) a real readiness signal instead of "process
  * exec'd."
+ *
+ * NotifyAccess=all because `bun run --cwd <checkout> start` exec-chains
+ * through `bun run --filter @factory/daemon start` to `bun src/index.ts`
+ * — the actual daemon is a grandchild, not the unit's main PID.
  */
 export function renderUnit(vars: UnitVars): string {
   return `[Unit]
@@ -36,7 +40,7 @@ After=network-online.target
 
 [Service]
 Type=notify
-NotifyAccess=main
+NotifyAccess=all
 WorkingDirectory=${vars.checkout}
 Environment=FACTORY_HOME=${vars.factoryHome}
 ExecStart=${vars.bunBin} run --cwd ${vars.checkout} start
