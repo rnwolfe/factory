@@ -264,6 +264,16 @@ async function main() {
       sql`${prompts.promptKey} = ${CONTRIBUTOR_PROMPT_KEY} AND ${prompts.version} = (SELECT MAX(${prompts.version}) FROM ${prompts} WHERE ${prompts.promptKey} = ${CONTRIBUTOR_PROMPT_KEY})`,
     );
 
+  // Deactivate any legacy rubric keys that are no longer part of the
+  // matrix (e.g. `rubric-me-tinker` from before the ceremony × role
+  // split). Rows stay in the DB for audit history; they just shouldn't
+  // surface in the active rubric list.
+  const expectedKeys = rubricRaws.map((r) => r.parsed.id);
+  await db
+    .update(rubricVersions)
+    .set({ active: false })
+    .where(sql`${rubricVersions.rubricKey} NOT IN (${sql.join(expectedKeys, sql`, `)})`);
+
   // Rubrics: upsert each of the 5 (4 owner-* + 1 contributor) and mark
   // the highest-version row of each key as active. Multiple active
   // rubrics is the new normal — orchestrate.ts selects per request.
