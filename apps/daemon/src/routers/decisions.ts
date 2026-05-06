@@ -63,8 +63,10 @@ export const decisionsRouter = router({
         note: z.string().optional(),
         /** Claude model id for the project's runs. Approve-only; ignored otherwise. */
         model: z.string().nullable().optional(),
-        /** Project tier carried into the project_spec plan and on into bootstrap. */
-        tier: z.enum(["tinker", "personal", "share", "productize"]).optional(),
+        /** Ceremony level carried into the project_spec plan and on into bootstrap. */
+        ceremony: z.enum(["tinker", "personal", "shared", "production"]).optional(),
+        /** Owner vs contributor — determines whether bootstrap creates a vision plan. */
+        role: z.enum(["owner", "contributor"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -181,7 +183,7 @@ export const decisionsRouter = router({
             decisionId: decision.id,
             goal: goalText,
             draft: JSON.stringify(seed),
-            tier: input.tier ?? null,
+            ceremony: input.ceremony ?? null,
             createdAt: tnow,
             updatedAt: tnow,
           });

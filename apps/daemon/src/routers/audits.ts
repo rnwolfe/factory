@@ -388,7 +388,7 @@ export const auditsRouter = router({
           projectId: project.id,
           goal: recommendation.goal,
           draft: JSON.stringify(seed),
-          tier: project.tier ?? null,
+          ceremony: project.ceremony ?? null,
           createdAt: now,
           updatedAt: now,
         });

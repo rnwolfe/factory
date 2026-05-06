@@ -105,7 +105,7 @@ export async function promoteToPlan(ctx: PromoteContext): Promise<{ planId: stri
       draft: JSON.stringify(featurePlan),
       createdAt: now,
       updatedAt: now,
-      tier: project.tier ?? "tinker",
+      ceremony: project.ceremony ?? "tinker",
     })
     .run();
 

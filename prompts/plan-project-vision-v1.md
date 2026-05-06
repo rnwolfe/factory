@@ -9,7 +9,7 @@ is doctrine, not a spec.
 ## Inputs
 
 - `{{PROJECT_NAME}}` — project name.
-- `{{PROJECT_TIER}}` — `personal` | `share` | `productize`. Tier shapes
+- `{{PROJECT_CEREMONY}}` — `personal` | `share` | `productize`. Tier shapes
   audience expectations (a tinker project doesn't get here).
 - `{{PROJECT_README}}` — the project's README, if present.
 - `{{PROJECT_CLAUDE_MD}}` — the project's CLAUDE.md, if present.

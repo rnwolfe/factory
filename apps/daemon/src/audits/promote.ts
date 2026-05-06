@@ -72,7 +72,7 @@ export async function bridgePromoteFindings(
 
   const prompt = renderTemplate(promptRow.content, {
     PROJECT_NAME: project.name,
-    PROJECT_TIER: project.tier ?? "tinker",
+    PROJECT_CEREMONY: project.ceremony ?? "tinker",
     PROJECT_VISION_EXCERPT: visionExcerpt,
     AUDIT_SKILL_NAME: audit.skillName,
     FINDINGS_MARKDOWN: findingsMd,

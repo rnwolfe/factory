@@ -5,10 +5,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
 
-const GOALS = ["me", "learn", "share", "productize"] as const;
-const TIERS = ["tinker", "personal", "share", "productize"] as const;
-type Goal = (typeof GOALS)[number];
-type Tier = (typeof TIERS)[number];
+const CEREMONIES = ["tinker", "personal", "shared", "production"] as const;
+const ROLES = ["owner", "contributor"] as const;
+type Ceremony = (typeof CEREMONIES)[number];
+type Role = (typeof ROLES)[number];
 type SourceKind = "url" | "path";
 
 function deriveSlug(input: string, kind: SourceKind): string {
@@ -36,8 +36,8 @@ export function ImportProject() {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
-  const [goal, setGoal] = useState<Goal>("me");
-  const [tier, setTier] = useState<Tier>("tinker");
+  const [ceremony, setCeremony] = useState<Ceremony>("tinker");
+  const [role, setRole] = useState<Role>("owner");
 
   const sourceValue = kind === "url" ? url : path;
   const derivedSlug = useMemo(() => deriveSlug(sourceValue, kind), [sourceValue, kind]);
@@ -50,8 +50,8 @@ export function ImportProject() {
           kind === "url" ? { kind: "url", url: url.trim() } : { kind: "path", path: path.trim() },
         name: name.trim() || undefined,
         slug: slug.trim() || undefined,
-        goal,
-        tier,
+        ceremony,
+        role,
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["projects.list"] });
@@ -189,41 +189,45 @@ export function ImportProject() {
 
         <div>
           <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2">
-            goal
+            role
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {GOALS.map((g) => (
+            {ROLES.map((r) => (
               <button
-                key={g}
+                key={r}
                 type="button"
-                onClick={() => setGoal(g)}
+                onClick={() => setRole(r)}
                 className={cn(
                   "chip",
-                  goal === g ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                  role === r ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
                 )}
               >
-                {g}
+                {r}
               </button>
             ))}
           </div>
+          <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-2">
+            owner: you set vision/architecture. contributor: you're working inside someone else's
+            project — vision plan + filter are skipped.
+          </p>
         </div>
 
         <div>
           <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2">
-            tier
+            ceremony
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {TIERS.map((t) => (
+            {CEREMONIES.map((c) => (
               <button
-                key={t}
+                key={c}
                 type="button"
-                onClick={() => setTier(t)}
+                onClick={() => setCeremony(c)}
                 className={cn(
                   "chip",
-                  tier === t ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                  ceremony === c ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
                 )}
               >
-                {t}
+                {c}
               </button>
             ))}
           </div>

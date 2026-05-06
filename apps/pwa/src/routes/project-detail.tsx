@@ -165,9 +165,10 @@ export function ProjectDetail() {
       id: string;
       slug: string;
       name: string;
-      tier: string;
+      ceremony: string;
+      role: string;
+      license: string | null;
       tag: string;
-      goal: string;
       autoAdvance: boolean;
       model: string | null;
       githubRemote: string | null;
@@ -208,9 +209,15 @@ export function ProjectDetail() {
             <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 truncate flex items-center gap-2 flex-wrap">
               <span>{p.slug}</span>
               <span>·</span>
-              <TierPicker projectId={p.id} tier={p.tier as Tier} />
+              <TierPicker projectId={p.id} ceremony={p.ceremony as Tier} />
               <span>·</span>
-              <span>goal {p.goal}</span>
+              <span>{p.role}</span>
+              {p.license ? (
+                <>
+                  <span>·</span>
+                  <span>{p.license}</span>
+                </>
+              ) : null}
               <ProjectMetricsChip
                 projectId={p.id}
                 className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)] before:content-['·'] before:mr-2"

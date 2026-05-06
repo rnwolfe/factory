@@ -79,7 +79,8 @@ export function Projects() {
                   <div className="min-w-0">
                     <div className="text-[15px] text-[var(--color-fg)] truncate">{p.name}</div>
                     <div className="mono text-[11px] text-[var(--color-fg-3)] truncate">
-                      {p.slug} · {p.tier} · {p.goal}
+                      {p.slug} · {p.ceremony} · {p.role}
+                      {p.license ? ` · ${p.license}` : ""}
                     </div>
                   </div>
                   <span className={`chip chip-${p.tag === "active" ? "accent" : ""}`}>{p.tag}</span>

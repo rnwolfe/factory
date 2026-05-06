@@ -5,14 +5,16 @@ import { z } from "zod";
 import { runTriage } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
-const GoalEnum = z.enum(["me", "learn", "share", "productize"]);
+const CeremonyEnum = z.enum(["tinker", "personal", "shared", "production"]);
+const RoleEnum = z.enum(["owner", "contributor"]);
 
 export const ideasRouter = router({
   create: protectedProcedure
     .input(
       z.object({
         rawText: z.string().min(1).max(8000),
-        goalHint: GoalEnum.optional(),
+        intentCeremony: CeremonyEnum.optional(),
+        intentRole: RoleEnum.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -21,7 +23,8 @@ export const ideasRouter = router({
       await ctx.db.insert(schema.ideas).values({
         id: ideaId,
         rawText: input.rawText,
-        goalHint: input.goalHint ?? null,
+        intentCeremony: input.intentCeremony ?? null,
+        intentRole: input.intentRole ?? null,
         source: "pwa",
         createdAt: now,
       });
@@ -35,7 +38,8 @@ export const ideasRouter = router({
           const { decisionId } = await runTriage(ctx.db, {
             ideaId,
             rawText: input.rawText,
-            goalHint: input.goalHint,
+            intentCeremony: input.intentCeremony,
+            intentRole: input.intentRole,
           });
           ctx.events.publish({ channel: "inbox", kind: "decision_created", decisionId });
         } catch (err) {

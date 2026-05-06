@@ -21,23 +21,23 @@ import type { FactoryConfig } from "../config.ts";
  * .gitignore, etc. are left in place.
  */
 
-export type ImportGoal = "me" | "learn" | "share" | "productize";
-export type ImportTier = "tinker" | "personal" | "share" | "productize";
+export type ImportCeremony = "tinker" | "personal" | "shared" | "production";
+export type ImportRole = "owner" | "contributor";
 
 export interface ImportFromUrlInput {
   url: string;
   name?: string;
   slug?: string;
-  goal: ImportGoal;
-  tier: ImportTier;
+  ceremony: ImportCeremony;
+  role: ImportRole;
 }
 
 export interface ImportFromPathInput {
   workdirPath: string;
   name?: string;
   slug?: string;
-  goal: ImportGoal;
-  tier: ImportTier;
+  ceremony: ImportCeremony;
+  role: ImportRole;
 }
 
 export interface ImportResult {
@@ -181,8 +181,8 @@ async function writeSkeleton(
   meta: {
     projectId: string;
     slug: string;
-    goal: ImportGoal;
-    tier: ImportTier;
+    ceremony: ImportCeremony;
+    role: ImportRole;
     source: { kind: "url"; url: string } | { kind: "path"; path: string };
   },
 ): Promise<void> {
@@ -199,8 +199,8 @@ async function writeSkeleton(
       YAML.stringify({
         projectId: meta.projectId,
         slug: meta.slug,
-        goal: meta.goal,
-        tier: meta.tier,
+        ceremony: meta.ceremony,
+        role: meta.role,
         imported: new Date().toISOString(),
         source: meta.source,
       }),
@@ -240,8 +240,8 @@ export async function importFromUrl(
       workdirPath,
       slug,
       name: input.name,
-      goal: input.goal,
-      tier: input.tier,
+      ceremony: input.ceremony,
+      role: input.role,
       source: { kind: "url", url: input.url },
     });
   } catch (err) {
@@ -290,8 +290,8 @@ export async function importFromPath(
     workdirPath: input.workdirPath,
     slug,
     name: input.name,
-    goal: input.goal,
-    tier: input.tier,
+    ceremony: input.ceremony,
+    role: input.role,
     source: { kind: "path", path: input.workdirPath },
   });
 }
@@ -302,8 +302,8 @@ async function registerProject(
     workdirPath: string;
     slug: string;
     name?: string;
-    goal: ImportGoal;
-    tier: ImportTier;
+    ceremony: ImportCeremony;
+    role: ImportRole;
     source: { kind: "url"; url: string } | { kind: "path"; path: string };
   },
 ): Promise<ImportResult> {
@@ -312,18 +312,23 @@ async function registerProject(
   await writeSkeleton(args.workdirPath, {
     projectId,
     slug: args.slug,
-    goal: args.goal,
-    tier: args.tier,
+    ceremony: args.ceremony,
+    role: args.role,
     source: args.source,
   });
+
+  // Best-effort license read from package.json or LICENSE file. Null when
+  // neither is present or parseable; the operator can set it manually later.
+  const license = await readLicenseHint(args.workdirPath);
 
   await db.insert(schema.projects).values({
     id: projectId,
     slug: args.slug,
     name: (args.name ?? args.slug).slice(0, 80),
     ideaId: null,
-    goal: args.goal,
-    tier: args.tier,
+    ceremony: args.ceremony,
+    role: args.role,
+    license,
     tag: "active",
     workdirPath: args.workdirPath,
     createdAt: now,
@@ -332,4 +337,51 @@ async function registerProject(
   });
 
   return { projectId, slug: args.slug, workdirPath: args.workdirPath };
+}
+
+/**
+ * Best-effort SPDX license read. Looks at package.json's `license` field
+ * first (most JS/TS projects have it), then falls back to an SPDX-ish
+ * pattern in a top-level LICENSE file. Returns null if neither yields
+ * something usable.
+ */
+async function readLicenseHint(workdirPath: string): Promise<string | null> {
+  const pkgPath = path.join(workdirPath, "package.json");
+  if (existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(await (await import("node:fs/promises")).readFile(pkgPath, "utf8"));
+      if (typeof pkg.license === "string" && pkg.license.length > 0) {
+        return pkg.license;
+      }
+    } catch {
+      // fall through
+    }
+  }
+  for (const name of ["LICENSE", "LICENSE.md", "LICENSE.txt"]) {
+    const p = path.join(workdirPath, name);
+    if (!existsSync(p)) continue;
+    try {
+      const text = await (await import("node:fs/promises")).readFile(p, "utf8");
+      const head = text.slice(0, 400).toLowerCase();
+      if (head.includes("mit license")) return "MIT";
+      if (head.includes("apache license") && head.includes("version 2")) return "Apache-2.0";
+      if (head.includes("mozilla public license") && head.includes("2.0")) return "MPL-2.0";
+      if (head.includes("gnu general public license") && head.includes("version 3")) {
+        return "GPL-3.0";
+      }
+      if (head.includes("gnu general public license") && head.includes("version 2")) {
+        return "GPL-2.0";
+      }
+      if (head.includes("gnu affero general public license")) return "AGPL-3.0";
+      if (head.includes("bsd 3-clause")) return "BSD-3-Clause";
+      if (head.includes("bsd 2-clause")) return "BSD-2-Clause";
+      if (head.includes("the unlicense")) return "Unlicense";
+      // Unrecognized — return a marker rather than null so the operator
+      // sees that there *is* a license file, just not one we identified.
+      return "custom";
+    } catch {
+      // fall through
+    }
+  }
+  return null;
 }

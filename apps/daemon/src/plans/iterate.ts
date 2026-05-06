@@ -335,7 +335,8 @@ async function buildPromptForKind(
       : null;
     return renderPrompt(template, {
       IDEA_TEXT: idea?.rawText ?? "(idea unavailable)",
-      GOAL_HINT: idea?.goalHint ?? "null",
+      INTENT_CEREMONY: idea?.intentCeremony ?? "null",
+      INTENT_ROLE: idea?.intentRole ?? "null",
       TRIAGE_PAYLOAD_JSON: JSON.stringify(decision.payload, null, 2),
       CURRENT_DRAFT_JSON: draftJson,
       THREAD: formatThread(thread),
@@ -415,7 +416,7 @@ async function buildPromptForKind(
     ]);
     return renderPrompt(template, {
       PROJECT_NAME: project.name,
-      PROJECT_TIER: plan.tier ?? project.tier ?? "tinker",
+      PROJECT_CEREMONY: plan.ceremony ?? project.ceremony ?? "tinker",
       PROJECT_README: readme,
       PROJECT_CLAUDE_MD: claudeMd,
       PROJECT_VISION: vision,
@@ -457,7 +458,7 @@ async function buildPromptForKind(
     }
     return renderPrompt(template, {
       PROJECT_NAME: project.name,
-      PROJECT_TIER: plan.tier ?? project.tier ?? "tinker",
+      PROJECT_CEREMONY: plan.ceremony ?? project.ceremony ?? "tinker",
       PROJECT_README: readme,
       PROJECT_CLAUDE_MD: claudeMd,
       EXISTING_VISION: existingVision,

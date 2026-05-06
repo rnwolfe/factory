@@ -87,8 +87,8 @@ describe("projects.import", () => {
       const repo = await makeBareRepo(h.root, "external-repo");
       const res = await importFromPath(h.config, h.db, {
         workdirPath: repo,
-        goal: "me",
-        tier: "tinker",
+        role: "owner",
+        ceremony: "tinker",
       });
       expect(res.workdirPath).toBe(repo);
       expect(res.slug).toBe("external-repo");
@@ -110,8 +110,8 @@ describe("projects.import", () => {
       try {
         await importFromPath(h.config, h.db, {
           workdirPath: dir,
-          goal: "me",
-          tier: "tinker",
+          role: "owner",
+          ceremony: "tinker",
         });
         throw new Error("expected ImportError");
       } catch (err) {
@@ -131,14 +131,14 @@ describe("projects.import", () => {
       const repo = await makeBareRepo(h.root, "twice");
       await importFromPath(h.config, h.db, {
         workdirPath: repo,
-        goal: "me",
-        tier: "tinker",
+        role: "owner",
+        ceremony: "tinker",
       });
       try {
         await importFromPath(h.config, h.db, {
           workdirPath: repo,
-          goal: "me",
-          tier: "tinker",
+          role: "owner",
+          ceremony: "tinker",
         });
         throw new Error("expected ImportError");
       } catch (err) {
@@ -157,8 +157,8 @@ describe("projects.import", () => {
       try {
         await importFromUrl(h.config, h.db, {
           url: "file:///tmp/whatever",
-          goal: "me",
-          tier: "tinker",
+          role: "owner",
+          ceremony: "tinker",
         });
         throw new Error("expected ImportError");
       } catch (err) {
@@ -176,8 +176,8 @@ describe("projects.import", () => {
       try {
         await importFromUrl(h.config, h.db, {
           url: "http://example.com/repo.git",
-          goal: "me",
-          tier: "tinker",
+          role: "owner",
+          ceremony: "tinker",
         });
         throw new Error("expected ImportError");
       } catch (err) {

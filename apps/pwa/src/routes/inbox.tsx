@@ -20,7 +20,8 @@ interface FeedbackInboxRow {
 interface TriagingIdea {
   id: string;
   rawText: string;
-  goalHint: string | null;
+  intentCeremony: string | null;
+  intentRole: string | null;
   source: string;
   createdAt: number;
 }
@@ -273,7 +274,8 @@ function TriagingRow({ idea }: { idea: TriagingIdea }) {
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
           triaging
         </span>
-        {idea.goalHint ? <span className="chip">goal {idea.goalHint}</span> : null}
+        {idea.intentRole ? <span className="chip">{idea.intentRole}</span> : null}
+        {idea.intentCeremony ? <span className="chip">{idea.intentCeremony}</span> : null}
         <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
           {elapsedLabel} ago
         </span>

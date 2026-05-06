@@ -214,7 +214,7 @@ export const plansRouter = router({
         projectId: project.id,
         goal: input.goal,
         draft: JSON.stringify(seed),
-        tier: project.tier ?? null,
+        ceremony: project.ceremony ?? null,
         createdAt: now,
         updatedAt: now,
       });
@@ -296,7 +296,7 @@ export const plansRouter = router({
         projectId: project.id,
         goal: `Vision for ${project.name}`,
         draft: JSON.stringify(seed),
-        tier: project.tier ?? null,
+        ceremony: project.ceremony ?? null,
         createdAt: now,
         updatedAt: now,
       });
@@ -485,18 +485,19 @@ export const plansRouter = router({
         throw new Error(`plan already ${plan.status}`);
       }
 
-      // Vision-filter precondition for feature_plan freezes on tier ≥ personal.
-      // Tier resolves from plan.tier (snapshot at startFeaturePlan), falling
-      // back to the project's current tier if the plan was created before
-      // tier was added to the schema.
+      // Vision-filter precondition for feature_plan freezes — applies on
+      // ceremony ≥ personal AND role=owner. Contributors work inside someone
+      // else's vision, so the filter is skipped entirely for them.
       if (plan.kind === "feature_plan" && plan.projectId) {
         const project = await ctx.db
           .select()
           .from(schema.projects)
           .where(eq(schema.projects.id, plan.projectId))
           .get();
-        const tier = plan.tier ?? project?.tier ?? "tinker";
-        if (tier !== "tinker") {
+        const ceremony = plan.ceremony ?? project?.ceremony ?? "tinker";
+        const role = project?.role ?? "owner";
+        const filterApplies = role === "owner" && ceremony !== "tinker";
+        if (filterApplies) {
           let parsed: FeaturePlanDraft | null = null;
           try {
             const obj = JSON.parse(plan.draft) as FeaturePlanDraft;
@@ -513,7 +514,7 @@ export const plansRouter = router({
           if (failing.length > 0) {
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
-              message: `vision filter failing: ${failing.join(", ")} — iterate the plan until all four tests pass before freezing on a ${tier}-tier project`,
+              message: `vision filter failing: ${failing.join(", ")} — iterate the plan until all four tests pass before freezing on a ${ceremony} project`,
             });
           }
         }
@@ -540,11 +541,22 @@ export const plansRouter = router({
           .set({ projectId })
           .where(eq(schema.plans.id, input.planId));
 
-        // Auto-trigger a project_vision plan for tier ≥ personal so the
-        // operator authors VISION.md right after the project lands. Tinker
-        // projects skip this — they get the spec, not the ceremony.
-        const tier = plan.tier ?? null;
-        if (tier === "personal" || tier === "share" || tier === "productize") {
+        // Auto-trigger a project_vision plan for ceremony ≥ personal AND
+        // role=owner — operators contributing to someone else's project work
+        // inside that project's existing vision and shouldn't author one.
+        // Tinker projects skip this regardless of role; they get the spec,
+        // not the ceremony.
+        const ceremony = plan.ceremony ?? null;
+        const projectRow = await ctx.db
+          .select()
+          .from(schema.projects)
+          .where(eq(schema.projects.id, projectId))
+          .get();
+        const role = projectRow?.role ?? "owner";
+        const visionApplies =
+          role === "owner" &&
+          (ceremony === "personal" || ceremony === "shared" || ceremony === "production");
+        if (visionApplies) {
           const visionPlanId = createId();
           const vnow = Date.now();
           await ctx.db.insert(schema.plans).values({
@@ -554,7 +566,7 @@ export const plansRouter = router({
             projectId,
             goal: `Vision for ${plan.goal}`,
             draft: JSON.stringify(seedProjectVisionDraft()),
-            tier,
+            ceremony,
             createdAt: vnow,
             updatedAt: vnow,
           });

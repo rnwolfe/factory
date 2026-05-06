@@ -73,16 +73,23 @@ export async function bootstrapFromPlan(
     },
   };
 
-  const goal = (idea.goalHint ?? "me") as "me" | "learn" | "share" | "productize";
-  const tier = (plan.tier ?? "tinker") as "tinker" | "personal" | "share" | "productize";
+  // Plan ceremony falls back to the idea's intent, then to tinker. Role
+  // also flows from idea intent (default owner) — the operator can flip
+  // role on the project after bootstrap if needed.
+  const ceremony = (plan.ceremony ?? idea.intentCeremony ?? "tinker") as
+    | "tinker"
+    | "personal"
+    | "shared"
+    | "production";
+  const role = (idea.intentRole ?? "owner") as "owner" | "contributor";
 
   return bootstrapProject(config, db, {
     ideaId: idea.id,
     decisionId: decision.id,
     payload,
     ideaText: idea.rawText,
-    goal,
-    tier,
+    ceremony,
+    role,
     model: null,
   });
 }

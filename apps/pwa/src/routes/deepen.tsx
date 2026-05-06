@@ -28,10 +28,10 @@ interface InstalledSkill {
  * show up under "other available."
  */
 const RECOMMENDED_FOR: Record<string, Tier[]> = {
-  "docs-audit": ["personal", "share", "productize"],
-  "task-sweep": ["personal", "share", "productize"],
-  "drift-check": ["personal", "share", "productize"],
-  "code-review": ["share", "productize"],
+  "docs-audit": ["personal", "shared", "production"],
+  "task-sweep": ["personal", "shared", "production"],
+  "drift-check": ["personal", "shared", "production"],
+  "code-review": ["shared", "production"],
 };
 
 export function Deepen() {
@@ -73,7 +73,7 @@ export function Deepen() {
   });
 
   const installedNames = new Set(installed.data?.map((s) => s.name) ?? []);
-  const tier = (project.data?.project?.tier ?? "tinker") as Tier;
+  const ceremony = (project.data?.project?.ceremony ?? "tinker") as Tier;
   const tmplRows = templates.data ?? [];
 
   return (
@@ -101,7 +101,7 @@ export function Deepen() {
           {project.data ? (
             <TierPicker
               projectId={id}
-              tier={tier}
+              ceremony={ceremony}
               onChanged={() => qc.invalidateQueries({ queryKey: ["projects.get", id] })}
             />
           ) : null}
@@ -121,14 +121,14 @@ export function Deepen() {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={startVision.isPending || tier === "tinker"}
+            disabled={startVision.isPending || ceremony === "tinker"}
             onClick={() => startVision.mutate()}
           >
             {startVision.isPending ? (
               <>
                 <Loader2 size={14} className="animate-spin" /> starting…
               </>
-            ) : tier === "tinker" ? (
+            ) : ceremony === "tinker" ? (
               "vision not required for tinker"
             ) : (
               "start project_vision plan"
@@ -149,7 +149,7 @@ export function Deepen() {
           </p>
           <ul className="divide-y divide-[var(--color-line)] surface">
             {tmplRows.map((t) => {
-              const recommended = (RECOMMENDED_FOR[t.name] ?? []).includes(tier);
+              const recommended = (RECOMMENDED_FOR[t.name] ?? []).includes(ceremony);
               const isInstalled = installedNames.has(t.name);
               const isPending = install.isPending && install.variables === t.name;
               return (

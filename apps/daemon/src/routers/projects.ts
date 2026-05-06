@@ -25,8 +25,8 @@ import { snapshotWorkdir } from "../projects/workdir.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const TagEnum = z.enum(["active", "background", "past"]);
-const TierEnum = z.enum(["tinker", "personal", "share", "productize"]);
-const GoalEnum = z.enum(["me", "learn", "share", "productize"]);
+const CeremonyEnum = z.enum(["tinker", "personal", "shared", "production"]);
+const RoleEnum = z.enum(["owner", "contributor"]);
 const TaskStatusEnum = z.enum(["ready", "in_progress", "review", "done", "blocked", "dropped"]);
 const TaskEstimateEnum = z.enum(["small", "medium", "large"]);
 const TaskPriorityEnum = z.enum(["low", "med", "high"]);
@@ -241,14 +241,24 @@ export const projectsRouter = router({
       return { ok: true, model: input.model };
     }),
 
-  setTier: protectedProcedure
-    .input(z.object({ id: z.string(), tier: TierEnum }))
+  setCeremony: protectedProcedure
+    .input(z.object({ id: z.string(), ceremony: CeremonyEnum }))
     .mutation(async ({ ctx, input }) => {
       await ctx.db
         .update(schema.projects)
-        .set({ tier: input.tier })
+        .set({ ceremony: input.ceremony })
         .where(eq(schema.projects.id, input.id));
-      return { ok: true, tier: input.tier };
+      return { ok: true, ceremony: input.ceremony };
+    }),
+
+  setRole: protectedProcedure
+    .input(z.object({ id: z.string(), role: RoleEnum }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(schema.projects)
+        .set({ role: input.role })
+        .where(eq(schema.projects.id, input.id));
+      return { ok: true, role: input.role };
     }),
 
   workdir: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
@@ -281,8 +291,8 @@ export const projectsRouter = router({
           .max(60)
           .regex(/^[a-z0-9-]+$/)
           .optional(),
-        goal: GoalEnum,
-        tier: TierEnum.optional().default("tinker"),
+        ceremony: CeremonyEnum.optional().default("tinker"),
+        role: RoleEnum.optional().default("owner"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -293,15 +303,15 @@ export const projectsRouter = router({
                 url: input.source.url,
                 name: input.name,
                 slug: input.slug,
-                goal: input.goal,
-                tier: input.tier,
+                ceremony: input.ceremony,
+                role: input.role,
               })
             : await importFromPath(ctx.config, ctx.db, {
                 workdirPath: input.source.path,
                 name: input.name,
                 slug: input.slug,
-                goal: input.goal,
-                tier: input.tier,
+                ceremony: input.ceremony,
+                role: input.role,
               });
         return result;
       } catch (err) {

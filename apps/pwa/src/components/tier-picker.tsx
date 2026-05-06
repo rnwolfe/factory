@@ -3,20 +3,24 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "../lib/trpc.ts";
 
-const TIERS = ["tinker", "personal", "share", "productize"] as const;
-export type Tier = (typeof TIERS)[number];
+const CEREMONIES = ["tinker", "personal", "shared", "production"] as const;
+export type Ceremony = (typeof CEREMONIES)[number];
+// Re-export under the old name so callers built before the rename still
+// resolve. New code should import `Ceremony` directly.
+export type Tier = Ceremony;
 
 interface Props {
   projectId: string;
-  tier: Tier;
-  onChanged?: (tier: Tier) => void;
+  ceremony: Ceremony;
+  onChanged?: (ceremony: Ceremony) => void;
 }
 
-export function TierPicker({ projectId, tier, onChanged }: Props) {
+export function CeremonyPicker({ projectId, ceremony, onChanged }: Props) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
-  const setTier = useMutation({
-    mutationFn: (next: Tier) => trpc.projects.setTier.mutate({ id: projectId, tier: next }),
+  const setCeremony = useMutation({
+    mutationFn: (next: Ceremony) =>
+      trpc.projects.setCeremony.mutate({ id: projectId, ceremony: next }),
     onSuccess: (_data, next) => {
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["projects.get", projectId] });
@@ -30,24 +34,24 @@ export function TierPicker({ projectId, tier, onChanged }: Props) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        disabled={setTier.isPending}
+        disabled={setCeremony.isPending}
         className="chip flex items-center gap-1 text-[11px]"
       >
-        {tier}
+        {ceremony}
         <ChevronDown size={11} />
       </button>
       {open ? (
         <ul className="absolute left-0 mt-1 z-50 surface min-w-[140px] py-1 text-[12.5px] shadow-lg">
-          {TIERS.map((t) => (
-            <li key={t}>
+          {CEREMONIES.map((c) => (
+            <li key={c}>
               <button
                 type="button"
-                onClick={() => setTier.mutate(t)}
+                onClick={() => setCeremony.mutate(c)}
                 className={`w-full text-left px-3 py-1.5 hover:bg-[var(--color-bg-2)] ${
-                  t === tier ? "text-[var(--color-accent)]" : "text-[var(--color-fg-1)]"
+                  c === ceremony ? "text-[var(--color-accent)]" : "text-[var(--color-fg-1)]"
                 }`}
               >
-                {t}
+                {c}
               </button>
             </li>
           ))}
@@ -56,3 +60,6 @@ export function TierPicker({ projectId, tier, onChanged }: Props) {
     </div>
   );
 }
+
+// Back-compat alias for files mid-rename.
+export const TierPicker = CeremonyPicker;

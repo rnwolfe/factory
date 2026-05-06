@@ -65,7 +65,7 @@ describe("runPlanIteration (mock agent)", () => {
       await db.insert(schema.ideas).values({
         id: ideaId,
         rawText: "Daily commute prep CLI",
-        goalHint: "me",
+        intentCeremony: "personal",
         source: "test",
         createdAt: Date.now(),
       });

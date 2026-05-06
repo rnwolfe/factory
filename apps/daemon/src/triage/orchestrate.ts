@@ -10,7 +10,8 @@ import { recordClaudeMetrics } from "../metrics/record.ts";
 export interface TriageInput {
   ideaId: string;
   rawText: string;
-  goalHint?: string | null;
+  intentCeremony?: "tinker" | "personal" | "shared" | "production" | null;
+  intentRole?: "owner" | "contributor" | null;
 }
 
 export interface TriageDecisionPayload {
@@ -222,7 +223,8 @@ export async function runTriage(
   // 2. Render the full prompt.
   const rendered = renderPrompt(promptRow.content, {
     IDEA_TEXT: input.rawText,
-    GOAL_HINT: input.goalHint ?? "null",
+    INTENT_CEREMONY: input.intentCeremony ?? "null",
+    INTENT_ROLE: input.intentRole ?? "null",
     RUBRIC_YAML: rubric.yaml,
   });
 
@@ -358,7 +360,8 @@ export async function runFollowupTriage(
 
   const rendered = renderPrompt(promptRow.content, {
     IDEA_TEXT: idea.rawText,
-    GOAL_HINT: idea.goalHint ?? "null",
+    INTENT_CEREMONY: idea.intentCeremony ?? "null",
+    INTENT_ROLE: idea.intentRole ?? "null",
     RUBRIC_YAML: rubric.yaml,
     PRIOR_DECISION_JSON: JSON.stringify(priorPayload, null, 2),
     THREAD: threadText.length > 0 ? threadText : "(no prior messages)",

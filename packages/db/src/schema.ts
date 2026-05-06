@@ -1,7 +1,7 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-export const goalEnum = ["me", "learn", "share", "productize"] as const;
-export const tierEnum = ["tinker", "personal", "share", "productize"] as const;
+export const ceremonyEnum = ["tinker", "personal", "shared", "production"] as const;
+export const roleEnum = ["owner", "contributor"] as const;
 export const tagEnum = ["active", "background", "past"] as const;
 export const decisionKindEnum = ["triage", "tag_change", "blocked_run", "merge_failure"] as const;
 export const decisionStatusEnum = ["pending", "actioned", "dismissed"] as const;
@@ -52,8 +52,8 @@ export const claudeMetricsOwnerKindEnum = [
   "audit_comment",
 ] as const;
 
-export type Goal = (typeof goalEnum)[number];
-export type Tier = (typeof tierEnum)[number];
+export type Ceremony = (typeof ceremonyEnum)[number];
+export type ProjectRole = (typeof roleEnum)[number];
 export type Tag = (typeof tagEnum)[number];
 export type DecisionKind = (typeof decisionKindEnum)[number];
 export type DecisionStatus = (typeof decisionStatusEnum)[number];
@@ -191,7 +191,14 @@ export interface AuditSkillFrontmatter {
 export const ideas = sqliteTable("ideas", {
   id: text("id").primaryKey(),
   rawText: text("raw_text").notNull(),
-  goalHint: text("goal_hint", { enum: goalEnum }),
+  /**
+   * Operator's intent at idea-capture. Both nullable; triage falls back to
+   * operator-default settings (and ultimately to `tinker` / `owner`) when
+   * unspecified. `intentRole === 'contributor'` selects the contributor
+   * rubric and triage prompt regardless of ceremony.
+   */
+  intentCeremony: text("intent_ceremony", { enum: ceremonyEnum }),
+  intentRole: text("intent_role", { enum: roleEnum }),
   source: text("source").notNull(),
   createdAt: integer("created_at").notNull(),
   triagedAt: integer("triaged_at"),
@@ -202,8 +209,25 @@ export const projects = sqliteTable("projects", {
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   ideaId: text("idea_id").references(() => ideas.id),
-  goal: text("goal", { enum: goalEnum }).notNull(),
-  tier: text("tier", { enum: tierEnum }).notNull(),
+  /**
+   * How much process / quality investment this project deserves.
+   * tinker (throwaway) → personal (regular use, no other users) →
+   * shared (other humans use it) → production (real users, SLA-relevant).
+   */
+  ceremony: text("ceremony", { enum: ceremonyEnum }).notNull(),
+  /**
+   * Operator's relationship to the codebase. `owner` (default) sets
+   * vision/architecture; `contributor` works inside someone else's vision
+   * — bootstrap skips project_vision creation, feature_plan vision
+   * filter is bypassed, audit defaults differ.
+   */
+  role: text("role", { enum: roleEnum }).notNull().default("owner"),
+  /**
+   * SPDX license identifier or `proprietary` or null. Read from
+   * package.json / LICENSE on adoption when not specified. Drives README
+   * scaffolding and the license-check audit.
+   */
+  license: text("license"),
   tag: text("tag", { enum: tagEnum }).notNull().default("active"),
   workdirPath: text("workdir_path").notNull(),
   createdAt: integer("created_at").notNull(),
@@ -389,10 +413,11 @@ export const plans = sqliteTable(
      */
     promptVersion: text("prompt_version"),
     /**
-     * v0.3 — tier carried into bootstrap. Null for v0.1/v0.2 plans (treated as
-     * tinker for filter purposes).
+     * Ceremony level inherited from the project (or a project-spec plan's
+     * intended target). Nullable for legacy plans (treated as `tinker`
+     * for filter purposes).
      */
-    tier: text("tier", { enum: tierEnum }),
+    ceremony: text("ceremony", { enum: ceremonyEnum }),
     /**
      * v0.3 — set when a newer plan in the same kind+target supersedes this
      * one. The superseded plan's status moves to "superseded".

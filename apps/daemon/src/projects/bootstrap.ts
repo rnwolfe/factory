@@ -15,8 +15,10 @@ export interface BootstrapInput {
   decisionId: string;
   payload: TriageDecisionPayload;
   ideaText: string;
-  goal: "me" | "learn" | "share" | "productize";
-  tier: "tinker" | "personal" | "share" | "productize";
+  ceremony: "tinker" | "personal" | "shared" | "production";
+  role: "owner" | "contributor";
+  /** SPDX license id, or null. Drives README scaffolding for shared/production. */
+  license?: string | null;
   /** Claude model id stored on the project; runs in this project will use it. */
   model?: string | null;
 }
@@ -95,8 +97,9 @@ export async function bootstrapProject(
         slug,
         ideaId: input.ideaId,
         decisionId: input.decisionId,
-        goal: input.goal,
-        tier: input.tier,
+        ceremony: input.ceremony,
+        role: input.role,
+        license: input.license ?? null,
         created: new Date(now).toISOString(),
       }),
       "utf8",
@@ -175,8 +178,9 @@ checks:
       slug,
       name: input.payload.title_suggestion ?? titleHint.slice(0, 80),
       ideaId: input.ideaId,
-      goal: input.goal,
-      tier: input.tier,
+      ceremony: input.ceremony,
+      role: input.role,
+      license: input.license ?? null,
       tag: "active",
       workdirPath,
       createdAt: now,

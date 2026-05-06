@@ -75,7 +75,7 @@ describe("triage → decision → bootstrap (mock agent)", () => {
       await db.insert(schema.ideas).values({
         id: ideaId,
         rawText: "A small CLI that summarizes my day from terminal history",
-        goalHint: "me",
+        intentCeremony: "personal",
         source: "test",
         createdAt: Date.now(),
       });
@@ -118,7 +118,7 @@ describe("triage → decision → bootstrap (mock agent)", () => {
 
       const triage = await runTriage(
         db,
-        { ideaId, rawText: "A small CLI…", goalHint: "me" },
+        { ideaId, rawText: "A small CLI…", intentCeremony: "personal" },
         { agentInvoker: async () => JSON.stringify(mockPayload) },
       );
       expect(triage.payload.outcome).toBe("greenlit");
@@ -139,8 +139,8 @@ describe("triage → decision → bootstrap (mock agent)", () => {
         decisionId: triage.decisionId,
         payload: triage.payload,
         ideaText: "A small CLI…",
-        goal: "me",
-        tier: "tinker",
+        role: "owner",
+        ceremony: "tinker",
       });
 
       // Verify project on disk.
@@ -164,7 +164,7 @@ describe("triage → decision → bootstrap (mock agent)", () => {
         .get();
       expect(project).toBeTruthy();
       expect(project?.tag).toBe("active");
-      expect(project?.tier).toBe("tinker");
+      expect(project?.ceremony).toBe("tinker");
 
       // Verify task files match the spec_stub count.
       expect(bs.taskIds).toEqual(["task-001", "task-002", "task-003"]);
@@ -192,7 +192,7 @@ describe("triage → decision → bootstrap (mock agent)", () => {
       try {
         await runTriage(
           db,
-          { ideaId, rawText: "?", goalHint: undefined },
+          { ideaId, rawText: "?" },
           {
             agentInvoker: async () => "not valid json at all",
           },

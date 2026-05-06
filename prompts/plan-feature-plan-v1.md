@@ -9,7 +9,7 @@ on personal+ projects.
 ## Inputs
 
 - `{{PROJECT_NAME}}` — project name.
-- `{{PROJECT_TIER}}` — `tinker` | `personal` | `share` | `productize`.
+- `{{PROJECT_CEREMONY}}` — `tinker` | `personal` | `share` | `productize`.
   Vision-filter enforcement applies for `personal` or higher.
 - `{{PROJECT_README}}` — the project's README, if present.
 - `{{PROJECT_CLAUDE_MD}}` — the project's CLAUDE.md, if present.

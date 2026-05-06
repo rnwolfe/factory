@@ -4,22 +4,29 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 
-const GOALS = ["me", "learn", "share", "productize"] as const;
-type Goal = (typeof GOALS)[number] | "";
+const CEREMONIES = ["tinker", "personal", "shared", "production"] as const;
+const ROLES = ["owner", "contributor"] as const;
+type Ceremony = (typeof CEREMONIES)[number] | "";
+type Role = (typeof ROLES)[number] | "";
 
 export function NewIdea() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [text, setText] = useState("");
-  const [goal, setGoal] = useState<Goal>("");
+  const [ceremony, setCeremony] = useState<Ceremony>("");
+  const [role, setRole] = useState<Role>("");
 
   const submit = useMutation({
-    mutationFn: (vars: { rawText: string; goalHint?: Goal }) =>
+    mutationFn: (vars: { rawText: string; intentCeremony?: Ceremony; intentRole?: Role }) =>
       trpc.ideas.create.mutate({
         rawText: vars.rawText,
-        goalHint:
-          vars.goalHint && (vars.goalHint as string).length > 0
-            ? (vars.goalHint as Exclude<Goal, "">)
+        intentCeremony:
+          vars.intentCeremony && vars.intentCeremony.length > 0
+            ? (vars.intentCeremony as Exclude<Ceremony, "">)
+            : undefined,
+        intentRole:
+          vars.intentRole && vars.intentRole.length > 0
+            ? (vars.intentRole as Exclude<Role, "">)
             : undefined,
       }),
     onSuccess: () => {
@@ -51,19 +58,37 @@ export function NewIdea() {
         />
 
         <div className="mt-4 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
-          goal hint (optional)
+          role (optional)
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {GOALS.map((g) => (
+          {ROLES.map((r) => (
             <button
-              key={g}
+              key={r}
               type="button"
-              onClick={() => setGoal(goal === g ? "" : g)}
+              onClick={() => setRole(role === r ? "" : r)}
               className={
-                goal === g ? "chip chip-accent" : "chip hover:border-[var(--color-line-bright)]"
+                role === r ? "chip chip-accent" : "chip hover:border-[var(--color-line-bright)]"
               }
             >
-              {g}
+              {r}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          ceremony (optional)
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {CEREMONIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCeremony(ceremony === c ? "" : c)}
+              className={
+                ceremony === c ? "chip chip-accent" : "chip hover:border-[var(--color-line-bright)]"
+              }
+            >
+              {c}
             </button>
           ))}
         </div>
@@ -78,7 +103,13 @@ export function NewIdea() {
           type="button"
           className="btn btn-primary w-full mt-5"
           disabled={!can}
-          onClick={() => submit.mutate({ rawText: text, goalHint: goal })}
+          onClick={() =>
+            submit.mutate({
+              rawText: text,
+              intentCeremony: ceremony,
+              intentRole: role,
+            })
+          }
         >
           {submit.isPending ? "submitting…" : "submit & triage"}
           {!submit.isPending && <ArrowRight size={16} />}

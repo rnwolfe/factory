@@ -8,7 +8,7 @@ bug task (lightweight: minimal capture, refine later).
 ## Inputs
 
 - `{{PROJECT_NAME}}` — project name.
-- `{{PROJECT_TIER}}` — `tinker` | `personal` | `share` | `productize`.
+- `{{PROJECT_CEREMONY}}` — `tinker` | `personal` | `share` | `productize`.
 - `{{PROJECT_VISION_EXCERPT}}` — short excerpt from VISION.md if present,
   else "(no vision doc)".
 - `{{AUDIT_SKILL_NAME}}` — the audit skill that produced these findings.
