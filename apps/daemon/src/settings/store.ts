@@ -99,7 +99,8 @@ function applySettingsMap(map: Map<SettingKey, string>, config: FactoryConfig): 
   const budget = map.get("default-run-budget-seconds");
   if (budget !== undefined) {
     const n = Number.parseInt(budget, 10);
-    if (Number.isFinite(n) && n >= 60) config.defaultRunBudgetSeconds = n;
+    // 0 = infinite (no timeout); otherwise require a sensible floor.
+    if (Number.isFinite(n) && (n === 0 || n >= 60)) config.defaultRunBudgetSeconds = n;
   }
   const token = map.get("github-token");
   if (token !== undefined) {

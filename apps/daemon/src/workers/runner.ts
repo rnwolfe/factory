@@ -195,7 +195,9 @@ export async function executeRun(
       agent: claudeCodeAgent,
       sandbox: hostSandbox,
       strategy: { type: "head", baseRef: row.baseRef ?? undefined },
-      budgetSeconds: row.budgetSeconds || config.defaultRunBudgetSeconds,
+      // row.budgetSeconds is NOT NULL; preserve 0 (= infinite) instead of
+      // collapsing to the default via `||`.
+      budgetSeconds: row.budgetSeconds,
       maxIterations: 1,
       abort: ac.signal,
       resume: resuming && row.sessionId ? { sessionId: row.sessionId } : undefined,

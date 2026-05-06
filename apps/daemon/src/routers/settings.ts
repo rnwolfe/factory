@@ -49,10 +49,11 @@ export const settingsRouter = router({
       }
       if (input.key === "default-run-budget-seconds") {
         const n = Number.parseInt(input.value, 10);
-        if (!Number.isFinite(n) || n < 60 || n > 24 * 3600) {
+        // 0 = infinite (matches running `claude` by hand). Otherwise 60..86400.
+        if (!Number.isFinite(n) || (n !== 0 && (n < 60 || n > 24 * 3600))) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "default-run-budget-seconds: 60..86400",
+            message: "default-run-budget-seconds: 0 (infinite) or 60..86400",
           });
         }
       }

@@ -58,7 +58,7 @@ export const runsRouter = router({
         projectId: z.string(),
         taskId: z.string().optional(),
         prompt: z.string().optional(),
-        budgetSeconds: z.number().int().positive().optional(),
+        budgetSeconds: z.number().int().nonnegative().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

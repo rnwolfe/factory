@@ -94,10 +94,14 @@ class HostRuntime implements Runtime {
       }
     };
 
-    // Budget timer
+    // Budget timer. budgetSeconds=0 means infinite (matches running the
+    // Claude CLI by hand) — only the operator's abort signal can stop it.
     const budgetController = new AbortController();
     const compositeAbort = AbortSignal.any([spec.abort, budgetController.signal]);
-    const budgetTimer = setTimeout(() => budgetController.abort(), spec.budgetSeconds * 1000);
+    const budgetTimer =
+      spec.budgetSeconds > 0
+        ? setTimeout(() => budgetController.abort(), spec.budgetSeconds * 1000)
+        : null;
 
     let sandboxExit = { exitCode: 0 };
     try {
@@ -114,7 +118,7 @@ class HostRuntime implements Runtime {
 
       sandboxExit = await handle.exit;
     } finally {
-      clearTimeout(budgetTimer);
+      if (budgetTimer) clearTimeout(budgetTimer);
     }
 
     const aborted = compositeAbort.aborted;

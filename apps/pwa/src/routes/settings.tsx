@@ -103,12 +103,9 @@ export function Settings() {
               hint="takes effect on next daemon restart"
               type="number"
             />
-            <EditableRow
-              label="default run budget (s)"
-              value={String(settings.data.defaultRunBudgetSeconds)}
-              settingKey="default-run-budget-seconds"
+            <RunBudgetRow
+              seconds={settings.data.defaultRunBudgetSeconds}
               overridden={settings.data.overridden["default-run-budget-seconds"] ?? false}
-              type="number"
             />
             <GithubTokenRow has={settings.data.githubToken.has} />
             <FactoryProjectRow
@@ -300,6 +297,134 @@ function EditableRow({
           type="button"
           onClick={() => clearOverride.mutate()}
           disabled={clearOverride.isPending}
+          className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)] underline hover:text-[var(--color-fg-1)]"
+        >
+          revert to yaml default
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Default-run-budget row. 0 = infinite (matches running `claude` directly,
+ * where there's no wall-clock cap). Shows a chip toggle alongside the
+ * number editor: when "infinite" is on, the number is locked to 0 and
+ * displayed as ∞ in the read-only state.
+ */
+function RunBudgetRow({ seconds, overridden }: { seconds: number; overridden: boolean }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(seconds));
+  const [infinite, setInfinite] = useState(seconds === 0);
+
+  useEffect(() => {
+    setDraft(String(seconds));
+    setInfinite(seconds === 0);
+  }, [seconds]);
+
+  const save = useMutation({
+    mutationFn: (next: string) =>
+      trpc.settings.set.mutate({ key: "default-run-budget-seconds" as never, value: next }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      setEditing(false);
+    },
+  });
+
+  const clearOverride = useMutation({
+    mutationFn: () => trpc.settings.clear.mutate({ key: "default-run-budget-seconds" as never }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      setEditing(false);
+    },
+  });
+
+  const display = seconds === 0 ? "infinite" : `${seconds}s`;
+  const nextValue = infinite ? "0" : draft;
+  const dirty = nextValue !== String(seconds);
+
+  return (
+    <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[13px] text-[var(--color-fg-1)] truncate">default run budget</span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            {overridden ? "db" : "yaml"}
+          </span>
+        </div>
+        {editing ? (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setInfinite((v) => !v)}
+              aria-pressed={infinite}
+              className={`mono text-[11px] !h-7 !px-2 rounded border ${
+                infinite
+                  ? "bg-[var(--color-accent)] text-[var(--color-bg)] border-[var(--color-accent)]"
+                  : "bg-[var(--color-bg-2)] border-[var(--color-line)] text-[var(--color-fg-2)]"
+              }`}
+            >
+              ∞
+            </button>
+            <input
+              type="number"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              disabled={infinite}
+              className="mono text-[12px] bg-[var(--color-bg-2)] border border-[var(--color-line)] rounded px-2 py-1 w-[120px] disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={() => save.mutate(nextValue)}
+              disabled={save.isPending || !dirty}
+              aria-label="save"
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              {save.isPending ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Check size={12} />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(String(seconds));
+                setInfinite(seconds === 0);
+                setEditing(false);
+              }}
+              aria-label="cancel"
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <span className="mono text-[12px] text-[var(--color-fg-2)] tabular-nums">
+              {display}
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label="edit default run budget"
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              <Pencil size={11} />
+            </button>
+          </div>
+        )}
+      </div>
+      {save.isError ? (
+        <div className="mt-1.5 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+          {(save.error as Error).message}
+        </div>
+      ) : null}
+      {overridden ? (
+        <button
+          type="button"
+          onClick={() => clearOverride.mutate()}
           className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)] underline hover:text-[var(--color-fg-1)]"
         >
           revert to yaml default
