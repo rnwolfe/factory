@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { writeConfig } from "../lib/config.ts";
 import { run, whichBin } from "../lib/exec.ts";
 import { renderUnit, unitDir, unitPath } from "../lib/unit.ts";
 import { buildPwa } from "../upgrade/build-pwa.ts";
@@ -116,6 +117,11 @@ export async function runInstall(args: InstallArgs): Promise<number> {
   const content = renderUnit({ checkout, factoryHome, bunBin });
   await writeFile(unitFile, content, "utf8");
   process.stdout.write(`factory: wrote ${unitFile}\n`);
+
+  // Persist the checkout path into the config so `factory upgrade` knows
+  // which tree to operate on without --checkout. Goes into the same
+  // config.yaml the daemon reads (FACTORY_HOME-aware on the CLI side now).
+  await writeConfig({ checkout }, path.join(factoryHome, "config.yaml"));
 
   const systemctl = await detectSystemctl();
   const loginctl = await detectLoginctl();
