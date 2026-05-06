@@ -52,7 +52,22 @@ async function detectBun(): Promise<string> {
 export async function runUpgrade(args: UpgradeArgs): Promise<number> {
   const cfg = await readConfig();
   const channel: Channel = args.channel ?? cfg.channel;
-  const checkout = path.resolve(args.checkout ?? cfg.checkout ?? process.cwd());
+  // Refuse the silent fall-through to cwd: running `factory upgrade` from
+  // $HOME (or any non-checkout dir) used to "succeed" into "fatal: not a
+  // git repository" once the first git call ran. That's a confusing
+  // surface for an unconfigured install. Tell the operator exactly what
+  // to do.
+  const checkoutRaw = args.checkout ?? cfg.checkout;
+  if (!checkoutRaw) {
+    process.stderr.write(
+      "factory: upgrade.checkout is not configured.\n" +
+        "  Either pass --checkout=/path/to/factory, or set upgrade.checkout in\n" +
+        `  ${process.env.FACTORY_HOME ? path.join(process.env.FACTORY_HOME, "config.yaml") : "~/.factory/config.yaml"}.\n` +
+        "  Re-running `factory install` from inside the dev checkout will persist it.\n",
+    );
+    return 1;
+  }
+  const checkout = path.resolve(checkoutRaw);
   const bunBin = await detectBun();
 
   // 1. precheck — clean tree
