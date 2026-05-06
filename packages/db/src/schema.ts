@@ -212,6 +212,18 @@ export const projects = sqliteTable("projects", {
   autoAdvance: integer("auto_advance", { mode: "boolean" }).notNull().default(true),
   /** Claude model id used for runs in this project. Null = CLI default. */
   model: text("model"),
+  /**
+   * Set when the operator soft-archives the project. The project's `tag` also
+   * moves to "past" so existing queries that filter on tag continue to work;
+   * `archivedAt` is the explicit timestamp for sort order in the archive view.
+   */
+  archivedAt: integer("archived_at"),
+  /**
+   * v0.4 cut 4 — clone URL of the GitHub repo this project was published to.
+   * Set by `publishToGithub` after a successful create + push. Null until
+   * the operator publishes.
+   */
+  githubRemote: text("github_remote"),
 });
 
 export const rubricVersions = sqliteTable(
@@ -527,3 +539,114 @@ export const claudeMetrics = sqliteTable(
 
 export type ClaudeMetrics = typeof claudeMetrics.$inferSelect;
 export type NewClaudeMetrics = typeof claudeMetrics.$inferInsert;
+
+export const feedbackVoteEnum = ["up", "down"] as const;
+export const feedbackStatusEnum = ["open", "in_progress", "resolved", "dismissed"] as const;
+export type FeedbackVote = (typeof feedbackVoteEnum)[number];
+export type FeedbackStatus = (typeof feedbackStatusEnum)[number];
+
+/**
+ * v0.4 cut 5 — operator-captured feedback on Factory itself. The text body
+ * + auto-captured route + context hint feed the home inbox. Cut 6 (D2)
+ * extends with an agent thread.
+ */
+export const feedback = sqliteTable(
+  "feedback",
+  {
+    id: text("id").primaryKey(),
+    vote: text("vote", { enum: feedbackVoteEnum }).notNull(),
+    body: text("body").notNull(),
+    contextRoute: text("context_route"),
+    contextHint: text("context_hint"),
+    status: text("status", { enum: feedbackStatusEnum }).notNull().default("open"),
+    createdAt: integer("created_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+    /** "plan:<id>" | "task:<projectId>:<taskId>" | null. Set by promote (D2). */
+    resolvedTarget: text("resolved_target"),
+    /** D2 resume mechanic — captured on the first agent turn. */
+    claudeSessionId: text("claude_session_id"),
+  },
+  (t) => [index("feedback_status_created_idx").on(t.status, t.createdAt)],
+);
+
+export type Feedback = typeof feedback.$inferSelect;
+export type NewFeedback = typeof feedback.$inferInsert;
+
+export const feedbackCommentRoleEnum = ["operator", "agent"] as const;
+export type FeedbackCommentRole = (typeof feedbackCommentRoleEnum)[number];
+
+/**
+ * v0.4 cut 6 — operator/agent thread on a feedback row. Mirrors auditComments
+ * shape. `resultingDraft` is set when the agent's turn produced a parseable
+ * draft (plan or task seed) — the operator's "promote to plan/task" button
+ * picks the most recent non-null draft.
+ */
+export const feedbackComments = sqliteTable(
+  "feedback_comments",
+  {
+    id: text("id").primaryKey(),
+    feedbackId: text("feedback_id")
+      .references(() => feedback.id)
+      .notNull(),
+    role: text("role", { enum: feedbackCommentRoleEnum }).notNull(),
+    body: text("body").notNull(),
+    /** JSON-stringified `{ kind: 'plan' | 'task', summary, ... }`. Nullable. */
+    resultingDraft: text("resulting_draft"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("feedback_comments_feedback_created_idx").on(t.feedbackId, t.createdAt)],
+);
+
+export type FeedbackComment = typeof feedbackComments.$inferSelect;
+export type NewFeedbackComment = typeof feedbackComments.$inferInsert;
+
+export const sessionStatusEnum = ["running", "ended", "merged", "merge_failed", "aborted"] as const;
+
+export const sessionModeEnum = ["claude", "shell"] as const;
+
+/**
+ * v0.5 cut 9 — ad-hoc interactive sessions. Reuses the run/worktree/tmux
+ * infrastructure but skips the factory-status footer, quality checks, and
+ * auto-advance. On end, commits on the session branch get the same merge
+ * treatment as runs; conflicts surface as `merge_failure` decisions.
+ */
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .references(() => projects.id, { onDelete: "cascade" })
+      .notNull(),
+    status: text("status", { enum: sessionStatusEnum }).notNull(),
+    mode: text("mode", { enum: sessionModeEnum }).notNull().default("claude"),
+    description: text("description"),
+    branchName: text("branch_name").notNull(),
+    worktreePath: text("worktree_path").notNull(),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+    commitCount: integer("commit_count").notNull().default(0),
+    mergedAt: integer("merged_at"),
+    mergeError: text("merge_error"),
+  },
+  (t) => [index("sessions_project_started_idx").on(t.projectId, t.startedAt)],
+);
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+
+/**
+ * Operator-tunable runtime settings. Key/value text rows; the daemon parses
+ * each by key. Bootstrap fields (auth.token, port, host, dbPath, workdir)
+ * stay in `~/.factory/config.yaml` because they're needed before the DB is
+ * even open — everything else (gitAuthor, github token, run concurrency,
+ * factoryProjectId) reads from here. yaml continues to seed defaults; DB
+ * takes precedence when set.
+ */
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export type Setting = typeof settings.$inferSelect;
+export type NewSetting = typeof settings.$inferInsert;

@@ -152,7 +152,8 @@ export function LivePane() {
     };
   }, []);
 
-  // Pane WS — raw bytes from tmux.
+  // Pane WS — raw bytes from tmux. Forwards xterm.js keystrokes back as the
+  // operator types so they can drive the underlying claude session.
   useEffect(() => {
     if (!runId) return;
     const token = getToken();
@@ -173,7 +174,12 @@ export function LivePane() {
         term.write(new Uint8Array(ev.data));
       }
     };
+    const term = termRef.current;
+    const dataDisposer = term?.onData((d) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(d);
+    });
     return () => {
+      dataDisposer?.dispose();
       ws.close();
     };
   }, [runId]);

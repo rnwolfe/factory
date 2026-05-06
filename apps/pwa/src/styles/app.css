@@ -253,8 +253,11 @@ body {
   line-height: 1.55;
   color: var(--color-fg);
 }
-.md-block > * + * { margin-top: 8px; }
-.md-block > h1 + *, .md-block > h2 + *, .md-block > h3 + * { margin-top: 6px; }
+/* Inter-block spacing. Specificity is bumped via the doubled .md-block class so
+   it wins against per-element `margin: 0` resets below (e.g. .md-p, .md-ul). */
+.md-block.md-block > * + * { margin-top: 12px; }
+.md-block.md-block > .md-h + * { margin-top: 6px; }
+.md-block.md-block > * + .md-h { margin-top: 16px; }
 .md-block .md-p { margin: 0; word-wrap: break-word; }
 .md-block .md-h {
   font-family: var(--font-display);

@@ -59,3 +59,11 @@ export function useDecisionChannel(decisionId: string | null | undefined, keys: 
   );
   useScopedChannel(scope, { invalidate: keys });
 }
+
+export function useFeedbackChannel(feedbackId: string | null | undefined, keys: QueryKey[]): void {
+  const scope = useMemo<ChannelScope | null>(
+    () => (feedbackId ? { kind: "feedback", id: feedbackId } : null),
+    [feedbackId],
+  );
+  useScopedChannel(scope, { invalidate: keys });
+}

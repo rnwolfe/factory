@@ -2,19 +2,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ChevronRight,
+  ExternalLink,
   Eye,
   FileText,
   Folder,
   GitBranch,
   ListTree,
   Play,
+  Upload,
 } from "lucide-react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuditsSection } from "../components/audits-section.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
+import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
+import { PublishGithubModal } from "../components/publish-github-modal.tsx";
+import { ScriptsSection } from "../components/scripts-section.tsx";
+import { SessionsList } from "../components/sessions-list.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { type Tier, TierPicker } from "../components/tier-picker.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
@@ -28,6 +35,11 @@ interface RunRow {
 }
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
+
+function githubHtmlUrlFromClone(cloneUrl: string): string {
+  // GitHub HTTPS clone URLs are `https://github.com/<owner>/<name>.git`.
+  return cloneUrl.replace(/\.git$/, "");
+}
 
 interface WorkdirSnapshot {
   exists: boolean;
@@ -44,12 +56,19 @@ export function ProjectDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const nav = useNavigate();
   const qc = useQueryClient();
+  const [showPublish, setShowPublish] = useState(false);
 
   const project = useQuery({
     queryKey: ["projects.get", id],
     queryFn: () => trpc.projects.get.query({ id }),
     enabled: id.length > 0,
     refetchInterval: 30_000,
+  });
+
+  const githubTokenStatus = useQuery({
+    queryKey: ["projects.hasGithubToken"],
+    queryFn: () => trpc.projects.hasGithubToken.query() as unknown as Promise<{ has: boolean }>,
+    staleTime: 60_000,
   });
 
   const runs = useQuery({
@@ -141,7 +160,20 @@ export function ProjectDetail() {
     );
   }
 
-  const { project: p, tasks } = project.data;
+  const { project: p, tasks } = project.data as unknown as {
+    project: {
+      id: string;
+      slug: string;
+      name: string;
+      tier: string;
+      tag: string;
+      goal: string;
+      autoAdvance: boolean;
+      model: string | null;
+      githubRemote: string | null;
+    };
+    tasks: Array<{ id: string; status: string; title: string; estimate: string | null }>;
+  };
   const allRuns = runs.data ?? [];
   const activeRuns = allRuns.filter((r) => ACTIVE_RUN_STATUSES.has(r.status));
   const activeRunByTask = new Map<string, RunRow>();
@@ -153,6 +185,14 @@ export function ProjectDetail() {
 
   return (
     <div className="space-y-4">
+      {showPublish ? (
+        <PublishGithubModal
+          projectId={p.id}
+          defaultName={p.slug}
+          onClose={() => setShowPublish(false)}
+          onPublished={() => setShowPublish(false)}
+        />
+      ) : null}
       <header className="surface p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -177,7 +217,10 @@ export function ProjectDetail() {
               />
             </div>
           </div>
-          <TagChip projectId={p.id} tag={p.tag as Tag} />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <TagChip projectId={p.id} tag={p.tag as Tag} />
+            <ProjectOverflowMenu projectId={p.id} archived={p.tag === "past"} />
+          </div>
         </div>
 
         {headerActiveRun ? (
@@ -210,11 +253,32 @@ export function ProjectDetail() {
           </div>
         ) : null}
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
           <FeaturePlanLaunch projectId={id} />
           <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">
             deepen
           </Link>
+          <Link to={`/projects/${id}/code`} className="btn btn-ghost text-[12px]">
+            <FileText size={12} /> code
+          </Link>
+          {p.githubRemote ? (
+            <a
+              href={githubHtmlUrlFromClone(p.githubRemote)}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="btn btn-ghost text-[12px]"
+            >
+              <ExternalLink size={12} /> github
+            </a>
+          ) : githubTokenStatus.data?.has ? (
+            <button
+              type="button"
+              onClick={() => setShowPublish(true)}
+              className="btn btn-ghost text-[12px]"
+            >
+              <Upload size={12} /> publish to github
+            </button>
+          ) : null}
         </div>
 
         <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--color-fg-2)] cursor-pointer select-none">
@@ -336,6 +400,10 @@ export function ProjectDetail() {
 
       <AuditsSection projectId={id} />
 
+      <SessionsList projectId={id} />
+
+      <ScriptsSection projectId={id} />
+
       <section>
         <SectionHeader
           title="workdir"
@@ -345,7 +413,7 @@ export function ProjectDetail() {
               : 0
           }
         />
-        <WorkdirPanel data={workdir.data} loading={workdir.isLoading} />
+        <WorkdirPanel projectId={id} data={workdir.data} loading={workdir.isLoading} />
       </section>
 
       <section>
@@ -405,9 +473,11 @@ export function ProjectDetail() {
 }
 
 function WorkdirPanel({
+  projectId,
   data,
   loading,
 }: {
+  projectId: string;
   data: WorkdirSnapshot | null | undefined;
   loading: boolean;
 }) {
@@ -428,13 +498,17 @@ function WorkdirPanel({
     );
   }
   const { branch, headSha, dirty, status, commits, worktrees, tree } = data;
+  const codeBase = `/projects/${projectId}/code`;
   return (
     <div className="surface divide-y divide-[var(--color-line)]">
       <div className="px-3 py-2.5 flex items-center gap-2 flex-wrap">
         <GitBranch size={12} className="text-[var(--color-fg-3)]" />
-        <span className="mono text-[12px] text-[var(--color-fg-1)] truncate">
+        <Link
+          to={`${codeBase}?tab=branches`}
+          className="mono text-[12px] text-[var(--color-fg-1)] truncate hover:text-[var(--color-accent)]"
+        >
           {branch ?? "(detached)"}
-        </span>
+        </Link>
         {headSha ? (
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{headSha.slice(0, 8)}</span>
         ) : null}
@@ -452,15 +526,25 @@ function WorkdirPanel({
             git status
           </div>
           <ul className="space-y-0.5 max-h-[140px] overflow-y-auto">
-            {status.slice(0, 80).map((s) => (
-              <li
-                key={`${s.code}-${s.path}`}
-                className="mono text-[11.5px] flex gap-2 leading-snug"
-              >
-                <span className="text-[var(--color-accent)] w-6 shrink-0">{s.code.trim()}</span>
-                <span className="text-[var(--color-fg-1)] truncate">{s.path}</span>
-              </li>
-            ))}
+            {status.slice(0, 80).map((s) => {
+              // Deletions can't be opened in the blob viewer; everything else can.
+              const code = s.code.trim();
+              const isDeleted = code === "D" || code === "AD" || code === "DD";
+              const target = isDeleted
+                ? `${codeBase}?tab=tree`
+                : `${codeBase}?tab=blob&path=${encodeURIComponent(s.path)}`;
+              return (
+                <li key={`${s.code}-${s.path}`}>
+                  <Link
+                    to={target}
+                    className="mono text-[11.5px] flex gap-2 leading-snug hover:text-[var(--color-accent)]"
+                  >
+                    <span className="text-[var(--color-accent)] w-6 shrink-0">{code}</span>
+                    <span className="text-[var(--color-fg-1)] truncate">{s.path}</span>
+                  </Link>
+                </li>
+              );
+            })}
             {status.length > 80 ? (
               <li className="mono text-[10.5px] text-[var(--color-fg-3)]">
                 +{status.length - 80} more
@@ -478,11 +562,18 @@ function WorkdirPanel({
           <ul className="space-y-1">
             {commits.slice(0, 10).map((c) => (
               <li key={c.sha} className="text-[12.5px] leading-snug">
-                <span className="mono text-[11px] text-[var(--color-accent)] mr-2">
-                  {c.sha.slice(0, 8)}
-                </span>
-                <span className="text-[var(--color-fg-1)]">{c.subject}</span>
-                <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-2">{c.author}</span>
+                <Link
+                  to={`${codeBase}?tab=commits&ref=${encodeURIComponent(c.sha)}`}
+                  className="hover:text-[var(--color-accent)]"
+                >
+                  <span className="mono text-[11px] text-[var(--color-accent)] mr-2">
+                    {c.sha.slice(0, 8)}
+                  </span>
+                  <span className="text-[var(--color-fg-1)]">{c.subject}</span>
+                  <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-2">
+                    {c.author}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -497,7 +588,16 @@ function WorkdirPanel({
           <ul className="space-y-0.5">
             {worktrees.map((w) => (
               <li key={w.path} className="mono text-[11.5px] truncate">
-                <span className="text-[var(--color-accent)] mr-2">{w.branch ?? "(detached)"}</span>
+                {w.branch ? (
+                  <Link
+                    to={`${codeBase}?tab=tree&ref=${encodeURIComponent(w.branch)}`}
+                    className="text-[var(--color-accent)] mr-2 hover:underline"
+                  >
+                    {w.branch}
+                  </Link>
+                ) : (
+                  <span className="text-[var(--color-accent)] mr-2">(detached)</span>
+                )}
                 <span className="text-[var(--color-fg-3)]">{w.path}</span>
               </li>
             ))}
@@ -512,21 +612,26 @@ function WorkdirPanel({
           </div>
           <ul className="space-y-0.5">
             {tree.map((entry) => (
-              <li key={entry.path} className="mono text-[12px] flex items-center gap-2">
-                {entry.type === "dir" ? (
-                  <Folder size={11} className="text-[var(--color-accent)] shrink-0" />
-                ) : (
-                  <FileText size={11} className="text-[var(--color-fg-3)] shrink-0" />
-                )}
-                <span className="text-[var(--color-fg-1)] truncate">
-                  {entry.path}
-                  {entry.type === "dir" ? "/" : ""}
-                </span>
-                {entry.size != null ? (
-                  <span className="text-[var(--color-fg-3)] ml-auto tabular-nums">
-                    {fmtSize(entry.size)}
+              <li key={entry.path}>
+                <Link
+                  to={`${codeBase}?tab=${entry.type === "dir" ? "tree" : "blob"}&path=${encodeURIComponent(entry.path)}`}
+                  className="mono text-[12px] flex items-center gap-2 hover:text-[var(--color-accent)]"
+                >
+                  {entry.type === "dir" ? (
+                    <Folder size={11} className="text-[var(--color-accent)] shrink-0" />
+                  ) : (
+                    <FileText size={11} className="text-[var(--color-fg-3)] shrink-0" />
+                  )}
+                  <span className="text-[var(--color-fg-1)] truncate">
+                    {entry.path}
+                    {entry.type === "dir" ? "/" : ""}
                   </span>
-                ) : null}
+                  {entry.size != null ? (
+                    <span className="text-[var(--color-fg-3)] ml-auto tabular-nums">
+                      {fmtSize(entry.size)}
+                    </span>
+                  ) : null}
+                </Link>
               </li>
             ))}
           </ul>

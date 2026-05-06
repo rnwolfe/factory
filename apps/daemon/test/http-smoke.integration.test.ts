@@ -46,8 +46,9 @@ describe("daemon HTTP smoke", () => {
     try {
       const r = await fetch(`http://127.0.0.1:${b.port}/health`);
       expect(r.status).toBe(200);
-      const body = (await r.json()) as { ok: boolean };
-      expect(body.ok).toBe(true);
+      const body = (await r.json()) as { status: string; version: string };
+      expect(body.status).toBe("ok");
+      expect(typeof body.version).toBe("string");
     } finally {
       await b.stop();
     }

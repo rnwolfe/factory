@@ -71,6 +71,48 @@
       "when": 1777945910116,
       "tag": "0009_audit_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1777951519543,
+      "tag": "0010_project_archived_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1777951843442,
+      "tag": "0011_project_github_remote",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1777952139934,
+      "tag": "0012_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1777952378677,
+      "tag": "0013_feedback_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1777953587750,
+      "tag": "0014_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1777980509229,
+      "tag": "0015_settings",
+      "breakpoints": true
     }
   ]
 }

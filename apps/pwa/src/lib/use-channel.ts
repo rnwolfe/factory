@@ -7,7 +7,8 @@ export type ChannelScope =
   | { kind: "project"; id: string }
   | { kind: "audit"; id: string }
   | { kind: "plan"; id: string }
-  | { kind: "decision"; id: string };
+  | { kind: "decision"; id: string }
+  | { kind: "feedback"; id: string };
 
 export type ConnectionState = "connecting" | "open" | "closed";
 

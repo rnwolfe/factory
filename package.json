@@ -15,7 +15,9 @@
     "check": "biome check .",
     "db:generate": "bun run --filter '@factory/db' db:generate",
     "db:migrate": "bun run --filter '@factory/db' db:migrate",
-    "seed": "bun run --filter '@factory/db' db:seed"
+    "seed": "bun run --filter '@factory/db' db:seed",
+    "cli:build": "bun run --filter '@factory/cli' build",
+    "cli:install": "bun run --filter '@factory/cli' build && mkdir -p \"$HOME/.local/bin\" && ln -sf \"$(pwd)/apps/cli/dist/factory\" \"$HOME/.local/bin/factory\""
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.0",

@@ -23,6 +23,19 @@ export interface FactoryConfig {
   defaultRunBudgetSeconds: number;
   /** Git author identity for project bootstrap commits. */
   gitAuthor: { name: string; email: string };
+  /**
+   * v0.4 cut 4 — GitHub Personal Access Token used by `projects.publishToGithub`.
+   * Loaded from `auth.githubToken` in config.yaml; null when unset. Required
+   * `repo` scope for private repos, `public_repo` is enough for public.
+   */
+  githubToken: string | null;
+  /**
+   * v0.4 cut 6 — id of the project that holds Factory's own meta-work. When
+   * set, "promote to plan / promote to task" on a feedback row creates a
+   * feature_plan / task on this project. Set the operator-edits-config-yaml
+   * way for now (no PWA path yet).
+   */
+  factoryProjectId: string | null;
 }
 
 export interface ConfigSource {
@@ -43,13 +56,14 @@ function generateToken(): string {
 interface PartialConfig {
   port?: number;
   host?: string;
-  auth?: { token?: string };
+  auth?: { token?: string; githubToken?: string | null };
   workdir?: string;
   worktreesRoot?: string;
   dbPath?: string;
   maxConcurrentRuns?: number;
   defaultRunBudgetSeconds?: number;
   gitAuthor?: { name?: string; email?: string };
+  factoryProjectId?: string | null;
 }
 
 function fillDefaults(p: PartialConfig): FactoryConfig {
@@ -69,6 +83,8 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
       name: p.gitAuthor?.name ?? process.env.FACTORY_GIT_NAME ?? "Factory",
       email: p.gitAuthor?.email ?? process.env.FACTORY_GIT_EMAIL ?? "factory@localhost",
     },
+    githubToken: p.auth?.githubToken ?? process.env.FACTORY_GITHUB_TOKEN ?? null,
+    factoryProjectId: p.factoryProjectId ?? process.env.FACTORY_META_PROJECT_ID ?? null,
   };
 }
 

@@ -5,6 +5,7 @@ import { useAuth } from "./lib/auth.ts";
 import { AuditPane } from "./routes/audit-pane.tsx";
 import { DecisionDetail } from "./routes/decision-detail.tsx";
 import { Deepen } from "./routes/deepen.tsx";
+import { FeedbackDetail } from "./routes/feedback-detail.tsx";
 import { ImportProject } from "./routes/import-project.tsx";
 import { Inbox } from "./routes/inbox.tsx";
 import { LivePane } from "./routes/live-pane.tsx";
@@ -15,6 +16,11 @@ import { ProjectDetail } from "./routes/project-detail.tsx";
 import { Projects } from "./routes/projects.tsx";
 import { PromptDetail } from "./routes/prompt-detail.tsx";
 import { PromptsViewer } from "./routes/prompts-viewer.tsx";
+import { RepoBrowser } from "./routes/repo-browser.tsx";
+import { RubricDetail } from "./routes/rubric-detail.tsx";
+import { RubricsViewer } from "./routes/rubrics-viewer.tsx";
+import { ScriptPane } from "./routes/script-pane.tsx";
+import { SessionPane } from "./routes/session-pane.tsx";
 import { Settings } from "./routes/settings.tsx";
 import { TaskDetail } from "./routes/task-detail.tsx";
 import { WorktreesAdmin } from "./routes/worktrees.tsx";
@@ -34,11 +40,17 @@ export function App() {
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/projects/:id/tasks/:taskId" element={<TaskDetail />} />
         <Route path="/projects/:id/runs/:runId" element={<LivePane />} />
+        <Route path="/projects/:id/scripts/:scriptId" element={<ScriptPane />} />
+        <Route path="/projects/:id/code" element={<RepoBrowser />} />
+        <Route path="/projects/:id/sessions/:sessionId" element={<SessionPane />} />
         <Route path="/projects/:id/audits/:auditId" element={<AuditPane />} />
         <Route path="/projects/:id/deepen" element={<Deepen />} />
+        <Route path="/feedback/:id" element={<FeedbackDetail />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/prompts" element={<PromptsViewer />} />
         <Route path="/settings/prompts/:key" element={<PromptDetail />} />
+        <Route path="/settings/rubrics" element={<RubricsViewer />} />
+        <Route path="/settings/rubrics/:key" element={<RubricDetail />} />
         <Route path="/settings/worktrees" element={<WorktreesAdmin />} />
         <Route path="/metrics" element={<Metrics />} />
         <Route path="*" element={<Inbox />} />

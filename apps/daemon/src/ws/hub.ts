@@ -6,7 +6,7 @@ import { authorizeRequest } from "../auth.ts";
 import type { DaemonContext } from "../context.ts";
 import type { DaemonEvent } from "../events.ts";
 
-export type WsChannel = "events" | "pane" | "inbox";
+export type WsChannel = "events" | "pane" | "inbox" | "script";
 
 /**
  * Scope filter parsed off `?scope=<kind>:<id>` on the events channel.
@@ -23,12 +23,15 @@ export type EventsScope =
   | { kind: "project"; id: string }
   | { kind: "audit"; id: string }
   | { kind: "plan"; id: string }
-  | { kind: "decision"; id: string };
+  | { kind: "decision"; id: string }
+  | { kind: "feedback"; id: string };
 
 export interface WsClientData {
   channel: WsChannel;
   /** Set on `pane` channel; legacy carrier on `events` (== scope.kind=run). */
   runId?: string;
+  /** Set on `script` channel — bound to a single ScriptRegistry handle. */
+  scriptId?: string;
   /** Set on `events` channel when `?scope=...` parses cleanly. */
   scope?: EventsScope;
   unsubscribe?: () => void;
@@ -46,7 +49,8 @@ export function parseScope(raw: string | null): EventsScope | null {
     kind === "project" ||
     kind === "audit" ||
     kind === "plan" ||
-    kind === "decision"
+    kind === "decision" ||
+    kind === "feedback"
   ) {
     return { kind, id };
   }
@@ -69,7 +73,12 @@ export function planWsUpgrade(
   if (!url.pathname.startsWith("/ws/")) return { kind: "skip" };
 
   const channelName = url.pathname.replace(/^\/ws\//, "");
-  if (channelName !== "events" && channelName !== "pane" && channelName !== "inbox") {
+  if (
+    channelName !== "events" &&
+    channelName !== "pane" &&
+    channelName !== "inbox" &&
+    channelName !== "script"
+  ) {
     return { kind: "deny", status: 404, reason: "unknown ws channel" };
   }
 
@@ -81,6 +90,12 @@ export function planWsUpgrade(
     const runId = url.searchParams.get("runId");
     if (!runId) return { kind: "deny", status: 400, reason: "runId required" };
     return { kind: "upgrade", data: { channel: "pane", runId } };
+  }
+
+  if (channelName === "script") {
+    const scriptId = url.searchParams.get("scriptId");
+    if (!scriptId) return { kind: "deny", status: 400, reason: "scriptId required" };
+    return { kind: "upgrade", data: { channel: "script", scriptId } };
   }
 
   if (channelName === "events") {
@@ -215,6 +230,11 @@ export function attachWsChannel(ws: ServerWebSocket<WsClientData>, ctx: DaemonCo
       const evDecisionId = (e as { decisionId?: string }).decisionId;
       return evDecisionId === scope.id;
     }
+    if (scope.kind === "feedback") {
+      if (e.channel !== "inbox") return false;
+      const evFeedbackId = (e as { feedbackId?: string }).feedbackId;
+      return evFeedbackId === scope.id;
+    }
     if (scope.kind === "project") {
       const direct = eventProjectId(e);
       if (direct === scope.id) return true;
@@ -239,6 +259,10 @@ export function attachWsChannel(ws: ServerWebSocket<WsClientData>, ctx: DaemonCo
   const unsubscribe = ctx.events.subscribe((e) => {
     try {
       if (channel === "pane" && e.channel === "pane" && e.runId === ws.data.runId) {
+        ws.send(e.bytes);
+        return;
+      }
+      if (channel === "script" && e.channel === "script" && e.scriptId === ws.data.scriptId) {
         ws.send(e.bytes);
         return;
       }

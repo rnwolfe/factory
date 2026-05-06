@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { FolderInput, Layers } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 
 const TAGS = ["active", "background", "past"] as const;
+const VISIBLE_TAGS = ["active", "background"] as const;
 
 export function Projects() {
+  const [showArchived, setShowArchived] = useState(false);
   const list = useQuery({
     queryKey: ["projects.list"],
     queryFn: () => trpc.projects.list.query(),
@@ -13,8 +16,13 @@ export function Projects() {
 
   if (list.isLoading) return <ProjectsSkeleton />;
 
-  const rows = list.data ?? [];
-  if (rows.length === 0) {
+  const allRows = list.data ?? [];
+  const rows = showArchived
+    ? allRows
+    : allRows.filter((r) => (VISIBLE_TAGS as readonly string[]).includes(r.tag));
+  const archivedCount = allRows.filter((r) => r.tag === "past").length;
+
+  if (rows.length === 0 && allRows.length === 0) {
     return (
       <div className="space-y-3">
         <div className="surface p-6 text-center">
@@ -41,6 +49,16 @@ export function Projects() {
       <Link to="/projects/import" className="btn btn-ghost w-full">
         <FolderInput size={14} /> import existing project
       </Link>
+      {archivedCount > 0 ? (
+        <label className="flex items-center justify-end gap-1.5 text-[11.5px] text-[var(--color-fg-2)] cursor-pointer px-1">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+          />
+          <span>show archived ({archivedCount})</span>
+        </label>
+      ) : null}
       {grouped.map((g) => (
         <section key={g.tag}>
           <div className="flex items-center gap-2 px-1 mb-1.5">

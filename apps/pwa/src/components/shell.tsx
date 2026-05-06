@@ -2,6 +2,7 @@ import { Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
+import { FeedbackFab } from "./feedback-fab.tsx";
 
 const NAV: Array<{ to: string; label: string; icon: typeof InboxIcon }> = [
   { to: "/", label: "inbox", icon: InboxIcon },
@@ -45,6 +46,8 @@ export function Shell({ children }: { children: ReactNode }) {
       >
         {children}
       </main>
+
+      <FeedbackFab />
 
       <nav
         className="fixed bottom-0 inset-x-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"

@@ -117,7 +117,38 @@ export type DaemonEvent =
       promotedTo: { kind: "plan" | "task"; id: string };
       projectId?: string | null;
     }
-  | { channel: "pane"; runId: string; bytes: Uint8Array };
+  | {
+      channel: "inbox";
+      kind: "feedback_created";
+      feedbackId: string;
+    }
+  | {
+      channel: "inbox";
+      kind: "feedback_updated";
+      feedbackId: string;
+    }
+  | {
+      channel: "inbox";
+      kind: "feedback_comment_added";
+      feedbackId: string;
+      role: "operator" | "agent";
+    }
+  | {
+      channel: "inbox";
+      kind: "session_started";
+      sessionId: string;
+      projectId: string;
+    }
+  | {
+      channel: "inbox";
+      kind: "session_ended";
+      sessionId: string;
+      projectId: string;
+      status: "ended" | "merged" | "merge_failed" | "aborted";
+      commitCount: number;
+    }
+  | { channel: "pane"; runId: string; bytes: Uint8Array }
+  | { channel: "script"; scriptId: string; bytes: Uint8Array };
 
 type Listener = (e: DaemonEvent) => void;
 
