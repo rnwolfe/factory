@@ -9,10 +9,42 @@ export interface ProbeResult {
 }
 
 /**
- * GET /health on the local daemon. Test seam: FACTORY_CLI_HEALTH_URL.
+ * Resolve the daemon's port. Override precedence: FACTORY_CLI_PORT env var,
+ * then $FACTORY_HOME/config.yaml `port` field (the daemon's own config),
+ * then 4080 (the daemon's compile-time default).
+ */
+async function resolveDaemonPort(): Promise<number> {
+  const envPort = process.env.FACTORY_CLI_PORT;
+  if (envPort) {
+    const n = Number.parseInt(envPort, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  // Read the daemon's own config — the CLI runs from the operator's account
+  // so $FACTORY_HOME (or ~/.factory) is the daemon's config dir.
+  const home = process.env.FACTORY_HOME;
+  const path = await import("node:path");
+  const fs = await import("node:fs");
+  const configPath = path.join(home || `${process.env.HOME ?? ""}/.factory`, "config.yaml");
+  if (fs.existsSync(configPath)) {
+    try {
+      const yaml = await import("yaml");
+      const text = fs.readFileSync(configPath, "utf8");
+      const parsed = yaml.parse(text) as { port?: number } | null;
+      if (parsed && typeof parsed.port === "number" && parsed.port > 0) return parsed.port;
+    } catch {
+      // fall through
+    }
+  }
+  return 4080;
+}
+
+/**
+ * GET /health on the local daemon. Test seam: FACTORY_CLI_HEALTH_URL trumps
+ * the resolved port entirely.
  */
 export async function probeHealth(timeoutMs = 1500): Promise<ProbeResult> {
-  const url = process.env.FACTORY_CLI_HEALTH_URL || "http://127.0.0.1:5174/health";
+  const url =
+    process.env.FACTORY_CLI_HEALTH_URL || `http://127.0.0.1:${await resolveDaemonPort()}/health`;
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);
   try {
