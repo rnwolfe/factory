@@ -10,11 +10,13 @@ import { type Channel, readConfig } from "../lib/config.ts";
 import { whichBin } from "../lib/exec.ts";
 import { appendUpgradeLog, readLastGood, writeLastGood } from "../lib/state.ts";
 import { systemctl } from "../lib/systemctl.ts";
+import { buildPwa } from "../upgrade/build-pwa.ts";
 import { checkoutSha } from "../upgrade/checkout.ts";
 import { bunInstall } from "../upgrade/deps.ts";
 import { runMigrations } from "../upgrade/migrate.ts";
 import { checkClean, currentHead, lockfileSha } from "../upgrade/precheck.ts";
 import { probeUntilVersion } from "../upgrade/probe.ts";
+import { runSeed } from "../upgrade/seed.ts";
 
 export interface UpgradeArgs {
   channel: Channel | undefined;
@@ -144,6 +146,38 @@ export async function runUpgrade(args: UpgradeArgs): Promise<number> {
       channel,
       ok: false,
       error: "db:migrate failed",
+    });
+    return 1;
+  }
+
+  // 5a. seed (idempotent — picks up new prompts/rubrics shipped by the release)
+  process.stdout.write("factory: seeding prompts + rubrics\n");
+  const seedRes = await runSeed(checkout, bunBin);
+  if (!seedRes.ok) {
+    process.stderr.write(`factory: seed failed: ${seedRes.stderr.trim()}\n`);
+    await appendUpgradeLog({
+      ts: Date.now(),
+      from: fromSha,
+      to: target.sha,
+      channel,
+      ok: false,
+      error: "seed failed",
+    });
+    return 1;
+  }
+
+  // 5b. build PWA dist before the new daemon starts
+  process.stdout.write("factory: building pwa\n");
+  const pwa = await buildPwa(checkout, bunBin);
+  if (!pwa.ok) {
+    process.stderr.write(`factory: pwa build failed: ${pwa.stderr.trim()}\n`);
+    await appendUpgradeLog({
+      ts: Date.now(),
+      from: fromSha,
+      to: target.sha,
+      channel,
+      ok: false,
+      error: "pwa build failed",
     });
     return 1;
   }

@@ -38,7 +38,14 @@ beforeEach(() => {
     "loginctl",
     `printf '%s\\n' "$*" >> "${argLog}"; exit 0`,
   );
-  process.env.FACTORY_CLI_BUN = "/usr/bin/env bun";
+  // Stub bun so install can invoke `bun run --filter @factory/pwa build` and
+  // `bun run seed` against a fake checkout. Both calls just record args and
+  // exit 0 — the install command's contract is "I drove these steps," not
+  // "they actually built/seeded."
+  process.env.FACTORY_CLI_BUN = writeFakeBin(
+    "bun",
+    `printf 'bun %s\\n' "$*" >> "${argLog}"; exit 0`,
+  );
 });
 
 afterEach(() => {
@@ -60,7 +67,9 @@ describe("factory install", () => {
     expect(content).toContain("NotifyAccess=all");
     expect(content).toContain(`WorkingDirectory=${checkout}`);
     expect(content).toContain(`Environment=FACTORY_HOME=${home}`);
-    expect(content).toContain(`ExecStart=/usr/bin/env bun run --cwd ${checkout} start`);
+    expect(content).toContain(
+      `ExecStart=${process.env.FACTORY_CLI_BUN} run --cwd ${checkout} start`,
+    );
     const args = readFileSync(argLog, "utf8");
     expect(args).toContain("--user daemon-reload");
     expect(args).toContain("--user enable --now factory");

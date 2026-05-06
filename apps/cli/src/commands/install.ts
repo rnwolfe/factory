@@ -5,6 +5,8 @@ import path from "node:path";
 
 import { run, whichBin } from "../lib/exec.ts";
 import { renderUnit, unitDir, unitPath } from "../lib/unit.ts";
+import { buildPwa } from "../upgrade/build-pwa.ts";
+import { runSeed } from "../upgrade/seed.ts";
 
 export interface InstallArgs {
   checkout: string | undefined;
@@ -147,6 +149,25 @@ export async function runInstall(args: InstallArgs): Promise<number> {
     process.stderr.write(`factory: daemon-reload failed: ${reload.stderr.trim()}\n`);
     return 1;
   }
+
+  // Build the PWA dist before the daemon starts — the static handler
+  // caches existsSync(dist) at construction.
+  process.stdout.write("factory: building pwa\n");
+  const pwa = await buildPwa(checkout, bunBin);
+  if (!pwa.ok) {
+    process.stderr.write(`factory: pwa build failed: ${pwa.stderr.trim()}\n`);
+    return 1;
+  }
+
+  // Seed prompts + rubrics into the daemon's DB. Idempotent; runs
+  // migrations as a side-effect so the schema is ready for the daemon.
+  process.stdout.write("factory: seeding prompts + rubrics\n");
+  const seedRes = await runSeed(checkout, bunBin);
+  if (!seedRes.ok) {
+    process.stderr.write(`factory: seed failed: ${seedRes.stderr.trim()}\n`);
+    return 1;
+  }
+
   const enable = await run([systemctl, "--user", "enable", "--now", "factory"]);
   if (enable.exitCode !== 0) {
     process.stderr.write(`factory: enable --now failed: ${enable.stderr.trim()}\n`);

@@ -6,7 +6,9 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "./schema.ts";
 
 export function getDefaultDbPath(): string {
-  return process.env.FACTORY_DB ?? path.join(os.homedir(), "factory", "data.db");
+  if (process.env.FACTORY_DB) return process.env.FACTORY_DB;
+  if (process.env.FACTORY_HOME) return path.join(process.env.FACTORY_HOME, "data.db");
+  return path.join(os.homedir(), "factory", "data.db");
 }
 
 export function openSqlite(dbPath: string = getDefaultDbPath()): Database {
