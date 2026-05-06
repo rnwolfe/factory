@@ -1,6 +1,7 @@
 import { schema } from "@factory/db";
 import { mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
+import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { seedProjectSpecDraft } from "../plans/iterate.ts";
@@ -153,6 +154,24 @@ export const decisionsRouter = router({
 
       if (input.action === "approve" && decision.kind === "triage") {
         if (!decision.ideaId) throw new Error("triage decision missing ideaId");
+
+        // Contributor-intent ideas need an upstream repo, which Factory's
+        // triage payload doesn't carry. Approving here would fresh-init a
+        // repo that defeats the purpose; the operator should use the
+        // import flow (clone the upstream, then earmark it as a
+        // contributor project there). Refuse with a clear redirect.
+        const idea = await ctx.db
+          .select()
+          .from(schema.ideas)
+          .where(eq(schema.ideas.id, decision.ideaId))
+          .get();
+        if (idea?.intentRole === "contributor") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "contributor-intent ideas can't bootstrap a fresh project — import the upstream repo via /projects/import, then operate on it from there",
+          });
+        }
 
         // v0.2: route triage approval through a project_spec foundry plan
         // instead of bootstrapping immediately. The decision is marked
