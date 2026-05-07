@@ -18,12 +18,17 @@ export interface FactoryCliConfig {
   upgrade: UpgradeConfig;
 }
 
-function defaultConfigPath(): string {
+/**
+ * Resolve the CLI's config path at *call* time, not at module-load time.
+ * Tests rely on this — they set FACTORY_HOME (or XDG_CONFIG_HOME for unit
+ * paths) to a temp dir before invoking install/upgrade. A module-level
+ * const would clobber the operator's real `~/.factory/config.yaml`.
+ */
+export function defaultConfigPath(): string {
   const home = process.env.FACTORY_HOME;
   if (home) return path.join(home, "config.yaml");
   return path.join(os.homedir(), ".factory", "config.yaml");
 }
-export const DEFAULT_CONFIG_PATH = defaultConfigPath();
 
 export function defaults(): UpgradeConfig {
   return {
@@ -58,7 +63,8 @@ function parseUpgrade(raw: unknown): UpgradeConfig {
   };
 }
 
-export async function readConfig(configPath: string = DEFAULT_CONFIG_PATH): Promise<UpgradeConfig> {
+export async function readConfig(configPath?: string): Promise<UpgradeConfig> {
+  configPath ??= defaultConfigPath();
   if (!existsSync(configPath)) return defaults();
   const text = await readFile(configPath, "utf8");
   const parsed = YAML.parse(text);
@@ -72,8 +78,9 @@ export async function readConfig(configPath: string = DEFAULT_CONFIG_PATH): Prom
  */
 export async function writeConfig(
   patch: Partial<UpgradeConfig>,
-  configPath: string = DEFAULT_CONFIG_PATH,
+  configPath?: string,
 ): Promise<void> {
+  configPath ??= defaultConfigPath();
   await mkdir(path.dirname(configPath), { recursive: true });
   let doc: Document;
   if (existsSync(configPath)) {

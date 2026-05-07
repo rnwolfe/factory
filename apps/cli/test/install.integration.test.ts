@@ -30,6 +30,11 @@ beforeEach(() => {
   writeFileSync(path.join(checkout, "package.json"), JSON.stringify({ name: "factory" }), "utf8");
 
   process.env.XDG_CONFIG_HOME = xdg;
+  // FACTORY_HOME isolates the CLI's config path (~/.factory/config.yaml
+  // by default). Without this, install would write to the operator's
+  // real CLI config, clobbering checkout / port. Use a temp dir; tests
+  // don't probe through the path so the value just needs to exist.
+  process.env.FACTORY_HOME = path.join(tmpRoot, "cli-home");
   process.env.FACTORY_CLI_SYSTEMCTL = writeFakeBin(
     "systemctl",
     `printf '%s\\n' "$*" >> "${argLog}"; exit 0`,
@@ -51,6 +56,7 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
   delete process.env.XDG_CONFIG_HOME;
+  delete process.env.FACTORY_HOME;
   delete process.env.FACTORY_CLI_SYSTEMCTL;
   delete process.env.FACTORY_CLI_LOGINCTL;
   delete process.env.FACTORY_CLI_BUN;

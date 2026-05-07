@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
-import { writeConfig } from "../lib/config.ts";
+import YAML from "yaml";
+import { defaultConfigPath, writeConfig } from "../lib/config.ts";
 import { run, whichBin } from "../lib/exec.ts";
 import { renderUnit, unitDir, unitPath } from "../lib/unit.ts";
 import { buildPwa } from "../upgrade/build-pwa.ts";
@@ -40,6 +40,25 @@ async function detectCheckout(arg: string | undefined): Promise<string> {
     throw new Error("not inside a git repo and no --checkout given");
   }
   return r.stdout.trim();
+}
+
+/**
+ * Write a top-level `port: N` key into the CLI's config.yaml without
+ * disturbing other keys (auth, upgrade block, etc.). Used by install
+ * to mirror the live daemon's port so `factory status` / `factory
+ * upgrade` probes hit the correct process when a parallel `bun run
+ * dev` daemon is also running.
+ */
+async function writeCliTopLevelPort(configPath: string, port: number): Promise<void> {
+  await mkdir(path.dirname(configPath), { recursive: true });
+  let doc: YAML.Document;
+  if (existsSync(configPath)) {
+    doc = YAML.parseDocument(await readFile(configPath, "utf8"));
+  } else {
+    doc = new YAML.Document({});
+  }
+  doc.setIn(["port"], port);
+  await writeFile(configPath, doc.toString(), { mode: 0o600 });
 }
 
 async function isFactoryRepo(checkout: string): Promise<boolean> {
@@ -118,10 +137,40 @@ export async function runInstall(args: InstallArgs): Promise<number> {
   await writeFile(unitFile, content, "utf8");
   process.stdout.write(`factory: wrote ${unitFile}\n`);
 
-  // Persist the checkout path into the config so `factory upgrade` knows
-  // which tree to operate on without --checkout. Goes into the same
-  // config.yaml the daemon reads (FACTORY_HOME-aware on the CLI side now).
-  await writeConfig({ checkout }, path.join(factoryHome, "config.yaml"));
+  // Persist the checkout path AND the daemon's port into the CLI's own
+  // config (~/.factory/config.yaml by default, FACTORY_HOME-aware), NOT
+  // the live daemon's <factoryHome>/config.yaml. Two reasons:
+  //
+  //   1. The CLI defaults to ~/.factory/ regardless of where the
+  //      operator chose to install the daemon. Writing checkout to the
+  //      install's factoryHome means the CLI never sees it (which was
+  //      the silent fall-through-to-cwd bug in `factory upgrade`).
+  //   2. Mirroring `port` lets `factory status` / `factory upgrade`
+  //      probe the live daemon directly. Without it the CLI defaults
+  //      to 4080 and (if the operator has `bun run dev` running with
+  //      its own dev daemon) hits the wrong process.
+  //
+  // Read the live daemon's port from <factoryHome>/config.yaml if the
+  // daemon already wrote one (re-installs over an existing setup);
+  // otherwise leave it null and let the daemon's default (4080) stand.
+  let livePort: number | null = null;
+  const liveConfigPath = path.join(factoryHome, "config.yaml");
+  if (existsSync(liveConfigPath)) {
+    try {
+      const text = await readFile(liveConfigPath, "utf8");
+      const parsed = YAML.parse(text) as { port?: number } | null;
+      if (parsed && typeof parsed.port === "number" && parsed.port > 0) {
+        livePort = parsed.port;
+      }
+    } catch {
+      // Ignore — we'll just write what we know.
+    }
+  }
+  const cliConfigPath = defaultConfigPath();
+  await writeConfig({ checkout }, cliConfigPath);
+  if (livePort !== null) {
+    await writeCliTopLevelPort(cliConfigPath, livePort);
+  }
 
   const systemctl = await detectSystemctl();
   const loginctl = await detectLoginctl();

@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
-    "dev": "bun run seed && bun run --filter '@factory/daemon' --filter '@factory/pwa' dev",
+    "dev": "FACTORY_HOME=\"${FACTORY_HOME:-$HOME/.factory-dev}\" bun run seed && FACTORY_HOME=\"${FACTORY_HOME:-$HOME/.factory-dev}\" bun run --filter '@factory/daemon' --filter '@factory/pwa' dev",
     "start": "bun run --filter '@factory/daemon' start",
     "format": "biome format --write .",
     "lint": "biome lint .",
