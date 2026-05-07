@@ -4,7 +4,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import { bindAgentBudgetConfig } from "./agent-budget.ts";
 import { authorizeRequest } from "./auth.ts";
-import { type FactoryConfig, loadConfig } from "./config.ts";
+import { type FactoryConfig, loadConfig, writeInitialConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
 import { buildHealth } from "./health.ts";
@@ -63,14 +63,19 @@ interface DaemonHandle {
 }
 
 export async function startDaemon(): Promise<DaemonHandle> {
-  const { config, source } = await loadConfig();
-  console.log(
-    `[factoryd] config ${source.loadedFromDisk ? "loaded" : "synthesized"} from ${source.configPath}`,
-  );
+  let { config, source } = await loadConfig();
+  // Persist the synthesized config on first start so the auth token survives
+  // across restarts. Without this, every `bun run dev` restart minted a new
+  // random token and the operator had to re-paste it into the PWA's auth
+  // gate. Persistence is gated on `loadedFromDisk` — we never overwrite an
+  // existing config.
   if (!source.loadedFromDisk) {
-    console.log(`[factoryd] no config on disk — using ephemeral token: ${config.auth.token}`);
-    console.log("[factoryd] run `bun scripts/factoryd-init.ts` to persist a config.");
+    const written = await writeInitialConfig(source.configPath, config);
+    config = written.config;
+    source = { configPath: written.configPath, loadedFromDisk: true };
+    console.log(`[factoryd] wrote initial config ${source.configPath}`);
   }
+  console.log(`[factoryd] config loaded from ${source.configPath}`);
 
   // DB
   runMigrations(config.dbPath);

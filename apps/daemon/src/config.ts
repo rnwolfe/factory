@@ -120,11 +120,23 @@ export async function loadConfig(configPath: string = DEFAULT_CONFIG_PATH): Prom
   };
 }
 
-export async function writeInitialConfig(configPath: string = DEFAULT_CONFIG_PATH): Promise<{
+/**
+ * Write a FactoryConfig to disk in YAML form. Used by the daemon's
+ * first-start path to persist a synthesized config (token + defaults)
+ * so subsequent restarts use the same auth token instead of minting a
+ * fresh ephemeral one each time.
+ *
+ * If `existing` is omitted, generates a fresh defaults config. Pass
+ * the in-memory config from `loadConfig()` to preserve its token.
+ */
+export async function writeInitialConfig(
+  configPath: string = DEFAULT_CONFIG_PATH,
+  existing?: FactoryConfig,
+): Promise<{
   config: FactoryConfig;
   configPath: string;
 }> {
-  const config = fillDefaults({});
+  const config = existing ?? fillDefaults({});
   await mkdir(path.dirname(configPath), { recursive: true });
   const yamlText = YAML.stringify({
     port: config.port,
