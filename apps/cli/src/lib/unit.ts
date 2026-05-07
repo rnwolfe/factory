@@ -32,8 +32,25 @@ export interface UnitVars {
  * NotifyAccess=all because `bun run --cwd <checkout> start` exec-chains
  * through `bun run --filter @factory/daemon start` to `bun src/index.ts`
  * — the actual daemon is a grandchild, not the unit's main PID.
+ *
+ * PATH is set explicitly because user systemd services don't inherit
+ * the operator's interactive PATH. Without this, the daemon can't find
+ * user-installed binaries like `claude` (typically in `~/.local/bin`)
+ * and plan/audit/feedback iteration fails with "Executable not found".
+ * The hardcoded set covers the common per-user install dirs; operators
+ * with non-standard tooling can extend by editing the unit.
  */
 export function renderUnit(vars: UnitVars): string {
+  // %h is systemd's specifier for the user's home directory, expanded
+  // by systemd at unit start.
+  const path = [
+    "%h/.local/bin",
+    "%h/.local/share/mise/shims",
+    "%h/.bun/install/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ].join(":");
   return `[Unit]
 Description=Factory daemon
 After=network-online.target
@@ -43,6 +60,7 @@ Type=notify
 NotifyAccess=all
 WorkingDirectory=${vars.checkout}
 Environment=FACTORY_HOME=${vars.factoryHome}
+Environment=PATH=${path}
 ExecStart=${vars.bunBin} run --cwd ${vars.checkout} start
 Restart=on-failure
 RestartSec=2
