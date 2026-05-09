@@ -168,9 +168,22 @@ export const runsRouter = router({
         .get();
       if (!project) return null;
 
-      // Best-effort base: project's main HEAD. The branch was forked from there.
-      const base = await runGit(["rev-parse", "main"], project.workdirPath);
-      const baseRef = base.exitCode === 0 ? base.stdout.trim() : null;
+      // Use the merge-base of main and the run branch as the diff base, NOT
+      // the current main HEAD. After a successful run auto-merges into main
+      // (`mergeIntoMain` with `--no-ff`), main contains the run's commits via
+      // a merge commit — so `main..run.branch` would be empty even though the
+      // run made real changes. The merge-base is the original fork point and
+      // stays stable across the merge: `merge-base..run.branch` is exactly
+      // the set of commits the run contributed, before-and-after merge.
+      //
+      // Fallback to current main HEAD if merge-base isn't computable (e.g.
+      // the branch was deleted or never had a common ancestor with main).
+      const mb = await runGit(["merge-base", "main", run.branch], project.workdirPath);
+      let baseRef: string | null = mb.exitCode === 0 ? mb.stdout.trim() : null;
+      if (!baseRef) {
+        const head = await runGit(["rev-parse", "main"], project.workdirPath);
+        baseRef = head.exitCode === 0 ? head.stdout.trim() : null;
+      }
 
       const range = baseRef ? `${baseRef}..${run.branch}` : run.branch;
       const numstat = await runGit(["diff", "--numstat", "--no-color", range], project.workdirPath);
@@ -195,11 +208,7 @@ export const runsRouter = router({
       }
 
       const log = await runGit(
-        [
-          "log",
-          baseRef ? `${baseRef}..${run.branch}` : run.branch,
-          "--pretty=format:%H%x09%s%x09%at%x09%an",
-        ],
+        ["log", range, "--pretty=format:%H%x09%s%x09%at%x09%an"],
         project.workdirPath,
       );
       const commits: RunDiff["commits"] = [];
