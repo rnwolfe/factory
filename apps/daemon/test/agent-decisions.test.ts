@@ -140,6 +140,75 @@ describe("extractAgentDecisions", () => {
 \`\`\``;
     expect(extractAgentDecisions(text)[0]?.kind).toBe("tradeoff");
   });
+
+  test("explicit responseType=multi is honored", () => {
+    const text = `\`\`\`factory-decision
+{
+  "id": "dec-multi",
+  "responseType": "multi",
+  "summary": "v1 surface",
+  "options": [
+    { "title": "A", "chosen": true },
+    { "title": "B", "chosen": true },
+    { "title": "C" }
+  ],
+  "decided": "A, B"
+}
+\`\`\``;
+    const decisions = extractAgentDecisions(text);
+    expect(decisions[0]?.responseType).toBe("multi");
+    expect(decisions[0]?.decided).toBe("A, B");
+  });
+
+  test("explicit responseType=free with no options", () => {
+    const text = `\`\`\`factory-decision
+{
+  "id": "dec-free",
+  "responseType": "free",
+  "summary": "name the new field",
+  "decided": "startedAt"
+}
+\`\`\``;
+    const decisions = extractAgentDecisions(text);
+    expect(decisions[0]?.responseType).toBe("free");
+    expect(decisions[0]?.options).toHaveLength(0);
+    expect(decisions[0]?.decided).toBe("startedAt");
+  });
+
+  test("inferred responseType: no options → free; multiple chosen → multi", () => {
+    const freeText = `\`\`\`factory-decision
+{ "id": "dec-1", "summary": "x", "decided": "y" }
+\`\`\``;
+    expect(extractAgentDecisions(freeText)[0]?.responseType).toBe("free");
+
+    const multiText = `\`\`\`factory-decision
+{
+  "id": "dec-2",
+  "summary": "y",
+  "options": [
+    { "title": "A", "chosen": true },
+    { "title": "B", "chosen": true }
+  ]
+}
+\`\`\``;
+    expect(extractAgentDecisions(multiText)[0]?.responseType).toBe("multi");
+  });
+
+  test("multi: decided falls back to comma-joined chosen titles when missing", () => {
+    const text = `\`\`\`factory-decision
+{
+  "id": "dec-m",
+  "responseType": "multi",
+  "summary": "x",
+  "options": [
+    { "title": "A", "chosen": true },
+    { "title": "B" },
+    { "title": "C", "chosen": true }
+  ]
+}
+\`\`\``;
+    expect(extractAgentDecisions(text)[0]?.decided).toBe("A, C");
+  });
 });
 
 describe("persistAgentDecisions", () => {

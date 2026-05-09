@@ -246,6 +246,7 @@ emit a fenced block:
 {
   "id": "dec-001",
   "kind": "architectural | library | naming | scope | tradeoff",
+  "responseType": "single",
   "summary": "<one-line headline>",
   "context": "<2-4 sentences explaining why this is worth surfacing>",
   "options": [
@@ -261,9 +262,26 @@ emit a fenced block:
   Reusing an id signals an update to the same decision; new ids signal
   new decisions.
 - \`kind\` categorizes for the inbox card; pick the closest fit.
+
+- \`responseType\` controls what the operator sees in the override form:
+  - **\`single\`** (most common, default): \`options\` is a closed set
+    of mutually-exclusive choices. You picked one (\`"chosen": true\`).
+    Operator can ratify, override to a different option, or write a
+    custom answer.
+  - **\`multi\`**: \`options\` is a set where any subset is valid. You
+    pick one or more (\`"chosen": true\` on each picked option). Use
+    sparingly — most decisions are single-pick.
+  - **\`free\`**: there are no canonical options; the question is
+    open-ended. Omit \`options\` (or leave \`[]\`); set \`decided\` to
+    your free-form answer. Operator can ratify or write a different
+    answer.
+
 - \`options\` lists 2–4 meaningfully-different choices with a one-line
-  tradeoff each. The chosen one carries \`"chosen": true\`.
-- \`decided\` echoes the chosen option's title.
+  tradeoff each. Required for \`single\` and \`multi\`; omit for \`free\`.
+  Chosen options carry \`"chosen": true\`.
+- \`decided\` is the canonical "what I went with" — for \`single\` it's
+  the chosen option's title; for \`multi\` it's a comma-separated list
+  of chosen option titles; for \`free\` it's your free-form answer.
 - Multiple decision blocks per run are allowed but rare. If you emit
   more than 3 in one run, the operator will think you're being
   indecisive. Be selective.

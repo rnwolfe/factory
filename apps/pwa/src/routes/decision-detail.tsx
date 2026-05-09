@@ -65,10 +65,16 @@ interface DecisionPayload {
   message?: string;
   // agent_decision shape
   kind?: "architectural" | "library" | "naming" | "scope" | "tradeoff";
+  responseType?: "single" | "multi" | "free";
   context?: string;
   decided?: string;
   options?: Array<{ title: string; tradeoff: string; chosen: boolean }>;
   reasoning?: string;
+  override?:
+    | { kind: "single"; choice: string }
+    | { kind: "multi"; choices: string[] }
+    | { kind: "custom"; text: string };
+  overrideAt?: number;
 }
 
 type Action = "approve" | "park" | "trash" | "decompose" | "dismiss";
@@ -117,6 +123,22 @@ export function DecisionDetail() {
       } else {
         nav("/");
       }
+    },
+  });
+
+  type Override =
+    | { kind: "single"; choice: string }
+    | { kind: "multi"; choices: string[] }
+    | { kind: "custom"; text: string };
+
+  const overrideAgentDecision = useMutation({
+    mutationFn: (override: Override) =>
+      trpc.decisions.overrideAgentDecision.mutate({ decisionId: id, override }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+      qc.invalidateQueries({ queryKey: ["plans.inbox"] });
+      if (res.planId) nav(`/plans/${res.planId}`);
     },
   });
 
@@ -299,6 +321,44 @@ export function DecisionDetail() {
                 run {payload.runId.slice(0, 8)}
                 {payload.taskId ? <span> · {payload.taskId}</span> : null}
               </Link>
+            </Section>
+          ) : null}
+
+          {isPending ? (
+            <Section title="your call">
+              <AgentDecisionOverrideForm
+                responseType={payload.responseType ?? "single"}
+                options={payload.options ?? []}
+                agentDecided={payload.decided ?? ""}
+                isSubmitting={overrideAgentDecision.isPending}
+                onRatify={() => action.mutate({ action: "approve" })}
+                onSubmit={(o) => overrideAgentDecision.mutate(o)}
+                error={
+                  overrideAgentDecision.isError
+                    ? (overrideAgentDecision.error as Error).message
+                    : null
+                }
+              />
+            </Section>
+          ) : payload.override ? (
+            <Section title="operator override">
+              <div className="px-4 py-3 text-[13.5px] leading-relaxed text-[var(--color-fg-1)] space-y-1">
+                <div>
+                  <span className="mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-fg-3)] mr-2">
+                    chose
+                  </span>
+                  {payload.override.kind === "single"
+                    ? payload.override.choice
+                    : payload.override.kind === "multi"
+                      ? payload.override.choices.join(", ")
+                      : payload.override.text}
+                </div>
+                {payload.overrideAt ? (
+                  <div className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                    {fmtDate(payload.overrideAt)}
+                  </div>
+                ) : null}
+              </div>
             </Section>
           ) : null}
         </>
@@ -660,6 +720,19 @@ export function DecisionDetail() {
               trash
             </button>
           </div>
+        ) : isAgentDecision ? (
+          // For agent_decision the "your call" section above already has
+          // ratify + override controls. Bottom row is just an escape hatch.
+          <div className="grid grid-cols-1">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => action.mutate({ action: "dismiss" })}
+              disabled={action.isPending}
+            >
+              dismiss without action
+            </button>
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -668,13 +741,7 @@ export function DecisionDetail() {
               onClick={() => action.mutate({ action: "approve" })}
               disabled={action.isPending}
             >
-              {isBlockedRun
-                ? "retry"
-                : isMergeFailure
-                  ? "retry merge"
-                  : isAgentDecision
-                    ? "ratify"
-                    : "confirm"}
+              {isBlockedRun ? "retry" : isMergeFailure ? "retry merge" : "confirm"}
             </button>
             <button
               type="button"
@@ -731,6 +798,262 @@ function verdictTone(outcome: string): string {
 function fmtDate(ts: number): string {
   const d = new Date(ts);
   return d.toISOString().replace("T", " ").slice(0, 16);
+}
+
+type OverrideSubmission =
+  | { kind: "single"; choice: string }
+  | { kind: "multi"; choices: string[] }
+  | { kind: "custom"; text: string };
+
+interface OverrideFormProps {
+  responseType: "single" | "multi" | "free";
+  options: Array<{ title: string; tradeoff: string; chosen: boolean }>;
+  agentDecided: string;
+  isSubmitting: boolean;
+  onRatify: () => void;
+  onSubmit: (override: OverrideSubmission) => void;
+  error: string | null;
+}
+
+/**
+ * Override surface for an `agent_decision`. The shape of the form is
+ * driven by `responseType`:
+ *
+ * - `single`: a radio-list of agent options. Operator picks a different
+ *   option, or toggles to "custom answer" and types one. Ratify just
+ *   accepts the agent's pick.
+ * - `multi`: a checkbox-list of agent options pre-selected per the
+ *   agent's choices. Operator can change which subset is selected. Same
+ *   custom-answer escape hatch.
+ * - `free`: no options; only a textarea. The agent's free-form answer is
+ *   pre-filled so the operator can edit instead of starting blank.
+ *
+ * Submitting routes through `decisions.overrideAgentDecision` which
+ * marks the decision actioned and opens (or comments on) a refinement
+ * plan against the source task.
+ */
+function AgentDecisionOverrideForm({
+  responseType,
+  options,
+  agentDecided,
+  isSubmitting,
+  onRatify,
+  onSubmit,
+  error,
+}: OverrideFormProps) {
+  // Initial single choice: agent's pick (the option marked chosen, falling
+  // back to the first option, then to the literal `decided` if no options).
+  const initialSingle = options.find((o) => o.chosen)?.title ?? options[0]?.title ?? agentDecided;
+  const initialMulti = options.filter((o) => o.chosen).map((o) => o.title);
+
+  const [mode, setMode] = useState<"agent" | "options" | "custom">("agent");
+  const [singleChoice, setSingleChoice] = useState(initialSingle);
+  const [multiChoices, setMultiChoices] = useState<string[]>(initialMulti);
+  const [customText, setCustomText] = useState(responseType === "free" ? agentDecided : "");
+
+  const canSubmit = (() => {
+    if (mode === "agent") return true;
+    if (mode === "custom") return customText.trim().length > 0;
+    if (responseType === "multi") return multiChoices.length > 0;
+    return singleChoice.trim().length > 0;
+  })();
+
+  const submit = () => {
+    if (mode === "agent") {
+      onRatify();
+      return;
+    }
+    if (mode === "custom") {
+      onSubmit({ kind: "custom", text: customText.trim() });
+      return;
+    }
+    if (responseType === "multi") {
+      onSubmit({ kind: "multi", choices: multiChoices });
+    } else {
+      onSubmit({ kind: "single", choice: singleChoice });
+    }
+  };
+
+  const submitLabel = (() => {
+    if (mode === "agent") return "ratify agent's choice";
+    if (mode === "custom") return "submit custom answer";
+    return "submit override";
+  })();
+
+  return (
+    <div className="px-4 py-3 space-y-4">
+      <ModeTabs
+        mode={mode}
+        setMode={setMode}
+        responseType={responseType}
+        hasOptions={options.length > 0}
+      />
+
+      {mode === "agent" ? (
+        <p className="text-[13px] leading-relaxed text-[var(--color-fg-2)]">
+          Accepts the agent's call: <span className="text-[var(--color-fg)]">{agentDecided}</span>.
+          The decision card closes; no follow-up plan is created.
+        </p>
+      ) : null}
+
+      {mode === "options" && responseType === "single" ? (
+        <ul className="space-y-1.5">
+          {options.map((opt) => (
+            <li key={opt.title}>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="agent-decision-single"
+                  className="mt-1 accent-[var(--color-accent)]"
+                  checked={singleChoice === opt.title}
+                  onChange={() => setSingleChoice(opt.title)}
+                />
+                <span className="flex-1 text-[13.5px] leading-snug text-[var(--color-fg)]">
+                  <span className={opt.chosen ? "font-medium" : ""}>{opt.title}</span>
+                  {opt.chosen ? (
+                    <span className="ml-1.5 chip chip-accent text-[10px]">agent's pick</span>
+                  ) : null}
+                  {opt.tradeoff ? (
+                    <span className="block text-[12px] text-[var(--color-fg-2)] mt-0.5">
+                      {opt.tradeoff}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {mode === "options" && responseType === "multi" ? (
+        <ul className="space-y-1.5">
+          {options.map((opt) => {
+            const checked = multiChoices.includes(opt.title);
+            return (
+              <li key={opt.title}>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 accent-[var(--color-accent)]"
+                    checked={checked}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setMultiChoices((cur) => [...cur, opt.title]);
+                      } else {
+                        setMultiChoices((cur) => cur.filter((c) => c !== opt.title));
+                      }
+                    }}
+                  />
+                  <span className="flex-1 text-[13.5px] leading-snug text-[var(--color-fg)]">
+                    <span className={opt.chosen ? "font-medium" : ""}>{opt.title}</span>
+                    {opt.chosen ? (
+                      <span className="ml-1.5 chip chip-accent text-[10px]">agent's pick</span>
+                    ) : null}
+                    {opt.tradeoff ? (
+                      <span className="block text-[12px] text-[var(--color-fg-2)] mt-0.5">
+                        {opt.tradeoff}
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      {mode === "custom" || responseType === "free" ? (
+        <div>
+          <label
+            htmlFor="agent-decision-custom"
+            className="block mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1"
+          >
+            {responseType === "free" ? "your answer" : "custom answer"}
+          </label>
+          <textarea
+            id="agent-decision-custom"
+            className="textarea text-[13.5px] leading-relaxed min-h-[80px]"
+            placeholder="describe what you'd prefer, in your own words…"
+            value={customText}
+            onChange={(e) => setCustomText(e.target.value)}
+          />
+        </div>
+      ) : null}
+
+      {mode !== "agent" ? (
+        <p className="mono text-[10.5px] text-[var(--color-fg-3)] leading-snug">
+          submitting an override opens (or comments on) a refinement plan against this run's task —
+          the agent rewrites acceptance / scope to match your preference on the next iteration.
+        </p>
+      ) : null}
+
+      {error ? (
+        <div className="text-[12.5px] text-[var(--color-verdict-trashed)]">{error}</div>
+      ) : null}
+
+      <button
+        type="button"
+        className="btn btn-primary w-full"
+        onClick={submit}
+        disabled={!canSubmit || isSubmitting}
+      >
+        {isSubmitting ? "submitting…" : submitLabel}
+      </button>
+    </div>
+  );
+}
+
+interface ModeTabsProps {
+  mode: "agent" | "options" | "custom";
+  setMode: (mode: "agent" | "options" | "custom") => void;
+  responseType: "single" | "multi" | "free";
+  hasOptions: boolean;
+}
+
+function ModeTabs({ mode, setMode, responseType, hasOptions }: ModeTabsProps) {
+  // free-mode + no options ⇒ collapse to just "agent" / "custom"; the
+  // "options" tab is meaningless without a closed set.
+  const showOptionsTab = hasOptions && responseType !== "free";
+  return (
+    <div className="flex gap-1.5 flex-wrap">
+      <ModeChip active={mode === "agent"} onClick={() => setMode("agent")} label="agent's choice" />
+      {showOptionsTab ? (
+        <ModeChip
+          active={mode === "options"}
+          onClick={() => setMode("options")}
+          label={responseType === "multi" ? "pick subset" : "pick different option"}
+        />
+      ) : null}
+      <ModeChip
+        active={mode === "custom"}
+        onClick={() => setMode("custom")}
+        label="custom answer"
+      />
+    </div>
+  );
+}
+
+function ModeChip({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "chip text-[11px]",
+        active ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+      )}
+    >
+      {label}
+    </button>
+  );
 }
 
 function DecisionSkeleton() {

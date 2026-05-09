@@ -18,6 +18,18 @@ import type { EventBus } from "../events.ts";
 
 export type AgentDecisionKind = "architectural" | "library" | "naming" | "scope" | "tradeoff";
 
+/**
+ * How the agent expects the operator's override (if any) to look.
+ *
+ * - `single` (default): `options` is a closed set, exactly one chosen.
+ *   Operator can pick a different one or write custom text.
+ * - `multi`: `options` is a multi-select set, one or more chosen.
+ *   Operator can change which subset is selected, or write custom.
+ * - `free`: no `options`; `decided` is a free-form answer. Operator
+ *   can ratify or replace with their own text.
+ */
+export type AgentDecisionResponseType = "single" | "multi" | "free";
+
 export interface AgentDecisionOption {
   title: string;
   tradeoff: string;
@@ -28,6 +40,7 @@ export interface AgentDecisionPayload {
   /** Stable id chosen by the agent — `dec-001`, `dec-002`, etc. */
   id: string;
   kind: AgentDecisionKind;
+  responseType: AgentDecisionResponseType;
   summary: string;
   context: string;
   options: AgentDecisionOption[];
@@ -46,6 +59,7 @@ interface MaybeOption {
 interface MaybePayload {
   id?: unknown;
   kind?: unknown;
+  responseType?: unknown;
   summary?: unknown;
   context?: unknown;
   options?: unknown;
@@ -77,6 +91,19 @@ function coerceOptions(raw: unknown): AgentDecisionOption[] {
     }));
 }
 
+function coerceResponseType(
+  raw: unknown,
+  options: AgentDecisionOption[],
+): AgentDecisionResponseType {
+  if (raw === "multi" || raw === "free" || raw === "single") return raw;
+  // No explicit responseType → infer from option shape. No options at all
+  // ⇒ free-form. Multiple chosen ⇒ multi. Otherwise single.
+  if (options.length === 0) return "free";
+  const chosenCount = options.filter((o) => o.chosen).length;
+  if (chosenCount > 1) return "multi";
+  return "single";
+}
+
 function coerce(raw: unknown): AgentDecisionPayload | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as MaybePayload;
@@ -85,16 +112,24 @@ function coerce(raw: unknown): AgentDecisionPayload | null {
   const summary = typeof obj.summary === "string" ? obj.summary.trim() : "";
   if (summary.length === 0) return null;
   const options = coerceOptions(obj.options);
-  // Decided is canonical even when the agent didn't mark options[].chosen —
-  // fall back to the first chosen option, then the first option, then the
-  // raw decided string.
-  const decided =
-    typeof obj.decided === "string" && obj.decided.trim().length > 0
-      ? obj.decided.trim()
-      : (options.find((o) => o.chosen)?.title ?? options[0]?.title ?? "(unspecified)");
+  const responseType = coerceResponseType(obj.responseType, options);
+  // Decided is canonical even when the agent didn't mark options[].chosen.
+  // For single: fall back to first chosen, then first option, then literal.
+  // For multi: comma-join chosen titles if decided is missing.
+  // For free: there's only the decided text.
+  let decided: string;
+  if (typeof obj.decided === "string" && obj.decided.trim().length > 0) {
+    decided = obj.decided.trim();
+  } else if (responseType === "multi") {
+    const chosen = options.filter((o) => o.chosen).map((o) => o.title);
+    decided = chosen.length > 0 ? chosen.join(", ") : "(unspecified)";
+  } else {
+    decided = options.find((o) => o.chosen)?.title ?? options[0]?.title ?? "(unspecified)";
+  }
   return {
     id,
     kind: coerceKind(obj.kind),
+    responseType,
     summary: summary.slice(0, 240),
     context: typeof obj.context === "string" ? obj.context : "",
     options,

@@ -4,7 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
-import { seedProjectSpecDraft } from "../plans/iterate.ts";
+import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import { submitRun } from "../workers/submit.ts";
@@ -27,6 +27,61 @@ interface MergeFailurePayload {
 }
 
 const ActionEnum = z.enum(["approve", "park", "trash", "decompose", "dismiss"]);
+
+const OverrideShape = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("single"), choice: z.string().min(1).max(240) }),
+  z.object({
+    kind: z.literal("multi"),
+    choices: z.array(z.string().min(1).max(240)).min(1).max(10),
+  }),
+  z.object({ kind: z.literal("custom"), text: z.string().min(1).max(2000) }),
+]);
+
+function renderOverrideComment(
+  payload: AgentDecisionPayloadShape,
+  override:
+    | { kind: "single"; choice: string }
+    | { kind: "multi"; choices: string[] }
+    | { kind: "custom"; text: string },
+): string {
+  const headline = payload.summary ?? "agent decision";
+  const agentChose = payload.decided ?? "(unspecified)";
+  const operatorChose =
+    override.kind === "single"
+      ? override.choice
+      : override.kind === "multi"
+        ? override.choices.join(", ")
+        : override.text;
+  const optionsSummary =
+    payload.options && payload.options.length > 0
+      ? `\n\nThe agent considered: ${payload.options.map((o) => `\`${o.title}\``).join(", ")}.`
+      : "";
+  return [
+    `Operator override on ${payload.id ?? "agent decision"} — ${headline}`,
+    "",
+    `**Agent decided:** ${agentChose}`,
+    `**Operator prefers:** ${operatorChose}${optionsSummary}`,
+    "",
+    "Please update this task's acceptance / scope to reflect the operator's preference. If the original work needs to be redone, surface that in your refinement reply.",
+  ].join("\n");
+}
+
+interface AgentDecisionPayloadShape {
+  id?: string;
+  kind?: string;
+  responseType?: string;
+  summary?: string;
+  decided?: string;
+  options?: Array<{ title: string; tradeoff?: string; chosen?: boolean }>;
+  runId?: string;
+  taskId?: string | null;
+  /** Set by the override mutation when an operator pushes back. */
+  override?:
+    | { kind: "single"; choice: string }
+    | { kind: "multi"; choices: string[] }
+    | { kind: "custom"; text: string };
+  overrideAt?: number;
+}
 
 export const decisionsRouter = router({
   inbox: protectedProcedure.query(async ({ ctx }) => {
@@ -235,6 +290,141 @@ export const decisionsRouter = router({
       return { ok: true, projectId, retryRunId, mergedSha, planId };
     }),
 
+  /**
+   * Override an `agent_decision` — operator picks a different option (or
+   * subset, or types a custom answer) than what the agent decided.
+   *
+   * The decision row is marked actioned with the operator's choice
+   * appended to the payload (so the audit trail stays uniform), and a
+   * refinement plan is created against the source task seeded with a
+   * comment that names the override. The operator iterates the
+   * refinement to either rewrite acceptance or spawn follow-up tasks
+   * that bake in their preference.
+   *
+   * Ad-hoc runs (no taskId) can be overridden but skip the refinement
+   * plan creation — the operator's preference is captured on the
+   * decision row only. They can still see it in history.
+   */
+  overrideAgentDecision: protectedProcedure
+    .input(
+      z.object({
+        decisionId: z.string(),
+        override: OverrideShape,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const decision = await ctx.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, input.decisionId))
+        .get();
+      if (!decision) throw new Error("decision not found");
+      if (decision.kind !== "agent_decision") {
+        throw new Error(`overrideAgentDecision only handles agent_decision (got ${decision.kind})`);
+      }
+      if (decision.status !== "pending") {
+        throw new Error(`decision already ${decision.status}`);
+      }
+
+      const payload = (decision.payload ?? {}) as AgentDecisionPayloadShape;
+      const projectId = decision.projectId;
+      const taskId = payload.taskId ?? null;
+      const now = Date.now();
+
+      // Persist the override on the decision payload. We keep the original
+      // agent payload intact and add `override` + `overrideAt` so the audit
+      // trail shows what the agent picked AND what the operator preferred.
+      const newPayload: AgentDecisionPayloadShape = {
+        ...payload,
+        override: input.override,
+        overrideAt: now,
+      };
+      await ctx.db
+        .update(schema.decisions)
+        .set({ payload: newPayload, status: "actioned", actionedAt: now })
+        .where(eq(schema.decisions.id, input.decisionId));
+
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "decision_actioned",
+        decisionId: input.decisionId,
+        projectId: projectId ?? null,
+      });
+
+      let planId: string | null = null;
+
+      // Open a refinement plan when there's a task to refine. The plan is
+      // seeded with an operator comment naming the override, so the
+      // agent's first iteration on the refinement has the context.
+      if (projectId && taskId) {
+        const project = await ctx.db
+          .select()
+          .from(schema.projects)
+          .where(eq(schema.projects.id, projectId))
+          .get();
+        if (project) {
+          const existingPlan = await ctx.db
+            .select()
+            .from(schema.plans)
+            .where(
+              and(
+                eq(schema.plans.projectId, projectId),
+                eq(schema.plans.taskId, taskId),
+                eq(schema.plans.kind, "refinement"),
+                eq(schema.plans.status, "drafting"),
+              ),
+            )
+            .get();
+
+          let targetPlanId: string;
+          if (existingPlan) {
+            targetPlanId = existingPlan.id;
+          } else {
+            const seed = seedRefinementDraft(taskId);
+            targetPlanId = createId();
+            await ctx.db.insert(schema.plans).values({
+              id: targetPlanId,
+              kind: "refinement",
+              status: "drafting",
+              projectId,
+              taskId,
+              goal: `Refine: address operator override on ${payload.id ?? "agent decision"}`,
+              draft: JSON.stringify(seed),
+              createdAt: now,
+              updatedAt: now,
+            });
+            ctx.events.publish({
+              channel: "inbox",
+              kind: "plan_created",
+              planId: targetPlanId,
+              planKind: "refinement",
+              projectId,
+            });
+          }
+
+          await ctx.db.insert(schema.planComments).values({
+            id: createId(),
+            planId: targetPlanId,
+            role: "operator",
+            body: renderOverrideComment(payload, input.override),
+            createdAt: now,
+          });
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_comment_added",
+            planId: targetPlanId,
+            role: "operator",
+            projectId,
+          });
+          planId = targetPlanId;
+        }
+      }
+
+      return { ok: true, decisionId: input.decisionId, planId };
+    }),
+
+  /* helpers (file-local) — kept above `comments` so the rendering helper is
+   * close to its only caller (overrideAgentDecision above). */
   comments: protectedProcedure
     .input(z.object({ decisionId: z.string() }))
     .query(async ({ ctx, input }) => {
