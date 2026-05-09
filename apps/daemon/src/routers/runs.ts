@@ -3,7 +3,7 @@ import { open } from "node:fs/promises";
 import path from "node:path";
 import { schema } from "@factory/db";
 import { spawn as bunSpawn } from "bun";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../trpc.ts";
 import { tmuxSessionNameFor } from "../workers/recover.ts";
@@ -278,18 +278,53 @@ export const runsRouter = router({
       z.object({
         runId: z.string(),
         since: z.number().int().nonnegative().optional(),
+        /** Hard cap. Default 400 — keeps the response under ~4MB even with
+         *  long text events; matches the client-side display cap. */
+        limit: z.number().int().min(1).max(2000).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
+      const limit = input.limit ?? 400;
       const sinceFilter = input.since
         ? and(eq(schema.events.runId, input.runId), gt(schema.events.id, input.since))
         : eq(schema.events.runId, input.runId);
-      return ctx.db
-        .select()
+      // Order DESC + reverse below. Without this, "limit 400 ordered ASC"
+      // would return the FIRST 400 events instead of the most-recent 400 —
+      // operators care about the tail, not the head.
+      const rows = await ctx.db
+        .select({ id: schema.events.id, payload: schema.events.payload })
         .from(schema.events)
         .where(sinceFilter)
-        .orderBy(asc(schema.events.id))
-        .limit(2000)
+        .orderBy(desc(schema.events.id))
+        .limit(limit)
         .all();
+
+      // Truncate text-event payloads server-side. A single agent text event
+      // can be 100KB+; over the wire that becomes the bottleneck. The raw
+      // xterm view preserves the full stream — the structured view is a
+      // summary, so capped text is fine. Non-text payloads (tool, commit,
+      // metrics, etc.) are passed through unchanged.
+      const TEXT_CAP = 4_000;
+      const trimmed = rows.map((row) => {
+        const payload = row.payload as { kind?: string; text?: string } | null;
+        if (
+          payload &&
+          payload.kind === "text" &&
+          typeof payload.text === "string" &&
+          payload.text.length > TEXT_CAP
+        ) {
+          return {
+            id: row.id,
+            payload: {
+              ...payload,
+              text: `${payload.text.slice(0, TEXT_CAP)}\n\n[truncated — ${payload.text.length - TEXT_CAP} more chars, see raw view]`,
+            },
+          };
+        }
+        return row;
+      });
+
+      // Reverse so the client gets chronological order without re-sorting.
+      return trimmed.reverse();
     }),
 });

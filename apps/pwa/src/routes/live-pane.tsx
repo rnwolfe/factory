@@ -158,10 +158,23 @@ export function LivePane() {
     };
   }, []);
 
+  const runStatus = run.data?.status;
+
   // Pane WS — raw bytes from tmux. Forwards xterm.js keystrokes back as the
   // operator types so they can drive the underlying claude session.
+  //
+  // Only opened for runs that have a live tmux pane: `running` or `queued`
+  // (queued runs may start at any moment and the WS preempts them). For
+  // terminal states (completed/failed/aborted) there's no pane to attach
+  // to; opening would just sit idle until the browser closed it as a
+  // "closed" state, which is misleading.
+  const shouldConnectPane = runStatus === "running" || runStatus === "queued";
   useEffect(() => {
     if (!runId) return;
+    if (!shouldConnectPane) {
+      setPaneStatus("closed");
+      return;
+    }
     const token = getToken();
     if (!token) return;
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -188,7 +201,7 @@ export function LivePane() {
       dataDisposer?.dispose();
       ws.close();
     };
-  }, [runId]);
+  }, [runId, shouldConnectPane]);
 
   // Per-route invalidations: runs.get / runs.list / projects.get refetch on
   // any event matching this run. The structured stream (RunEventStream)

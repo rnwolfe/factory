@@ -56,19 +56,40 @@ export function RunEventStream({ runId }: { runId: string }) {
   );
 }
 
+const STUCK_LOADING_MS = 8000;
+
 function RunEventStreamInner({ runId }: { runId: string }) {
   const [events, setEvents] = useState<KeyedEvent[]>([]);
   const [seeded, setSeeded] = useState(false);
+  const [stuck, setStuck] = useState(false);
   const liveCounterRef = useRef(0);
   const pendingRef = useRef<KeyedEvent[]>([]);
   const flushScheduledRef = useRef(false);
 
   const persisted = useQuery({
     queryKey: ["runs.events", runId],
-    queryFn: () => trpc.runs.events.query({ runId }) as unknown as Promise<PersistedEventRow[]>,
+    queryFn: ({ signal }) =>
+      trpc.runs.events.query({ runId }, { signal }) as unknown as Promise<PersistedEventRow[]>,
     enabled: runId.length > 0 && !seeded,
     staleTime: Number.POSITIVE_INFINITY,
+    // Limit the implicit React-Query retry on stuck/failed network so we
+    // don't pile up multi-megabyte requests on a slow connection.
+    retry: 1,
+    retryDelay: 2000,
   });
+
+  // Surface a "stuck" UI after a few seconds so the operator isn't watching
+  // a silent spinner forever. The query itself doesn't time out (no native
+  // browser timeout on fetch), but we do show a refetch button and the
+  // diagnostic that the request hasn't returned yet.
+  useEffect(() => {
+    if (!persisted.isLoading || seeded) {
+      setStuck(false);
+      return;
+    }
+    const t = setTimeout(() => setStuck(true), STUCK_LOADING_MS);
+    return () => clearTimeout(t);
+  }, [persisted.isLoading, seeded]);
 
   useEffect(() => {
     if (!persisted.data || seeded) return;
@@ -120,7 +141,25 @@ function RunEventStreamInner({ runId }: { runId: string }) {
   if (!seeded && persisted.isLoading) {
     return (
       <div className="surface px-3 py-3 mono text-[11.5px] text-[var(--color-fg-3)]">
-        loading run history…
+        <div className="flex items-center justify-between gap-2">
+          <span>loading run history…</span>
+          {stuck ? (
+            <button
+              type="button"
+              onClick={() => persisted.refetch()}
+              className="chip text-[10.5px] hover:border-[var(--color-line-bright)]"
+            >
+              taking too long — retry
+            </button>
+          ) : null}
+        </div>
+        {stuck ? (
+          <p className="mt-1.5 text-[var(--color-fg-3)]">
+            the request hasn't returned in {Math.round(STUCK_LOADING_MS / 1000)}s. this can happen
+            on slow networks for runs with lots of agent output. retry to refetch, or fall back to
+            the [raw] log toggle above.
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -128,7 +167,16 @@ function RunEventStreamInner({ runId }: { runId: string }) {
   if (persisted.isError) {
     return (
       <div className="surface px-3 py-3 mono text-[11.5px] text-[var(--color-verdict-trashed)]">
-        couldn't load run history: {(persisted.error as Error).message}
+        <div className="flex items-center justify-between gap-2">
+          <span>couldn't load run history: {(persisted.error as Error).message}</span>
+          <button
+            type="button"
+            onClick={() => persisted.refetch()}
+            className="chip text-[10.5px] hover:border-[var(--color-line-bright)]"
+          >
+            retry
+          </button>
+        </div>
       </div>
     );
   }
