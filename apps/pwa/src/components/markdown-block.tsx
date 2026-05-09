@@ -1,18 +1,38 @@
 import { useMemo } from "react";
 
+/**
+ * Soft cap on the source length we'll parse. A single agent text event can
+ * be huge (the model dumps a 100KB+ reasoning block), and the inline
+ * tokenizer is worst-case O(n²) on pathological inputs (long runs of
+ * unmatched markers). Truncation here keeps any one event from freezing
+ * the render thread; the full content is still in the raw xterm view.
+ */
+const SOURCE_CAP = 32_000;
+
 // Hand-rolled markdown → React renderer covering the subset assistant text
 // and operator/agent comments actually produce: paragraphs, headings, fenced
 // code, inline code, bullet/ordered lists, blockquotes, bold, italic, links.
 // Treats unmatched inline markers as literal text — no dangerouslySetInnerHTML,
 // no HTML pass-through. Bundle-weight-conscious: avoids pulling marked@13.
 export function MarkdownBlock({ source }: { source: string }) {
-  const blocks = useMemo(() => parseBlocks(source), [source]);
+  const { blocks, truncated } = useMemo(() => {
+    if (source.length <= SOURCE_CAP) {
+      return { blocks: parseBlocks(source), truncated: false };
+    }
+    return { blocks: parseBlocks(source.slice(0, SOURCE_CAP)), truncated: true };
+  }, [source]);
   return (
     <div className="md-block">
       {blocks.map((block, idx) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: parsed blocks are immutable per source
         <BlockNode key={idx} block={block} />
       ))}
+      {truncated ? (
+        <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
+          [truncated at {Math.round(SOURCE_CAP / 1000)}k chars — switch to [raw] view above for the
+          full stream]
+        </p>
+      ) : null}
     </div>
   );
 }
