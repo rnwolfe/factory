@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -7,9 +9,10 @@ import {
   shortSha,
 } from "../lib/channel.ts";
 import { type Channel, readConfig } from "../lib/config.ts";
-import { whichBin } from "../lib/exec.ts";
+import { run, whichBin } from "../lib/exec.ts";
 import { appendUpgradeLog, readLastGood, writeLastGood } from "../lib/state.ts";
 import { systemctl } from "../lib/systemctl.ts";
+import { unitPath } from "../lib/unit.ts";
 import { buildPwa } from "../upgrade/build-pwa.ts";
 import { checkoutSha } from "../upgrade/checkout.ts";
 import { bunInstall } from "../upgrade/deps.ts";
@@ -24,6 +27,8 @@ export interface UpgradeArgs {
   dryRun: boolean;
   force: boolean;
   skipRestart: boolean;
+  /** Operator asked for `--help` / `-h` — print and exit before any I/O. */
+  help: boolean;
 }
 
 export function parseUpgradeArgs(argv: string[]): UpgradeArgs {
@@ -32,9 +37,11 @@ export function parseUpgradeArgs(argv: string[]): UpgradeArgs {
   let dryRun = false;
   let force = false;
   let skipRestart = false;
+  let help = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--dry-run") dryRun = true;
+    if (a === "--help" || a === "-h") help = true;
+    else if (a === "--dry-run") dryRun = true;
     else if (a === "--force") force = true;
     else if (a === "--skip-restart") skipRestart = true;
     else if (a === "--channel") channel = argv[++i] as Channel;
@@ -42,7 +49,63 @@ export function parseUpgradeArgs(argv: string[]): UpgradeArgs {
     else if (a === "--checkout") checkout = argv[++i];
     else if (a?.startsWith("--checkout=")) checkout = a.slice("--checkout=".length);
   }
-  return { channel, checkout, dryRun, force, skipRestart };
+  return { channel, checkout, dryRun, force, skipRestart, help };
+}
+
+const UPGRADE_HELP = `factory upgrade — fetch, checkout, install, migrate, restart, probe
+
+usage:
+  factory upgrade [options]
+
+options:
+  --channel=<n>    override the configured channel (stable | nightly | dev)
+  --checkout=<p>   override the configured upgrade.checkout (must be a git
+                   clone of the Factory repo, NOT the install dir)
+  --dry-run        print the target sha and exit without applying
+  --force          proceed on a dirty checkout (use sparingly)
+  --skip-restart   apply changes but do not restart the systemd unit
+  --help, -h       this message
+
+config:
+  upgrade.checkout is read from the CLI config (default
+  ~/.factory/config.yaml). If unset, this command tries to auto-discover
+  it from your installed factory.service unit's WorkingDirectory. If
+  neither is available, you'll be prompted to set it — the simplest
+  path is \`cd /path/to/factory && factory install --force\`, which
+  persists the checkout into the CLI config.
+`;
+
+/**
+ * Try to recover the dev checkout path from the systemd unit file. The
+ * install command writes \`WorkingDirectory=<checkout>\` into the unit, so
+ * if the operator's CLI config never persisted the checkout (e.g. they
+ * installed before that fix landed), we can still find it. Returns null
+ * if the unit doesn't exist or doesn't have a parseable WorkingDirectory.
+ */
+async function checkoutFromUnit(): Promise<string | null> {
+  const p = unitPath();
+  if (!existsSync(p)) return null;
+  try {
+    const text = await readFile(p, "utf8");
+    const m = text.match(/^WorkingDirectory=(.+)$/m);
+    if (!m) return null;
+    const candidate = (m[1] ?? "").trim();
+    return candidate.length > 0 ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verify that `checkout` is the root of a git working tree before we
+ * lean on `git status`. Otherwise the operator gets a confusing
+ * "fatal: not a git repository — re-run with --force" message, where
+ * --force only bypasses dirty checks and won't help.
+ */
+async function isGitRepo(checkout: string): Promise<boolean> {
+  if (!existsSync(checkout)) return false;
+  const r = await run(["git", "rev-parse", "--is-inside-work-tree"], { cwd: checkout });
+  return r.exitCode === 0 && r.stdout.trim() === "true";
 }
 
 async function detectBun(): Promise<string> {
@@ -50,24 +113,80 @@ async function detectBun(): Promise<string> {
 }
 
 export async function runUpgrade(args: UpgradeArgs): Promise<number> {
+  if (args.help) {
+    process.stdout.write(UPGRADE_HELP);
+    return 0;
+  }
+
   const cfg = await readConfig();
   const channel: Channel = args.channel ?? cfg.channel;
-  // Refuse the silent fall-through to cwd: running `factory upgrade` from
-  // $HOME (or any non-checkout dir) used to "succeed" into "fatal: not a
-  // git repository" once the first git call ran. That's a confusing
-  // surface for an unconfigured install. Tell the operator exactly what
-  // to do.
-  const checkoutRaw = args.checkout ?? cfg.checkout;
+
+  // Resolve the checkout path with this priority: explicit --checkout flag,
+  // CLI config (upgrade.checkout), then auto-discovery from the systemd
+  // unit file's WorkingDirectory. Auto-discovery covers operators who
+  // installed before the install command persisted upgrade.checkout (the
+  // 12b2274 fix); the unit file has had the right value all along.
+  let checkoutRaw = args.checkout ?? cfg.checkout;
+  let checkoutSource: "flag" | "config" | "unit" = "flag";
   if (!checkoutRaw) {
+    const fromUnit = await checkoutFromUnit();
+    if (fromUnit) {
+      checkoutRaw = fromUnit;
+      checkoutSource = "unit";
+      process.stdout.write(
+        `factory: upgrade.checkout not configured — auto-discovered ${fromUnit} from factory.service\n` +
+          "factory: persist this with `factory install --force` from that directory to silence this notice\n",
+      );
+    }
+  } else if (args.checkout) {
+    checkoutSource = "flag";
+  } else {
+    checkoutSource = "config";
+  }
+
+  if (!checkoutRaw) {
+    const cfgPath = process.env.FACTORY_HOME
+      ? path.join(process.env.FACTORY_HOME, "config.yaml")
+      : "~/.factory/config.yaml";
     process.stderr.write(
       "factory: upgrade.checkout is not configured.\n" +
-        "  Either pass --checkout=/path/to/factory, or set upgrade.checkout in\n" +
-        `  ${process.env.FACTORY_HOME ? path.join(process.env.FACTORY_HOME, "config.yaml") : "~/.factory/config.yaml"}.\n` +
-        "  Re-running `factory install` from inside the dev checkout will persist it.\n",
+        "  upgrade.checkout must point at your dev clone of the Factory repo\n" +
+        "  (the directory with .git), NOT the install dir.\n" +
+        "\n" +
+        "  fix:\n" +
+        "    cd /path/to/your/factory/checkout\n" +
+        "    factory install --force\n" +
+        "\n" +
+        `  this writes upgrade.checkout into ${cfgPath} so future\n` +
+        "  upgrades work without --checkout.\n",
     );
     return 1;
   }
   const checkout = path.resolve(checkoutRaw);
+
+  // Validate before any git invocation so the operator gets a directive
+  // error instead of "fatal: not a git repository — re-run with --force"
+  // (which is misleading; --force only bypasses the dirty check, not
+  // missing .git).
+  if (!(await isGitRepo(checkout))) {
+    const where =
+      checkoutSource === "flag"
+        ? "the path passed to --checkout"
+        : checkoutSource === "config"
+          ? "upgrade.checkout in your CLI config"
+          : "the auto-discovered path from factory.service";
+    process.stderr.write(
+      `factory: ${checkout} is not a git repository.\n` +
+        `  ${where} must point at your dev clone of the Factory repo,\n` +
+        "  not the install dir or runtime FACTORY_HOME.\n" +
+        "\n" +
+        "  fix:\n" +
+        "    cd /path/to/your/factory/checkout    # the dir with .git\n" +
+        "    factory install --force\n",
+    );
+    return 1;
+  }
+
   const bunBin = await detectBun();
 
   // 1. precheck — clean tree

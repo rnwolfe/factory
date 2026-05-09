@@ -114,6 +114,7 @@ describe("factory upgrade", () => {
       dryRun: true,
       force: false,
       skipRestart: true,
+      help: false,
     });
     expect(code).toBe(0);
     const after = (await run(["git", "rev-parse", "HEAD"], { cwd: checkout })).stdout.trim();
@@ -129,6 +130,7 @@ describe("factory upgrade", () => {
       dryRun: false,
       force: false,
       skipRestart: true,
+      help: false,
     });
     expect(code).toBe(0);
     // No upgrade-log entry expected.
@@ -144,6 +146,7 @@ describe("factory upgrade", () => {
       dryRun: false,
       force: false,
       skipRestart: true,
+      help: false,
     });
     expect(code).toBe(1);
   });
@@ -156,6 +159,7 @@ describe("factory upgrade", () => {
       dryRun: false,
       force: true,
       skipRestart: true,
+      help: false,
     });
     expect(code).toBe(0);
     const head = (await run(["git", "rev-parse", "HEAD"], { cwd: checkout })).stdout.trim();
@@ -170,6 +174,7 @@ describe("factory upgrade", () => {
       dryRun: false,
       force: false,
       skipRestart: true,
+      help: false,
     });
     expect(code).toBe(0);
     const head = (await run(["git", "rev-parse", "HEAD"], { cwd: checkout })).stdout.trim();
@@ -208,6 +213,7 @@ describe("factory upgrade", () => {
       dryRun: false,
       force: false,
       skipRestart: true,
+      help: false,
     });
     expect(code).toBe(1);
     const head = (await run(["git", "rev-parse", "HEAD"], { cwd: checkout })).stdout.trim();
