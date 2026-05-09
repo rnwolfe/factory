@@ -3,6 +3,7 @@ import { Check, ChevronRight, Loader2, Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth.ts";
+import * as notifications from "../lib/notifications.ts";
 import { trpc } from "../lib/trpc.ts";
 
 interface SettingsSnapshot {
@@ -57,6 +58,8 @@ export function Settings() {
           )}
         </Row>
       </Section>
+
+      <NotificationsSection />
 
       <Section title="auth">
         <Row label="bearer token">
@@ -633,4 +636,219 @@ function MetricsTotalChip() {
       <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
     </div>
   );
+}
+
+interface NotificationStatusView {
+  supported: boolean;
+  secure: boolean;
+  permission: "default" | "granted" | "denied" | "unsupported";
+  subscribed: boolean;
+}
+
+function NotificationsSection() {
+  const qc = useQueryClient();
+  const [status, setStatus] = useState<NotificationStatusView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    void notifications.getStatus().then(setStatus);
+  }, []);
+
+  const devices = useQuery({
+    queryKey: ["notifications.listDevices"],
+    queryFn: () => trpc.notifications.listDevices.query(),
+    enabled: status?.subscribed === true,
+    refetchInterval: 30_000,
+  });
+
+  const enable = async () => {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const next = await notifications.enable();
+      setStatus(next);
+      await qc.invalidateQueries({ queryKey: ["notifications.listDevices"] });
+      setInfo("notifications enabled on this device.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const next = await notifications.disable();
+      setStatus(next);
+      await qc.invalidateQueries({ queryKey: ["notifications.listDevices"] });
+      setInfo("notifications disabled on this device.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendTest = async () => {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await notifications.sendTest();
+      setInfo(
+        res.failed === 0
+          ? `test push sent to ${res.sent} device${res.sent === 1 ? "" : "s"}.`
+          : `sent: ${res.sent} · failed: ${res.failed}`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeDevice = useMutation({
+    mutationFn: (id: string) => trpc.notifications.removeDevice.mutate({ id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notifications.listDevices"] });
+    },
+  });
+
+  return (
+    <Section title="notifications">
+      <Row label="status">
+        {status === null ? (
+          <span className="chip">probing…</span>
+        ) : !status.supported ? (
+          <span className="chip">unsupported</span>
+        ) : !status.secure ? (
+          <span className="chip chip-trashed">needs https</span>
+        ) : status.permission === "denied" ? (
+          <span className="chip chip-trashed">blocked</span>
+        ) : status.subscribed ? (
+          <span className="chip chip-greenlit">on</span>
+        ) : (
+          <span className="chip">off</span>
+        )}
+      </Row>
+
+      {status && !status.supported ? (
+        <p className="px-3 pb-3 pt-1 text-[10.5px] mono text-[var(--color-fg-3)] leading-relaxed">
+          this browser doesn't expose the Push API. on iOS, web push works only after you add
+          factory to the home screen and open it from there.
+        </p>
+      ) : null}
+
+      {status?.supported && !status.secure ? (
+        <p className="px-3 pb-3 pt-1 text-[10.5px] mono text-[var(--color-fg-3)] leading-relaxed">
+          web push needs an https origin (or http://localhost). put the daemon behind a reverse
+          proxy with a cert and try again from the https URL.
+        </p>
+      ) : null}
+
+      {status?.supported && status.secure ? (
+        <div className="px-3 pb-3 pt-2 space-y-2">
+          {!status.subscribed ? (
+            <button
+              type="button"
+              onClick={enable}
+              disabled={busy || status.permission === "denied"}
+              className="btn w-full"
+            >
+              {busy ? "enabling…" : "enable on this device"}
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <button type="button" onClick={sendTest} disabled={busy} className="btn flex-1">
+                {busy ? "…" : "send test"}
+              </button>
+              <button
+                type="button"
+                onClick={disable}
+                disabled={busy}
+                className="btn btn-danger flex-1"
+              >
+                disable here
+              </button>
+            </div>
+          )}
+          {status.permission === "denied" ? (
+            <p className="text-[10.5px] mono text-[var(--color-verdict-trashed)] leading-relaxed">
+              browser permission was denied. open browser/site settings and re-allow notifications,
+              then reload.
+            </p>
+          ) : null}
+          {error ? (
+            <p className="text-[10.5px] mono text-[var(--color-verdict-trashed)] leading-relaxed">
+              {error}
+            </p>
+          ) : null}
+          {info ? (
+            <p className="text-[10.5px] mono text-[var(--color-fg-2)] leading-relaxed">{info}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {status?.subscribed && devices.data && devices.data.length > 0 ? (
+        <div className="border-t border-[var(--color-line)]">
+          <div className="px-3 pt-2 pb-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            enrolled devices ({devices.data.length})
+          </div>
+          <ul className="divide-y divide-[var(--color-line)]">
+            {devices.data.map((d) => (
+              <li key={d.id} className="px-3 py-2 flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12.5px] text-[var(--color-fg-1)] truncate">
+                    {summarizeUa(d.ua)}
+                  </div>
+                  <div className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                    last push {fmtRelative(d.lastSeenAt)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeDevice.mutate(d.id)}
+                  className="chip chip-trashed text-[10.5px]"
+                  disabled={removeDevice.isPending}
+                  aria-label="remove device"
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
+function summarizeUa(ua: string | null): string {
+  if (!ua) return "unknown device";
+  const isMobile = /iPhone|iPad|Android/i.test(ua);
+  if (/iPhone/.test(ua)) return "iPhone (Safari)";
+  if (/iPad/.test(ua)) return "iPad (Safari)";
+  if (/Android/.test(ua) && /Chrome/.test(ua)) return "Android (Chrome)";
+  if (/Edg\//.test(ua)) return isMobile ? "Edge (mobile)" : "Edge (desktop)";
+  if (/Chrome/.test(ua)) return isMobile ? "Chrome (mobile)" : "Chrome (desktop)";
+  if (/Firefox/.test(ua)) return isMobile ? "Firefox (mobile)" : "Firefox (desktop)";
+  if (/Safari/.test(ua)) return isMobile ? "Safari (mobile)" : "Safari (desktop)";
+  return "browser";
+}
+
+function fmtRelative(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  const m = Math.floor(diff / 60_000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }

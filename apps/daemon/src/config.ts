@@ -42,6 +42,16 @@ export interface FactoryConfig {
    * way for now (no PWA path yet).
    */
   factoryProjectId: string | null;
+  /**
+   * VAPID keypair for Web Push. The PWA uses `publicKey` to register a
+   * subscription with the browser's push service; the daemon signs delivery
+   * requests with `privateKey`. `subject` is a `mailto:` or `https:` URI
+   * the push service can contact about abuse — required by RFC 8292.
+   *
+   * Generated on first daemon start (see `ensureVapid`) and persisted to
+   * config.yaml so subscriptions survive restarts.
+   */
+  vapid: { publicKey: string; privateKey: string; subject: string };
 }
 
 export interface ConfigSource {
@@ -77,6 +87,7 @@ interface PartialConfig {
   agentBudgetSeconds?: number;
   gitAuthor?: { name?: string; email?: string };
   factoryProjectId?: string | null;
+  vapid?: { publicKey?: string; privateKey?: string; subject?: string };
 }
 
 function fillDefaults(p: PartialConfig): FactoryConfig {
@@ -99,6 +110,15 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
     },
     githubToken: p.auth?.githubToken ?? process.env.FACTORY_GITHUB_TOKEN ?? null,
     factoryProjectId: p.factoryProjectId ?? process.env.FACTORY_META_PROJECT_ID ?? null,
+    // VAPID is filled in by `ensureVapid` after first load — the keypair is
+    // material that needs to be generated, not synthesized from env defaults.
+    // Until then the fields are empty strings; the notifications router
+    // refuses operations when publicKey is empty.
+    vapid: {
+      publicKey: p.vapid?.publicKey ?? "",
+      privateKey: p.vapid?.privateKey ?? "",
+      subject: p.vapid?.subject ?? "mailto:factory@localhost",
+    },
   };
 }
 
@@ -138,7 +158,13 @@ export async function writeInitialConfig(
 }> {
   const config = existing ?? fillDefaults({});
   await mkdir(path.dirname(configPath), { recursive: true });
-  const yamlText = YAML.stringify({
+  const yamlText = YAML.stringify(serializeConfig(config));
+  await writeFile(configPath, yamlText, { mode: 0o600 });
+  return { config, configPath };
+}
+
+function serializeConfig(config: FactoryConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {
     port: config.port,
     host: config.host,
     auth: { token: config.auth.token },
@@ -148,9 +174,36 @@ export async function writeInitialConfig(
     maxConcurrentRuns: config.maxConcurrentRuns,
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,
     gitAuthor: config.gitAuthor,
-  });
-  await writeFile(configPath, yamlText, { mode: 0o600 });
-  return { config, configPath };
+  };
+  if (config.vapid.publicKey && config.vapid.privateKey) {
+    out.vapid = {
+      publicKey: config.vapid.publicKey,
+      privateKey: config.vapid.privateKey,
+      subject: config.vapid.subject,
+    };
+  }
+  return out;
+}
+
+/**
+ * Ensure a VAPID keypair exists on `config`. If both keys are already set
+ * (loaded from disk), returns false — nothing to do. Otherwise generates a
+ * fresh keypair via `web-push`, mutates `config.vapid` in place, and
+ * persists the updated config to `configPath`. Returns true to indicate the
+ * caller should log this as a one-time event.
+ */
+export async function ensureVapid(config: FactoryConfig, configPath: string): Promise<boolean> {
+  if (config.vapid.publicKey && config.vapid.privateKey) return false;
+  const { default: webpush } = await import("web-push");
+  const keys = webpush.generateVAPIDKeys();
+  config.vapid = {
+    publicKey: keys.publicKey,
+    privateKey: keys.privateKey,
+    subject: config.vapid.subject || "mailto:factory@localhost",
+  };
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(configPath, YAML.stringify(serializeConfig(config)), { mode: 0o600 });
+  return true;
 }
 
 export const DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_PATH;

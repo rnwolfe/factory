@@ -4,10 +4,11 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import { bindAgentBudgetConfig } from "./agent-budget.ts";
 import { authorizeRequest } from "./auth.ts";
-import { type FactoryConfig, loadConfig, writeInitialConfig } from "./config.ts";
+import { ensureVapid, type FactoryConfig, loadConfig, writeInitialConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
 import { buildHealth } from "./health.ts";
+import { startPushDispatcher } from "./push/dispatcher.ts";
 import { appRouter } from "./router.ts";
 import { ScriptRegistry } from "./scripts/registry.ts";
 import { notifyReady } from "./sd-notify.ts";
@@ -77,6 +78,13 @@ export async function startDaemon(): Promise<DaemonHandle> {
   }
   console.log(`[factoryd] config loaded from ${source.configPath}`);
 
+  // Generate a VAPID keypair if this is the first start without one. Persists
+  // back to config.yaml so existing browser subscriptions stay valid across
+  // restarts (rotating the keypair would invalidate every subscribed device).
+  if (await ensureVapid(config, source.configPath)) {
+    console.log(`[factoryd] generated VAPID keypair and wrote to ${source.configPath}`);
+  }
+
   // DB
   runMigrations(config.dbPath);
   const db = createDb(config.dbPath);
@@ -119,6 +127,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
   if (orphanedSessions > 0) {
     console.log(`[factoryd] aborted ${orphanedSessions} orphaned session(s) on boot`);
   }
+
+  // Web Push: relay attention-worthy events to enrolled browsers. The
+  // unsubscribe is held so we can detach on shutdown — without it, the
+  // dispatcher would hold a reference to `db` and `config` past stop().
+  const stopPushDispatcher = startPushDispatcher({ config, db, events });
 
   const buildCtx = (req: Request): DaemonContext => ({
     config,
@@ -245,6 +258,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     server.stop();
     runs.abortAll();
     scripts.killAll();
+    stopPushDispatcher();
     await pool.drain();
     console.log("[factoryd] shutdown complete.");
   };

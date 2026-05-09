@@ -33,6 +33,7 @@ function setup(): {
     gitAuthor: { name: "yaml-name", email: "yaml@example.com" },
     githubToken: null,
     factoryProjectId: null,
+    vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },
   };
   return {
     db,

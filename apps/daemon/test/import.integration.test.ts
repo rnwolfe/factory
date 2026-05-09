@@ -36,6 +36,7 @@ function setupHarness(): Harness {
     gitAuthor: { name: "test", email: "test@test" },
     githubToken: null,
     factoryProjectId: null,
+    vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },
   };
   return {
     config,

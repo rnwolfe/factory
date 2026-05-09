@@ -20,7 +20,9 @@
     "@factory/shared": "workspace:*",
     "@paralleldrive/cuid2": "^3.3.0",
     "@trpc/server": "^11.17.0",
+    "@types/web-push": "^3.6.4",
     "drizzle-orm": "^0.45.2",
+    "web-push": "^3.6.7",
     "yaml": "^2.8.4",
     "zod": "^4.4.2"
   }

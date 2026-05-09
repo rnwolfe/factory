@@ -702,3 +702,23 @@ export const settings = sqliteTable("settings", {
 
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
+
+/**
+ * Web Push subscription rows. Each enrolled browser/device adds one. The
+ * daemon dispatches notifications by signing+encrypting a payload and
+ * POSTing to `endpoint` (the URL the browser's push service handed back
+ * during subscribe). `p256dh` + `auth` are the keys we need to encrypt
+ * payloads for that endpoint per RFC 8291.
+ */
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  ua: text("ua"),
+  createdAt: integer("created_at").notNull(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+});
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
