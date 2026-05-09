@@ -50,6 +50,7 @@ export const claudeMetricsOwnerKindEnum = [
   "triage",
   "audit_promote",
   "audit_comment",
+  "spec_import",
 ] as const;
 
 export type Ceremony = (typeof ceremonyEnum)[number];

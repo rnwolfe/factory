@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, FileText } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 
 const CEREMONIES = ["tinker", "personal", "shared", "production"] as const;
@@ -40,6 +40,22 @@ export function NewIdea() {
 
   return (
     <div className="space-y-3">
+      <Link
+        to="/inbox/import-spec"
+        className="surface px-4 py-3 flex items-center gap-3 active:bg-[var(--color-bg-2)] hover:border-[var(--color-line-bright)]"
+      >
+        <FileText size={16} className="text-[var(--color-accent)] shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="display text-[14px] text-[var(--color-fg)] leading-tight">
+            already have a spec?
+          </div>
+          <div className="mono text-[10.5px] text-[var(--color-fg-3)] mt-0.5">
+            skip triage — upload the doc, agent decomposes it, project bootstraps
+          </div>
+        </div>
+        <ArrowRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
+      </Link>
+
       <div className="surface p-4">
         <label
           htmlFor="idea-text"

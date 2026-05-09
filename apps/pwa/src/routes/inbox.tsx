@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, ThumbsDown, ThumbsUp } from "lucide-react";
+import { FileText, Plus, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuditCard, type AuditRow } from "../components/audit-card.tsx";
@@ -185,9 +185,17 @@ export function Inbox() {
           <p className="text-[var(--color-fg-2)] text-sm leading-relaxed mb-6">
             the inbox is empty. capture an idea — the factory triages within ~2 min.
           </p>
-          <Link to="/inbox/new" className="btn btn-primary">
-            <Plus size={16} /> new idea
-          </Link>
+          <div className="flex flex-col gap-2 items-center">
+            <Link to="/inbox/new" className="btn btn-primary">
+              <Plus size={16} /> new idea
+            </Link>
+            <Link
+              to="/inbox/import-spec"
+              className="mono text-[11.5px] text-[var(--color-fg-2)] hover:text-[var(--color-accent)] flex items-center gap-1.5 mt-1"
+            >
+              <FileText size={11} /> or import an existing spec
+            </Link>
+          </div>
         </div>
       </div>
     );

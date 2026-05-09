@@ -12,6 +12,12 @@ import {
   readGithubOriginRemote,
 } from "../projects/import.ts";
 import {
+  type ConfirmImportSpecInput,
+  confirmImportSpec,
+  proposeImportSpec,
+  type SpecDecomposition,
+} from "../projects/import-spec.ts";
+import {
   archiveProject,
   deleteProject,
   LifecycleError,
@@ -348,6 +354,93 @@ export const projectsRouter = router({
           throw new TRPCError({ code, message: err.message });
         }
         throw err;
+      }
+    }),
+
+  /**
+   * Spec-import fast lane: take an operator-supplied fully-drafted spec and
+   * produce a task decomposition for review. Pure compute — no DB rows are
+   * created. The operator reviews/edits the decomposition and then calls
+   * `confirmImportSpec` to actually bootstrap the project.
+   */
+  proposeImportSpec: protectedProcedure
+    .input(
+      z.object({
+        title: z.string().max(120).default(""),
+        specMarkdown: z.string().min(20).max(200_000),
+        ceremony: CeremonyEnum.default("personal"),
+        role: RoleEnum.default("owner"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await proposeImportSpec(ctx.db, {
+          title: input.title,
+          specMarkdown: input.specMarkdown,
+          ceremony: input.ceremony,
+          role: input.role,
+        });
+        return { decomposition: result.decomposition };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
+    }),
+
+  /**
+   * Confirm + bootstrap: takes the (possibly edited) decomposition, the
+   * verbatim spec, and project metadata. Synthesizes idea + greenlit
+   * decision, calls bootstrapProject, writes docs/internal/SPEC.md, drops
+   * a CLAUDE.md reference, and commits all of it on top of the bootstrap.
+   * Auto-advance is on by default — first ready task starts immediately.
+   */
+  confirmImportSpec: protectedProcedure
+    .input(
+      z.object({
+        title: z.string().max(120).default(""),
+        specMarkdown: z.string().min(20).max(200_000),
+        ceremony: CeremonyEnum.default("personal"),
+        role: RoleEnum.default("owner"),
+        model: z.string().nullable().default(null),
+        decomposition: z.object({
+          title: z.string().max(120),
+          summary: z.string().max(4000),
+          tasks: z
+            .array(
+              z.object({
+                title: z.string().min(1).max(200),
+                estimate: TaskEstimateEnum,
+                acceptance: z.array(z.string().max(500)).max(20),
+              }),
+            )
+            .min(1)
+            .max(20),
+          unknowns: z.array(z.string().max(500)).max(20),
+          risks: z.array(z.string().max(500)).max(20),
+          firstTaskNote: z.string().max(1000),
+        }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const confirmInput: ConfirmImportSpecInput = {
+        title: input.title,
+        specMarkdown: input.specMarkdown,
+        ceremony: input.ceremony,
+        role: input.role,
+        model: input.model,
+        decomposition: input.decomposition as SpecDecomposition,
+      };
+      try {
+        const result = await confirmImportSpec(ctx.config, ctx.db, confirmInput);
+        return {
+          projectId: result.projectId,
+          slug: result.slug,
+          taskIds: result.taskIds,
+          specPath: result.specPath,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
       }
     }),
 

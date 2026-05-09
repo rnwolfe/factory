@@ -25,6 +25,7 @@ const FOLLOWUP_PROMPT_KEY = "triage-followup-v1";
 const CONTRIBUTOR_PROMPT_KEY = "triage-contributor-v1";
 const AUDIT_BRIDGE_PROMPT_KEY = "audit-bridge-v1";
 const FEEDBACK_PROMPT_KEY = "feedback-iterate-v1";
+const SPEC_DECOMPOSE_PROMPT_KEY = "spec-decompose-v1";
 
 const PLAN_PROMPT_FILES: Array<{ key: string; file: string }> = [
   { key: "plan-project-spec-v1", file: "prompts/plan-project-spec-v1.md" },
@@ -41,6 +42,7 @@ const ALL_PROMPT_FILES: Array<{ key: string; file: string }> = [
   ...PLAN_PROMPT_FILES,
   { key: AUDIT_BRIDGE_PROMPT_KEY, file: "prompts/audit-bridge-v1.md" },
   { key: FEEDBACK_PROMPT_KEY, file: "prompts/feedback-iterate-v1.md" },
+  { key: SPEC_DECOMPOSE_PROMPT_KEY, file: "prompts/spec-decompose-v1.md" },
 ];
 
 interface RubricYaml {
