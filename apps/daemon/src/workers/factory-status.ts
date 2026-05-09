@@ -160,7 +160,7 @@ export function parseFactoryStatus(text: string): FactoryStatus | null {
   return lastValid;
 }
 
-const COMPLETION_FOOTER = `
+const COMPLETION_FOOTER_BASE = `
 
 ---
 
@@ -193,9 +193,108 @@ Rules:
   safety net, not your default.
 `;
 
-/** Append the completion-protocol instructions to the operator's task body. */
-export function wrapPrompt(taskBody: string): string {
-  return `${taskBody.trimEnd()}${COMPLETION_FOOTER}`;
+const DECISION_PROTOCOL_COLLABORATIVE = `
+
+---
+
+# Factory decision protocol — surfacing key decisions to the operator
+
+This run executes against an operator who is not at the keyboard. You are
+expected to make decisions and proceed; **most internal choices stay
+internal**. But some choices are worth flagging *non-blockingly* so the
+operator can ratify, override, or learn — without halting the run.
+
+## When to surface a decision
+
+Emit a \`factory-decision\` block ONLY when one of these is true:
+
+(a) **Public surface.** The choice will be visible at the project's
+    public surface — public API naming, CLAUDE.md doctrine, schema
+    field names, file or directory structure others will read or
+    import.
+
+(b) **Reasonable disagreement.** Two or more competent engineers
+    would disagree about the choice and the tradeoff is non-trivial.
+    "Tabs vs. spaces" doesn't qualify; "compose vs. inherit", "library
+    X vs. Y when both fit", "sync vs. async API" qualifies.
+
+(c) **Future-constraining.** The choice meaningfully constrains future
+    work — adopting a pattern others will follow, picking a dependency
+    that's hard to swap later, naming a domain concept the codebase
+    will repeat.
+
+## When NOT to surface
+
+Do not emit a decision block for:
+- Internal implementation details (where a helper lives, local
+  variable names, private function signatures)
+- Style, formatting, lint, comment phrasing
+- Test strategy when the project's existing tests / CLAUDE.md set the
+  precedent
+- Choices the operator would not have asked you to flag in advance
+
+When in doubt, **do not surface**. The operator's attention is the
+scarcest resource — verbose decision streams burn it faster than the
+work itself.
+
+## How to surface
+
+Make a defensible choice and proceed — the run does not stop. Then,
+emit a fenced block:
+
+\`\`\`factory-decision
+{
+  "id": "dec-001",
+  "kind": "architectural | library | naming | scope | tradeoff",
+  "summary": "<one-line headline>",
+  "context": "<2-4 sentences explaining why this is worth surfacing>",
+  "options": [
+    { "title": "Option A", "tradeoff": "<short>", "chosen": true },
+    { "title": "Option B", "tradeoff": "<short>" }
+  ],
+  "decided": "Option A",
+  "reasoning": "<one or two sentences on why you picked this>"
+}
+\`\`\`
+
+- \`id\` is short and unique within this run (\`dec-001\`, \`dec-002\`).
+  Reusing an id signals an update to the same decision; new ids signal
+  new decisions.
+- \`kind\` categorizes for the inbox card; pick the closest fit.
+- \`options\` lists 2–4 meaningfully-different choices with a one-line
+  tradeoff each. The chosen one carries \`"chosen": true\`.
+- \`decided\` echoes the chosen option's title.
+- Multiple decision blocks per run are allowed but rare. If you emit
+  more than 3 in one run, the operator will think you're being
+  indecisive. Be selective.
+`;
+
+const DECISION_PROTOCOL_AUTONOMOUS = `
+
+---
+
+# Factory decision protocol — autonomous mode
+
+This project is configured for **autonomous** runs. Do NOT emit
+\`factory-decision\` blocks. When you face an architectural / library /
+naming choice that you would otherwise surface in collaborative mode,
+pick the most defensible path and note your choice (one line) in the
+factory-status \`summary\`. The operator reads the summary; if they
+disagree they'll flip the project to collaborative mode and re-run, or
+file a refinement task.
+`;
+
+function decisionFooterFor(autonomyMode: "collaborative" | "autonomous"): string {
+  return autonomyMode === "autonomous"
+    ? DECISION_PROTOCOL_AUTONOMOUS
+    : DECISION_PROTOCOL_COLLABORATIVE;
+}
+
+export type AutonomyMode = "collaborative" | "autonomous";
+
+/** Append the completion + decision protocols to the operator's task body. */
+export function wrapPrompt(taskBody: string, autonomyMode: AutonomyMode = "collaborative"): string {
+  return `${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
 }
 
 interface FrozenTaskPlanForPrompt {
@@ -274,9 +373,10 @@ export function wrapPromptWithPlan(
   taskId: string,
   taskBody: string,
   plan: FrozenTaskPlanForPrompt,
+  autonomyMode: AutonomyMode = "collaborative",
 ): string {
   const taskHeader = `You are working on task ${taskId}.\n\n## Task body\n\n`;
-  return `${taskHeader}${taskBody.trim()}${renderPlanBlock(plan)}${COMPLETION_FOOTER}`;
+  return `${taskHeader}${taskBody.trim()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
 }
 
 const RESUME_PREFIX = `The factory daemon was restarted while you were working on this task. The previous Claude session has been resumed; you have full context of what you were doing. Pick up where you left off.
@@ -297,8 +397,11 @@ For reference, the original task was:
  * appended as the new user turn. The agent already has the full prior
  * conversation; we just nudge it to inspect state and finish.
  */
-export function wrapResumePrompt(taskBody: string): string {
-  return `${RESUME_PREFIX}${taskBody.trimEnd()}${COMPLETION_FOOTER}`;
+export function wrapResumePrompt(
+  taskBody: string,
+  autonomyMode: AutonomyMode = "collaborative",
+): string {
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
 }
 
 /**
@@ -307,6 +410,10 @@ export function wrapResumePrompt(taskBody: string): string {
  * context is cold. The plan is the operator-approved scope contract — if
  * the resumed session lost it, the agent could improvise unbounded.
  */
-export function wrapResumePromptWithPlan(taskBody: string, plan: FrozenTaskPlanForPrompt): string {
-  return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${COMPLETION_FOOTER}`;
+export function wrapResumePromptWithPlan(
+  taskBody: string,
+  plan: FrozenTaskPlanForPrompt,
+  autonomyMode: AutonomyMode = "collaborative",
+): string {
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
 }

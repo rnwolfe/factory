@@ -173,6 +173,14 @@ checks:
     await git(["add", "-A"], workdirPath);
     await git(["commit", "-q", "-m", "chore: factory bootstrap"], workdirPath);
 
+    // Tinker projects default to `autonomous` — minimal ceremony, agent
+    // makes its own calls and notes them in the summary. Everything else
+    // defaults to `collaborative` so meaningful architectural choices
+    // surface in the operator's inbox. Operator can flip from the
+    // project header.
+    const autonomyMode: "collaborative" | "autonomous" =
+      input.ceremony === "tinker" ? "autonomous" : "collaborative";
+
     await db.insert(schema.projects).values({
       id: projectId,
       slug,
@@ -186,6 +194,7 @@ checks:
       createdAt: now,
       lastActivityAt: now,
       model: input.model ?? null,
+      autonomyMode,
     });
 
     return { projectId, slug, workdirPath, taskIds };

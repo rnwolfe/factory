@@ -63,6 +63,12 @@ interface DecisionPayload {
   // merge_failure-only
   reason?: string;
   message?: string;
+  // agent_decision shape
+  kind?: "architectural" | "library" | "naming" | "scope" | "tradeoff";
+  context?: string;
+  decided?: string;
+  options?: Array<{ title: string; tradeoff: string; chosen: boolean }>;
+  reasoning?: string;
 }
 
 type Action = "approve" | "park" | "trash" | "decompose" | "dismiss";
@@ -179,12 +185,15 @@ export function DecisionDetail() {
   const isTriage = d.kind === "triage";
   const isBlockedRun = d.kind === "blocked_run";
   const isMergeFailure = d.kind === "merge_failure";
+  const isAgentDecision = d.kind === "agent_decision";
   const isPending = d.status === "pending";
   const score = d.weightedScore != null ? d.weightedScore.toFixed(2) : "—";
   const uncertainty = d.uncertainty != null ? d.uncertainty.toFixed(2) : "—";
   const headline = isMergeFailure
     ? `merge to main failed${payload.taskId ? ` for ${payload.taskId}` : ""} — ${payload.reason ?? "unknown"}`
-    : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
+    : isAgentDecision
+      ? (payload.summary ?? d.outcome)
+      : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
 
   return (
     <div className="space-y-3 pb-4">
@@ -205,7 +214,9 @@ export function DecisionDetail() {
                 ? "blocked run"
                 : isMergeFailure
                   ? "merge failure"
-                  : "tag change"}
+                  : isAgentDecision
+                    ? `agent · ${payload.kind ?? "decision"}`
+                    : "tag change"}
           </span>
           <span className="chip">{d.status}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
@@ -229,6 +240,68 @@ export function DecisionDetail() {
             {idea.data.rawText}
           </div>
         </Section>
+      ) : null}
+
+      {isAgentDecision ? (
+        <>
+          {payload.context ? (
+            <Section title="context">
+              <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
+                {payload.context}
+              </p>
+            </Section>
+          ) : null}
+          {payload.options && payload.options.length > 0 ? (
+            <Section title="options the agent considered">
+              <ul className="divide-y divide-[var(--color-line)]">
+                {payload.options.map((opt, i) => (
+                  <li
+                    // biome-ignore lint/suspicious/noArrayIndexKey: options are positional within a single decision
+                    key={i}
+                    className="px-4 py-3"
+                  >
+                    <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                      <span
+                        className={cn(
+                          "text-[14px] text-[var(--color-fg)]",
+                          opt.chosen ? "font-medium" : "",
+                        )}
+                      >
+                        {opt.title}
+                      </span>
+                      {opt.chosen ? (
+                        <span className="chip chip-accent text-[10.5px]">chosen</span>
+                      ) : null}
+                    </div>
+                    {opt.tradeoff ? (
+                      <p className="text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
+                        {opt.tradeoff}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          ) : null}
+          {payload.reasoning ? (
+            <Section title="agent reasoning">
+              <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
+                {payload.reasoning}
+              </p>
+            </Section>
+          ) : null}
+          {payload.runId ? (
+            <Section title="source run">
+              <Link
+                to={`/projects/${d.projectId ?? ""}/runs/${payload.runId}`}
+                className="px-4 py-3 flex items-center gap-2 text-[13px] mono text-[var(--color-fg-1)] hover:text-[var(--color-accent)]"
+              >
+                run {payload.runId.slice(0, 8)}
+                {payload.taskId ? <span> · {payload.taskId}</span> : null}
+              </Link>
+            </Section>
+          ) : null}
+        </>
       ) : null}
 
       {payload.rationale ? (
@@ -595,7 +668,13 @@ export function DecisionDetail() {
               onClick={() => action.mutate({ action: "approve" })}
               disabled={action.isPending}
             >
-              {isBlockedRun ? "retry" : isMergeFailure ? "retry merge" : "confirm"}
+              {isBlockedRun
+                ? "retry"
+                : isMergeFailure
+                  ? "retry merge"
+                  : isAgentDecision
+                    ? "ratify"
+                    : "confirm"}
             </button>
             <button
               type="button"

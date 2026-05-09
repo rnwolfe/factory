@@ -41,6 +41,7 @@ const RoleEnum = z.enum(["owner", "contributor"]);
 const TaskStatusEnum = z.enum(["ready", "in_progress", "review", "done", "blocked", "dropped"]);
 const TaskEstimateEnum = z.enum(["small", "medium", "large"]);
 const TaskPriorityEnum = z.enum(["low", "med", "high"]);
+const AutonomyModeEnum = z.enum(["collaborative", "autonomous"]);
 
 const tasksRouter = router({
   list: protectedProcedure
@@ -286,6 +287,24 @@ export const projectsRouter = router({
         .set({ role: input.role })
         .where(eq(schema.projects.id, input.id));
       return { ok: true, role: input.role };
+    }),
+
+  /**
+   * Toggle whether agent runs surface mid-flight architectural decisions
+   * to the inbox. `autonomous` mutes the surface entirely (agent picks a
+   * defensible path and notes it in run summary); `collaborative` lets
+   * the agent emit `factory-decision` blocks for choices that meaningfully
+   * affect public surface, library picks, or future-constraint patterns.
+   * Default is `collaborative` for personal+, `autonomous` for tinker.
+   */
+  setAutonomyMode: protectedProcedure
+    .input(z.object({ id: z.string(), autonomyMode: AutonomyModeEnum }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(schema.projects)
+        .set({ autonomyMode: input.autonomyMode })
+        .where(eq(schema.projects.id, input.id));
+      return { ok: true, autonomyMode: input.autonomyMode };
     }),
 
   workdir: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {

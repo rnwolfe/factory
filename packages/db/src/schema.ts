@@ -3,7 +3,14 @@ import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-or
 export const ceremonyEnum = ["tinker", "personal", "shared", "production"] as const;
 export const roleEnum = ["owner", "contributor"] as const;
 export const tagEnum = ["active", "background", "past"] as const;
-export const decisionKindEnum = ["triage", "tag_change", "blocked_run", "merge_failure"] as const;
+export const decisionKindEnum = [
+  "triage",
+  "tag_change",
+  "blocked_run",
+  "merge_failure",
+  "agent_decision",
+] as const;
+export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
 export const decisionStatusEnum = ["pending", "actioned", "dismissed"] as const;
 export const decisionCommentRoleEnum = ["operator", "agent"] as const;
 export const runStatusEnum = [
@@ -53,6 +60,7 @@ export const claudeMetricsOwnerKindEnum = [
   "spec_import",
 ] as const;
 
+export type AutonomyMode = (typeof autonomyModeEnum)[number];
 export type Ceremony = (typeof ceremonyEnum)[number];
 export type ProjectRole = (typeof roleEnum)[number];
 export type Tag = (typeof tagEnum)[number];
@@ -235,6 +243,24 @@ export const projects = sqliteTable("projects", {
   lastActivityAt: integer("last_activity_at").notNull(),
   /** When true, runs auto-submit the next ready task on success. Default: on. */
   autoAdvance: integer("auto_advance", { mode: "boolean" }).notNull().default(true),
+  /**
+   * Controls whether agent runs surface mid-flight decisions (architectural
+   * choices, library picks, naming, scope clarifications) to the inbox.
+   *
+   * - `collaborative` (default for personal+): runs may emit
+   *   `factory-decision` blocks for genuinely operator-visible / future-
+   *   constraining choices. Run continues — agent picks a defensible
+   *   path; the operator reviews / ratifies / overrides asynchronously.
+   * - `autonomous` (default for tinker): runs do not emit decision
+   *   blocks. The agent picks the most defensible path and notes it in
+   *   the run summary.
+   *
+   * The default is set at bootstrap based on ceremony; the operator can
+   * flip it from the project header at any time.
+   */
+  autonomyMode: text("autonomy_mode", { enum: autonomyModeEnum })
+    .notNull()
+    .default("collaborative"),
   /** Claude model id used for runs in this project. Null = CLI default. */
   model: text("model"),
   /**

@@ -120,6 +120,13 @@
       "when": 1778032800000,
       "tag": "0016_ceremony_and_role",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1778500000000,
+      "tag": "0017_autonomy_mode",
+      "breakpoints": true
     }
   ]
 }

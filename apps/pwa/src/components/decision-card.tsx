@@ -10,7 +10,7 @@ import { cn } from "../lib/cn.ts";
 
 export interface DecisionRow {
   id: string;
-  kind: "triage" | "tag_change" | "blocked_run" | "merge_failure";
+  kind: "triage" | "tag_change" | "blocked_run" | "merge_failure" | "agent_decision";
   outcome: string;
   weightedScore: number | null;
   uncertainty: number | null;
@@ -34,6 +34,12 @@ export interface DecisionRow {
     // merge_failure-only
     reason?: string;
     message?: string;
+    // agent_decision shape
+    kind?: "architectural" | "library" | "naming" | "scope" | "tradeoff";
+    context?: string;
+    decided?: string;
+    options?: Array<{ title: string; tradeoff: string; chosen: boolean }>;
+    reasoning?: string;
     [k: string]: unknown;
   };
   ideaId?: string | null;
@@ -70,6 +76,8 @@ function kindLabel(kind: DecisionRow["kind"]): string {
       return "blocked run";
     case "merge_failure":
       return "merge failure";
+    case "agent_decision":
+      return "agent · decision";
   }
 }
 
@@ -146,6 +154,7 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
   const isTriage = decision.kind === "triage";
   const isBlockedRun = decision.kind === "blocked_run";
   const isMergeFailure = decision.kind === "merge_failure";
+  const isAgentDecision = decision.kind === "agent_decision";
 
   const blockedHeadline = isBlockedRun
     ? (decision.payload.summary ??
@@ -160,9 +169,12 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
       } — ${decision.payload.reason ?? "unknown"}`
     : null;
 
+  const agentDecisionHeadline = isAgentDecision ? (decision.payload.summary ?? null) : null;
+
   const headline =
     blockedHeadline ??
     mergeFailHeadline ??
+    agentDecisionHeadline ??
     decision.payload.title_suggestion ??
     (ideaText ? ideaText.slice(0, 80) : decision.outcome);
 
@@ -255,6 +267,21 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
           <p className="px-4 pb-3 mono text-[11.5px] leading-snug text-[var(--color-fg-2)] line-clamp-3">
             {decision.payload.message}
           </p>
+        ) : isAgentDecision ? (
+          <div className="px-4 pb-3 space-y-1.5">
+            <div className="flex items-center gap-1.5 mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-fg-3)]">
+              <span>chose</span>
+              <span className="text-[var(--color-accent)] normal-case tracking-normal">
+                {decision.payload.decided ?? "(unspecified)"}
+              </span>
+              {decision.payload.kind ? <span>· {decision.payload.kind}</span> : null}
+            </div>
+            {decision.payload.context ? (
+              <p className="text-[12.5px] leading-snug text-[var(--color-fg-2)] line-clamp-2">
+                {decision.payload.context}
+              </p>
+            ) : null}
+          </div>
         ) : null}
 
         {isTriage ? (
@@ -282,6 +309,11 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
               onClick={() => onAction("approve")}
               showArrow
             />
+            <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
+          </div>
+        ) : isAgentDecision ? (
+          <div className="grid grid-cols-2 border-t border-[var(--color-line)]">
+            <ActionBtn label="ratify" tone="primary" onClick={() => onAction("approve")} />
             <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
           </div>
         ) : (

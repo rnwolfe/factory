@@ -16,7 +16,9 @@ import type { EventBus } from "../events.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
 import { listTasks, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
+import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
 import {
+  type AutonomyMode,
   type FactoryStatus,
   parseFactoryStatus,
   wrapPrompt,
@@ -200,17 +202,26 @@ export async function executeRun(
     }
   }
 
+  const autonomyMode: AutonomyMode = project.autonomyMode ?? "collaborative";
+
   let prompt: string;
   if (resuming) {
     prompt =
       frozenTaskPlan && frozenTaskPlan.kind === "task_plan"
-        ? wrapResumePromptWithPlan(baseTaskBody, frozenTaskPlan)
-        : wrapResumePrompt(baseTaskBody);
+        ? wrapResumePromptWithPlan(baseTaskBody, frozenTaskPlan, autonomyMode)
+        : wrapResumePrompt(baseTaskBody, autonomyMode);
   } else if (frozenTaskPlan && frozenTaskPlan.kind === "task_plan") {
-    prompt = wrapPromptWithPlan(row.taskId ?? "ad-hoc", baseTaskBody, frozenTaskPlan);
+    prompt = wrapPromptWithPlan(row.taskId ?? "ad-hoc", baseTaskBody, frozenTaskPlan, autonomyMode);
   } else {
-    prompt = wrapPrompt(baseTaskBody);
+    prompt = wrapPrompt(baseTaskBody, autonomyMode);
   }
+
+  // Per-run state for the streaming agent-decision parser. Skipped entirely
+  // in autonomous mode — the prompt forbids the agent from emitting decision
+  // blocks at all, so even if one slips through we don't surface it. This
+  // keeps the autonomy toggle a hard guarantee, not best-effort.
+  const decisionState = newAgentDecisionState();
+  const decisionsEnabled = autonomyMode === "collaborative";
 
   let lastSessionId: string | undefined;
 
@@ -240,7 +251,27 @@ export async function executeRun(
           });
           return;
         }
-        if (e.kind === "text") agentText += e.text;
+        if (e.kind === "text") {
+          agentText += e.text;
+          // Streaming parse for `factory-decision` blocks. Fire-and-forget
+          // — failures shouldn't disturb the run, and the parser is
+          // idempotent so a final pass after the run also catches missed
+          // decisions. We pass the projectId from the closure (project
+          // is loaded above; runs without a project are a runner bug).
+          if (decisionsEnabled) {
+            void persistAgentDecisions({
+              db,
+              events,
+              runId,
+              taskId: row.taskId ?? null,
+              projectId: project.id,
+              agentText,
+              state: decisionState,
+            }).catch(() => {
+              // already logged inside persistAgentDecisions
+            });
+          }
+        }
         if (e.kind === "metrics") {
           void recordClaudeMetrics({
             db,
@@ -259,6 +290,27 @@ export async function executeRun(
     });
 
     const aborted = ac.signal.aborted;
+
+    // Final agent-decision pass: catches any block whose closing fence
+    // arrived in the same text event as the factory-status block (rare but
+    // possible) and any block missed by streaming due to in-flight races.
+    // Idempotent via state.processedIds — already-persisted ids are a no-op.
+    if (decisionsEnabled) {
+      try {
+        await persistAgentDecisions({
+          db,
+          events,
+          runId,
+          taskId: row.taskId ?? null,
+          projectId: project.id,
+          agentText,
+          state: decisionState,
+        });
+      } catch {
+        // already logged
+      }
+    }
+
     const parsed = parseFactoryStatus(agentText);
     const finalStatus = runStatusFor(parsed, aborted);
 

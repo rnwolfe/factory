@@ -26,6 +26,7 @@ import { ScriptsSection } from "../components/scripts-section.tsx";
 import { SessionsList } from "../components/sessions-list.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
+import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
 
 interface RunRow {
@@ -142,6 +143,14 @@ export function ProjectDetail() {
     },
   });
 
+  const setAutonomyMode = useMutation({
+    mutationFn: (autonomyMode: "collaborative" | "autonomous") =>
+      trpc.projects.setAutonomyMode.mutate({ id, autonomyMode }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
   const setModel = useMutation({
     mutationFn: (model: string | null) => trpc.projects.setModel.mutate({ id, model }),
     onSuccess: () => {
@@ -171,6 +180,7 @@ export function ProjectDetail() {
       license: string | null;
       tag: string;
       autoAdvance: boolean;
+      autonomyMode: "collaborative" | "autonomous";
       model: string | null;
       githubRemote: string | null;
     };
@@ -299,6 +309,35 @@ export function ProjectDetail() {
           />
           <span>auto-advance to next ready task on success</span>
         </label>
+
+        <div className="mt-3">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+            agent autonomy
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(["collaborative", "autonomous"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setAutonomyMode.mutate(mode)}
+                disabled={setAutonomyMode.isPending}
+                className={cn(
+                  "chip text-[11.5px]",
+                  (p.autonomyMode ?? "collaborative") === mode
+                    ? "chip-accent"
+                    : "hover:border-[var(--color-line-bright)]",
+                )}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+          <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1.5">
+            {p.autonomyMode === "autonomous"
+              ? "agent makes architectural calls silently — choices noted in run summaries only."
+              : "agent surfaces architectural / library / naming choices to the inbox without halting the run."}
+          </p>
+        </div>
 
         <div className="mt-3">
           <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
