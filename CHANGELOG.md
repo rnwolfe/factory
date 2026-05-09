@@ -4,6 +4,79 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.5.0 — 2026-05-09
+
+The attention-surface release. The operator gets two new ways to be told
+what needs them — universal agent decisions in the inbox and Web Push to
+enrolled devices — plus a turbo on-ramp for projects that already have a
+written spec. Also a sweep of mid-run live-pane stability fixes after
+those surfaces started catching real load.
+
+### Added
+- Spec-import on-ramp. Upload an existing SPEC/plan and Factory
+  scaffolds the project, stores the SPEC verbatim, decomposes it into
+  runnable chunks, and is ready to execute end-to-end with auto-advance.
+  No triage rubric run; the operator-supplied spec is the rubric.
+- Universal mid-run decision inbox + autonomy toggle. Agents now surface
+  architectural / library / scope / tradeoff calls to the inbox via a
+  `factory-decision` fenced block parsed in-stream, persisted as a new
+  `agent_decision` decision kind. Per-project `autonomy_mode`
+  (`collaborative` | `autonomous`) silences routine surfacing on
+  projects where the operator wants the agent to just decide. Stop-the-
+  line events (blocked_run, merge_failure) bypass the filter.
+- Multi-choice + custom-answer overrides on agent decisions. Decisions
+  declare `responseType: "single" | "multi" | "free"`. The PWA renders a
+  three-tab override form (agent's choice / pick option / custom) that
+  on submit stamps the override into the payload, marks the decision
+  actioned, and opens a refinement plan seeded with the operator's
+  rationale.
+- PWA push notifications. End-to-end Web Push: VAPID keypair generated
+  on first daemon start and persisted to config.yaml; a new
+  `push_subscriptions` table; service worker that handles `push` and
+  deep-link `notificationclick`; Settings → notifications panel with
+  enable / send-test / enrolled-devices list. Triggers: new decisions
+  (subject to autonomy filter for `agent_decision`), audit completion,
+  session merge failure. iOS Safari requires PWA-installed-to-home-
+  screen; serving over LAN http won't subscribe — needs https or
+  localhost.
+
+### Changed
+- Full prompts audit pass. Every prompt under `prompts/` rewritten for
+  ceremony-naming consistency (`shared`/`production`), anti-confabulation
+  rules, structured `decompose_questions` shapes, evidence/anchor-band
+  rubric axes, full envelope per turn, vision-section caps, and
+  contributor branches. Audit envelope switched to a two-block format
+  (markdown report + JSON findings) to avoid brittle JSON-stringified
+  markdown.
+
+### Fixed
+- Auto-merge contract was hiding run diffs. The diff endpoint computed
+  `main..run.branch`, which collapses to empty after a successful run
+  auto-merges to main with `--no-ff` (every run commit becomes reachable
+  from main via the merge commit). Switched to
+  `merge-base(main, run.branch)..run.branch` so the run's contributions
+  stay visible before and after merge.
+- Live-pane freeze on run-page navigation, three layered fixes:
+  (1) error boundaries + memo + rAF-batched event arrivals + markdown
+  source cap; (2) server-side `runs.events` payload trim (limit 400,
+  text events capped at 4KB) plus client stuck-loading UI with retry
+  and AbortSignal threading; (3) lazy-mount xterm — Terminal is now
+  constructed only on first switch to raw view rather than on every
+  LivePane mount, plain `<pre>` for event text instead of running the
+  markdown tokenizer hundreds of times per paint, `MAX_EVENTS` lowered
+  500 → 200, and `runs.rawLog` deferred until raw view opens.
+- Daemon synthesized-config persistence. The first-start config is now
+  written to disk so the auth token survives restarts (previously every
+  `bun run dev` minted a fresh token and the operator had to re-paste).
+- CLI dev/live host isolation — `bun run dev` and the installed daemon
+  now use distinct `FACTORY_HOME` roots; `factory` CLI config writes to
+  the right one.
+- `factory.service` systemd unit gets an explicit `PATH` so PATH-
+  dependent helpers resolve under `Type=notify`.
+- `factory upgrade` fails fast with a clear message when the dev
+  checkout isn't configured, instead of producing a confusing partial
+  upgrade.
+
 ## v0.4.0 — 2026-05-06
 
 The project-types release. The old single-axis `tier` enum (overlapping
