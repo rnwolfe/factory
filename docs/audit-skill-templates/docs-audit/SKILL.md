@@ -41,16 +41,29 @@ You also have access to the project context Factory provides
 
 ## Report shape
 
-`reportMarkdown` is a per-doc walkthrough — one section per doc, naming
-what you read and what you flagged. `findings` is the structured array.
+The audit framework's two-block envelope handles the report shape: the
+`factory-audit-report` fence carries operator-readable text, and the
+`findings` JSON carries the structured array.
 
-Severity guide:
+Inside the report fence, walk per-doc:
+
+- A `## Summary` section: one paragraph naming the docs you read and
+  the headline result.
+- One `## VISION.md`, `## CLAUDE.md`, `## README.md`, etc. section per
+  doc you reviewed. State what you read and what you flagged for that
+  doc (or "current" if nothing).
+- A `## Findings` section that lists every flag with `### <severity>:
+  <title>` and pinned references where applicable.
+
+Severity guide for this skill (the framework's general guide applies; this
+narrows it):
 
 - **major**: contradiction or stale-on-current-code reference
 - **minor**: outdated detail, missing minor entry
 - **enhancement**: doc could be sharper but isn't wrong
 
-If everything is current, emit `"findings": []` and say so honestly.
+If everything is current, emit `"findings": []` and say so honestly in
+the report.
 
 ## Procedure
 

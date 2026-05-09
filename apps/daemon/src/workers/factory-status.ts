@@ -180,12 +180,17 @@ Rules:
 - This is a non-interactive run. Do NOT wait for stdin or ask the operator
   questions in prose; if you need input, set status to "blocked" and put your
   questions in the array.
-- Use status="done" only if you actually completed the task's acceptance
-  criteria. If you only made partial progress, use "blocked" or "failed" with
-  an honest summary.
-- Save and (if you can) commit your work before emitting the final message —
-  the daemon will auto-commit any residual dirty state, but committed work is
-  cleaner to review.
+- Use status="done" only if you actually completed every acceptance
+  criterion. **Partial completion → status="blocked"**, not "done with
+  caveats." A "done with one item missing" hides the gap from auto-merge
+  and lands incomplete work on main. The operator would rather see honest
+  blocked status than a quietly-degraded done.
+- If you determined the work cannot be done as specified, status="failed"
+  with a summary explaining what's structurally in the way.
+- Commit your work deliberately before emitting the final message. The
+  daemon will fall back to auto-committing residual dirty state, but
+  committed-with-message work is what review reads — auto-commit is a
+  safety net, not your default.
 `;
 
 /** Append the completion-protocol instructions to the operator's task body. */
@@ -201,21 +206,7 @@ interface FrozenTaskPlanForPrompt {
   risks: string[];
 }
 
-/**
- * Wrap a task body with a frozen `task_plan` block before appending the
- * completion-protocol footer. Used by the runner when the run row's
- * `task_plan_id` resolves to a frozen plan: the agent reads the plan as
- * authoritative context alongside the raw task body.
- *
- * The plan section is fenced with explicit "do not deviate" framing so the
- * agent treats it as binding rather than advisory. Empty arrays are dropped
- * to keep the prompt tight.
- */
-export function wrapPromptWithPlan(
-  taskId: string,
-  taskBody: string,
-  plan: FrozenTaskPlanForPrompt,
-): string {
+function renderPlanBlock(plan: FrozenTaskPlanForPrompt): string {
   const stepsBlock =
     plan.steps.length > 0
       ? plan.steps
@@ -233,7 +224,7 @@ export function wrapPromptWithPlan(
   const risksBlock =
     plan.risks.length > 0 ? plan.risks.map((r) => `- ${r}`).join("\n") : "(no risks called out)";
 
-  const planBlock = `
+  return `
 
 ---
 
@@ -244,12 +235,17 @@ binding — do not extend the work beyond what's listed. If a step proves
 impossible or the plan is wrong, declare \`blocked\` in the factory-status
 block with a question rather than improvising.
 
+**Acceptance precedence:** if the frozen plan's acceptance list and the
+task body's \`## Acceptance\` section disagree, the **frozen plan wins** —
+it's what the operator approved. Treat the task body's acceptance as
+context only when the plan has none recorded.
+
 Goal: ${plan.goal || "(restated below in the task body)"}
 
 Steps:
 ${stepsBlock}
 
-Acceptance criteria:
+Acceptance criteria (authoritative):
 ${acceptanceBlock}
 
 Files expected to be touched:
@@ -258,13 +254,29 @@ ${touchesBlock}
 Risks called out:
 ${risksBlock}
 
-If the factory-status block supports it, set \`acceptance\` to a list of
-\`{criterion, met, evidence?, reason?}\` objects so the operator can see
-which acceptance items the run actually satisfied.
+When you emit factory-status, **populate \`acceptance\`** with one
+\`{criterion, met, evidence?, reason?}\` entry per criterion above. The
+runner cross-checks this list against your declared status — if any
+\`met: false\` entry is present, status="done" is downgraded to
+status="blocked" so the operator sees the gap. \`evidence\` should cite a
+commit sha, file path, or observed behavior; \`reason\` should explain
+what blocked an unmet criterion.
 `;
+}
 
+/**
+ * Wrap a task body with a frozen `task_plan` block before appending the
+ * completion-protocol footer. Used by the runner when the run row's
+ * `task_plan_id` resolves to a frozen plan: the agent reads the plan as
+ * authoritative context alongside the raw task body.
+ */
+export function wrapPromptWithPlan(
+  taskId: string,
+  taskBody: string,
+  plan: FrozenTaskPlanForPrompt,
+): string {
   const taskHeader = `You are working on task ${taskId}.\n\n## Task body\n\n`;
-  return `${taskHeader}${taskBody.trim()}${planBlock}${COMPLETION_FOOTER}`;
+  return `${taskHeader}${taskBody.trim()}${renderPlanBlock(plan)}${COMPLETION_FOOTER}`;
 }
 
 const RESUME_PREFIX = `The factory daemon was restarted while you were working on this task. The previous Claude session has been resumed; you have full context of what you were doing. Pick up where you left off.
@@ -287,4 +299,14 @@ For reference, the original task was:
  */
 export function wrapResumePrompt(taskBody: string): string {
   return `${RESUME_PREFIX}${taskBody.trimEnd()}${COMPLETION_FOOTER}`;
+}
+
+/**
+ * Plan-aware variant: when a frozen task_plan was attached, re-include the
+ * plan block so the resumed agent sees it even if the recovered session's
+ * context is cold. The plan is the operator-approved scope contract — if
+ * the resumed session lost it, the agent could improvise unbounded.
+ */
+export function wrapResumePromptWithPlan(taskBody: string, plan: FrozenTaskPlanForPrompt): string {
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${COMPLETION_FOOTER}`;
 }

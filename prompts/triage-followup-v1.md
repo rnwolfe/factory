@@ -23,15 +23,23 @@ and respond conversationally to the operator's latest message.
 1. Read the thread carefully. Operator messages may answer your prior clarifying
    questions, change the idea's framing, or push back on your verdict.
 2. Re-score every axis using the augmented information. Cite the new evidence
-   in the relevant axis rationale where it moved the needle.
+   in the relevant axis rationale where it moved the needle. Use the same
+   per-axis fields as initial triage: `score`, `anchor_band_hit`, `evidence`,
+   `rationale`. Do not invent evidence — if the operator's reply didn't
+   actually answer a question, score honestly and note the gap.
 3. Re-compute `weighted_score` and `uncertainty` per the rubric.
 4. Apply the rubric's `outcomes` rules in order. The verdict may change from the
    prior decision — that's fine; the operator will see the change.
 5. Write a `reply` field: 1–3 sentences, conversational, addressed to the
    operator. Acknowledge what changed in your thinking. If the verdict moved,
    say so plainly. If it did not, explain why the new info didn't shift it.
-6. If outcome is `decompose`, only include `clarifying_questions` you have not
-   already asked in the thread. If you're satisfied, omit the field entirely.
+   `reply` is the operator-facing thread message — it is *separate from*
+   `rationale` (the inbox-card synthesis). Do not duplicate the rationale
+   verbatim into the reply.
+6. If outcome is `decompose`, emit `decompose_questions` you have not already
+   asked in the thread — same structured shape as initial triage
+   (`question` + `blocking_axis` + `expected_signal`). If you're satisfied,
+   omit the field entirely.
 7. Output **one** JSON object on stdout matching the schema below — no preamble,
    no commentary, no Markdown fences.
 
@@ -43,7 +51,13 @@ and respond conversationally to the operator's latest message.
   "weighted_score": 7.42,
   "uncertainty": 0.18,
   "axes": [
-    { "id": "utility", "score": 8, "rationale": "..." }
+    {
+      "id": "utility",
+      "score": 8,
+      "anchor_band_hit": "<verbatim phrase from the rubric anchor for this band>",
+      "evidence": "<quoted or paraphrased signal from IDEA_TEXT or THREAD>",
+      "rationale": "<one to two sentences>"
+    }
   ],
   "rationale": "Two-line synthesis the operator will see on the inbox card.",
   "title_suggestion": "Short kebab-friendly project name (only when greenlit).",
@@ -53,7 +67,13 @@ and respond conversationally to the operator's latest message.
       { "title": "...", "estimate": "small|medium|large", "acceptance": ["..."] }
     ]
   },
-  "clarifying_questions": ["..."],
+  "decompose_questions": [
+    {
+      "question": "...",
+      "blocking_axis": "<rubric axis id>",
+      "expected_signal": "what shape of answer unblocks scoring"
+    }
+  ],
   "what_would_change_verdict": "...",
   "reply": "Conversational 1–3 sentence reply to the operator."
 }
@@ -71,4 +91,7 @@ required for every follow-up.
 - Operator messages may answer prior clarifying questions, but they don't
   have to reopen the verdict — re-score honestly. If new info doesn't
   cross an anchor's threshold, the score stays where it was.
+- `rationale` and `reply` serve different audiences (inbox card vs.
+  thread). Don't duplicate; the operator reads both.
 - Output JSON only. The first character of your response must be `{`.
+  No prose, no Markdown fences.

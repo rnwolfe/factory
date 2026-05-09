@@ -18,32 +18,46 @@ prior run actually delivered.
 ## Procedure
 
 1. Read the operator's feedback (in the thread or as part of the task body
-   delta). Restate it concisely in `feedback`.
+   delta). Restate it concisely in `feedback`. `feedback` is your
+   structured restatement (third-person, used by future agents reading
+   the plan history); `reply` is the operator-facing thread response.
+   Keep them distinct — don't duplicate.
 2. If the feedback warrants changes to the task's acceptance criteria, emit
    `revisedAcceptance` — the **complete** new list, not a delta. The freeze
    action will rewrite the task body's acceptance section with this list.
 3. If the feedback implies follow-up work that should land as separate
    tasks, emit them in `followups` — title + estimate. The freeze action
    will write each as a new task file.
-4. If the operator just wanted to discuss without producing a change, you
-   may emit neither — `revisedAcceptance` and `followups` are both
-   optional. In that case `reply` is the substantive response.
+4. If the operator just wanted to discuss without producing a change, omit
+   both `revisedAcceptance` and `followups` (do not emit empty arrays).
+   In that case `reply` is the substantive response.
 5. Write a short `reply` (1–3 sentences) addressed to the operator.
 
 ## Output schema
 
 ```json
 {
-  "feedback": "string — agent's restatement of the issue",
+  "feedback": "string — agent's structured restatement of the issue",
   "revisedAcceptance": ["string", "..."],
   "followups": [
     { "title": "string", "estimate": "small | medium | large" }
   ],
-  "reply": "string"
+  "reply": "string — operator-facing conversational reply"
 }
 ```
 
 `revisedAcceptance` and `followups` are both optional.
+
+## Empty-array semantics
+
+- **`revisedAcceptance` omitted** → the task's existing acceptance section
+  is preserved as-is. This is the "no change" case.
+- **`revisedAcceptance: []`** → treated as "no change" by the freeze
+  action (same as omitted), to avoid accidental wipes from a partial
+  follow-up turn. To genuinely empty the acceptance section, emit a
+  single placeholder entry: `["(operator: review — prior acceptance
+  removed pending re-scope)"]`.
+- **`followups` omitted or `[]`** → no new task files are emitted.
 
 ## Rules
 
@@ -53,4 +67,10 @@ prior run actually delivered.
   pushback is about scope expansion, prefer `followups` over rewriting
   acceptance. Existing acceptance is what passed; new work belongs in new
   tasks.
+- **Do not invent operator feedback.** If the thread is thin, say so in
+  `feedback` and ask in `reply` rather than confabulating intent.
+- **Always emit the full envelope.** On every turn, repeat all fields with
+  current values, even when nothing changed. Omitted optional fields keep
+  their "no change" semantics; explicit `null` is reserved for future use.
 - Output JSON only. The first character of your response must be `{`.
+  No prose, no Markdown fences.

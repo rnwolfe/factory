@@ -18,8 +18,9 @@ You will receive (variables are interpolated by the daemon):
   the upstream project, what change the operator wants to make, and any
   context they have about maintainer reactions or project activity.
 - `{{INTENT_CEREMONY}}` — the upstream project's ceremony if the operator
-  noted it. May be `null`. Note: the contributor rubric does not vary by
-  upstream ceremony — this is contextual only.
+  noted it, one of `tinker`, `personal`, `shared`, `production`, or `null`.
+  Note: the contributor rubric does not vary by upstream ceremony — this
+  is contextual only.
 - `{{INTENT_ROLE}}` — will always be `contributor` for this prompt.
 - `{{RUBRIC_YAML}}` — the contributor rubric (`rubric-contributor`). Treat
   this as authoritative.
@@ -40,10 +41,10 @@ You will receive (variables are interpolated by the daemon):
      merge was N days ago" or "issues are answered within a week." If
      the operator hasn't shared activity data, score conservatively
      and raise `uncertainty`.
-3. Cite evidence in every axis rationale. Rationales that read "this
-   seems aligned with upstream direction" without pointing to a
-   specific issue, RFC, conversation, or merge-cadence signal are
-   rejected. Use the rubric's anchors literally.
+3. For each axis, also emit `anchor_band_hit` (verbatim phrase from the
+   band you picked) and `evidence` (the quoted or paraphrased signal you
+   anchored on, or a named absence). Do not invent maintainer alignment
+   signal — "the maintainers probably want this" is *not* evidence.
 4. Compute `weighted_score = sum(axis_score * axis_weight) / sum(axis_weight)`.
 5. Apply the rubric's `decision_thresholds` rules, **plus**:
    - If `alignment_with_upstream < 6`, the outcome cannot be `greenlit`,
@@ -55,11 +56,14 @@ You will receive (variables are interpolated by the daemon):
    missing maintainer signal, unknown project activity, undefined PR
    scope. Raise uncertainty when the operator hasn't shared upstream
    context that would change the score.
-7. If `outcome == "decompose"`: list 1–3 specific clarifying questions.
-   For contributor work, these typically include "have you filed an
-   issue or talked to a maintainer about this?" and "what does the
-   project's recent merge cadence look like?" — these surface the
-   missing signals on the most weighted axes.
+7. If `outcome == "decompose"`: emit `decompose_questions` — 1–3 structured
+   questions targeting the missing signals. For contributor work, these
+   typically include "have you filed an issue or talked to a maintainer
+   about this?" (blocking `alignment_with_upstream`) and "what does the
+   project's recent merge cadence look like?" (blocking
+   `mergeability_evidence`). Each question carries `blocking_axis` and
+   `expected_signal` so the operator knows what shape of answer unblocks
+   you.
 8. If `outcome == "trashed"`: fill `what_would_change_verdict`. For
    contributor ideas, the most common change is "get explicit
    maintainer buy-in via an issue first."
@@ -68,7 +72,8 @@ You will receive (variables are interpolated by the daemon):
    target branch, and approximate diff size. The `initial_tasks` should
    describe the steps to land the PR (read the codebase, write the
    change, write tests, prepare the PR description). Estimates should
-   be conservative — contributor work absorbs reviewer turnaround.
+   be conservative — contributor work absorbs reviewer turnaround. Do
+   not invent acceptance criteria the upstream signals don't ground.
 10. Emit **one** JSON object on stdout matching the schema below — no
     preamble, no commentary, no Markdown fences. The orchestrator parses
     this directly.
@@ -81,12 +86,18 @@ You will receive (variables are interpolated by the daemon):
   "weighted_score": 7.42,
   "uncertainty": 0.22,
   "axes": [
-    { "id": "alignment_with_upstream", "score": 8, "rationale": "..." },
-    { "id": "reviewability", "score": 7, "rationale": "..." },
-    { "id": "breaking_change_risk", "score": 9, "rationale": "..." },
-    { "id": "test_and_doc_burden", "score": 7, "rationale": "..." },
-    { "id": "agent_buildability", "score": 8, "rationale": "..." },
-    { "id": "mergeability_evidence", "score": 7, "rationale": "..." }
+    {
+      "id": "alignment_with_upstream",
+      "score": 8,
+      "anchor_band_hit": "<verbatim phrase from rubric>",
+      "evidence": "<quoted signal: linked issue, RFC, maintainer reply, or named absence>",
+      "rationale": "<one to two sentences>"
+    },
+    { "id": "reviewability", "score": 7, "anchor_band_hit": "...", "evidence": "...", "rationale": "..." },
+    { "id": "breaking_change_risk", "score": 9, "anchor_band_hit": "...", "evidence": "...", "rationale": "..." },
+    { "id": "test_and_doc_burden", "score": 7, "anchor_band_hit": "...", "evidence": "...", "rationale": "..." },
+    { "id": "agent_buildability", "score": 8, "anchor_band_hit": "...", "evidence": "...", "rationale": "..." },
+    { "id": "mergeability_evidence", "score": 7, "anchor_band_hit": "...", "evidence": "...", "rationale": "..." }
   ],
   "rationale": "Two-line synthesis the operator will see on the inbox card.",
   "title_suggestion": "short-kebab-friendly-pr-name (only when greenlit).",
@@ -99,7 +110,13 @@ You will receive (variables are interpolated by the daemon):
       { "title": "Draft PR description with motivation + alternatives considered", "estimate": "small", "acceptance": ["..."] }
     ]
   },
-  "clarifying_questions": ["..."],
+  "decompose_questions": [
+    {
+      "question": "...",
+      "blocking_axis": "alignment_with_upstream",
+      "expected_signal": "linked issue url, maintainer reply quote, or named conversation"
+    }
+  ],
   "what_would_change_verdict": "..."
 }
 ```
@@ -121,3 +138,4 @@ order.
   abandoned project at the operator's risk; even if the rubric's threshold
   is met by other axes, mention this prominently in the rationale.
 - **Output JSON only.** The first character of your response must be `{`.
+  No prose, no Markdown fences.

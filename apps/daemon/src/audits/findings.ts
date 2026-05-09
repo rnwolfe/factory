@@ -18,12 +18,60 @@ interface ParseError {
 }
 export type ParseAuditResult = ParseResult | ParseError;
 
+const REPORT_FENCE_RE = /```\s*factory-audit-report\s*\n([\s\S]*?)\n```/i;
+
 /**
- * Parse an audit agent response. Returns either the structured shape, or an
- * error message describing why parsing failed. Mirrors the v0.2 plan iteration
- * "null parse → fail" honesty contract.
+ * Parse an audit agent response. Two-block envelope is preferred:
+ *
+ *     ```factory-audit-report
+ *     <markdown report>
+ *     ```
+ *
+ *     ```json
+ *     { "findings": [...] }
+ *     ```
+ *
+ * Falls back to the legacy single-JSON envelope (`{reportMarkdown, findings}`)
+ * for backward compat with prompts/sessions still on the old contract.
+ *
+ * Mirrors the v0.2 plan iteration "null parse → fail" honesty contract.
  */
 export function parseAuditResponse(text: string): ParseAuditResult {
+  const fence = REPORT_FENCE_RE.exec(text);
+  if (fence?.[1]) {
+    return parseTwoBlock(text, fence[1]);
+  }
+  return parseLegacySingleBlock(text);
+}
+
+function parseTwoBlock(fullText: string, reportContent: string): ParseAuditResult {
+  // Strip the report fence from the searchable text so the JSON extractor
+  // doesn't trip over braces inside the markdown report.
+  const withoutReport = fullText.replace(REPORT_FENCE_RE, "");
+  let raw: unknown;
+  try {
+    raw = extractJsonObject<unknown>(withoutReport);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `report fence parsed but findings JSON missing: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "findings block is not an object" };
+  }
+  const obj = raw as Record<string, unknown>;
+  const rawFindings = Array.isArray(obj.findings) ? obj.findings : null;
+  if (rawFindings === null) {
+    return { ok: false, error: "findings block missing findings array" };
+  }
+  const findings = rawFindings
+    .filter((f): f is Record<string, unknown> => Boolean(f) && typeof f === "object")
+    .map((f) => coerceFinding(f));
+  return { ok: true, reportMarkdown: reportContent.trim(), findings };
+}
+
+function parseLegacySingleBlock(text: string): ParseAuditResult {
   let raw: unknown;
   try {
     raw = extractJsonObject<unknown>(text);
@@ -36,7 +84,11 @@ export function parseAuditResponse(text: string): ParseAuditResult {
   const obj = raw as Record<string, unknown>;
   const reportMarkdown = typeof obj.reportMarkdown === "string" ? obj.reportMarkdown : null;
   if (reportMarkdown === null) {
-    return { ok: false, error: "audit response missing reportMarkdown string" };
+    return {
+      ok: false,
+      error:
+        "audit response missing both `factory-audit-report` fence and legacy reportMarkdown string",
+    };
   }
   const rawFindings = Array.isArray(obj.findings) ? obj.findings : null;
   if (rawFindings === null) {
@@ -44,7 +96,7 @@ export function parseAuditResponse(text: string): ParseAuditResult {
   }
   const findings = rawFindings
     .filter((f): f is Record<string, unknown> => Boolean(f) && typeof f === "object")
-    .map((f): AuditFinding => coerceFinding(f));
+    .map((f) => coerceFinding(f));
   return { ok: true, reportMarkdown, findings };
 }
 

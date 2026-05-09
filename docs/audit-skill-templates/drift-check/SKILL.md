@@ -1,8 +1,8 @@
 ---
 name: drift-check
 description: Compare the most recent task run's actual touched files against its frozen task_plan's declared touches; flag drift.
-kind: read-only
-needs_worktree: false
+kind: exec
+needs_worktree: true
 default_severity_grade: enabled
 ---
 
@@ -14,18 +14,43 @@ If the run's actual touches went outside that list, the drift is worth
 surfacing — sometimes it's necessary scope adjustment, sometimes it's
 unauthorized expansion.
 
+This skill is `kind: exec` because it needs shell access to run
+`git log`, `git show`, and `git diff` against the project's worktree to
+compute the actual touch set. The framework will provide the recent
+commit log in the project context, but the per-commit file list comes
+from your shell calls.
+
 ## Scope
 
 Read the most recent **completed** run on a task that had a frozen
-`task_plan` attached at submission time. Extract:
+`task_plan` attached at submission time. Identify it via:
 
-- The frozen plan's declared `touches: string[]`.
-- The actual files modified by the run's commits (use the commit list /
-  diff that surfaces in the run summary; failing that, name the run id and
-  ask the operator to provide the diff in a follow-up comment).
+- `git log -n 30 --format='%h %s'` — look for `factory: merge <task-id>`
+  subjects that mark a successful run merge into main.
+- For the chosen merge commit, `git log -1 --format=%H <sha>` and the
+  associated `factory/run-<runId>` branch (visible via `git branch --all`).
+- Cross-reference the run's frozen task_plan in
+  `<project>/.factory/work/<task-id>-*.md` (the task body holds the
+  acceptance the run was executing against; the plan's `touches` list
+  itself is in Factory's DB and exposed via the project context the
+  framework injects below).
 
-If no such run exists in the project, that's a clean result — emit a
-short report saying so.
+If the framework didn't surface the plan's `touches` for the most recent
+run, declare `blocked` with a question — don't guess.
+
+## Report shape
+
+The audit framework's two-block envelope handles the report shape: the
+`factory-audit-report` fence carries operator-readable text, and the
+`findings` JSON carries the structured array. Inside the report:
+
+- `## Summary` — name the run id, the task, and the headline result.
+- `## Declared vs actual` — list the plan's declared `touches` and the
+  actual files modified, side by side or as two sub-lists.
+- `## Findings` — one `### <severity>: <title>` per drift entry per
+  the rules below.
+
+A clean run is `"findings": []` with a short report saying so.
 
 ## What to look for
 
@@ -41,16 +66,14 @@ short report saying so.
    that's a single **major** finding — the agent's mental model of scope
    was wrong, not the operator's.
 
-## Report shape
+## Procedure (you have shell access)
 
-`reportMarkdown`: name the run id, the task, the declared touches, the
-actual touches, then the diff (which list-items differed). Findings
-follow the per-file flags.
+1. Identify the most recent factory-merged commit and its underlying run
+   via `git log` as above.
+2. `git show --stat <merge-sha>` to enumerate the actual touched paths.
+3. Cross-reference against the plan's declared `touches` list (from the
+   project context).
+4. Walk the diff between declared and actual; emit one finding per
+   drift entry per the severity guide.
 
-A clean run with no drift is `"findings": []`.
-
-## Procedure
-
-Read-only. Use the project context and run metadata. If you need more
-detail than the prompt provided, declare `blocked` with a single specific
-question.
+A clean run with no drift is `"findings": []` and a short report saying so.

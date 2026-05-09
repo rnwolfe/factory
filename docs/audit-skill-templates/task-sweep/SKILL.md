@@ -42,11 +42,17 @@ that task.
 
 ## Report shape
 
-`reportMarkdown`: per-task walkthrough — task id + title, then any flags.
-End with a one-line summary: "N tasks flagged out of M."
+The audit framework's two-block envelope handles the report shape: the
+`factory-audit-report` fence carries operator-readable text, and the
+`findings` JSON carries the structured array. Inside the report, do a
+per-task walkthrough — task id + title, then any flags — and end with
+the one-line tally: "N tasks flagged out of M."
 
-`findings`: one entry per **per-task** issue. The `filePath` should be the
-task file's relative path; `line` is null. Severity guide:
+`findings`: one entry per **per-task** issue. The `filePath` is the task
+file's repo-relative path under `.factory/work/` (e.g.,
+`.factory/work/task-007-improve-foo.md`); `line` is null since task
+files don't have meaningful line targets for the kinds of issues this
+skill flags. Severity guide:
 
 - **major**: acceptance is `(TBD)` or missing; title is "fix X" without
   specifics. The task as written can't be run.

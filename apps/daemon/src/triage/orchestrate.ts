@@ -15,11 +15,40 @@ export interface TriageInput {
   intentRole?: "owner" | "contributor" | null;
 }
 
+/** A single rubric-axis score with anchored evidence. */
+export interface TriageAxisScore {
+  id: string;
+  score: number;
+  rationale: string;
+  /**
+   * Verbatim phrase from the rubric anchor band the agent decided this score
+   * satisfies (e.g. "9-10: operator names 3+ specific recent moments").
+   * Optional for backward compat with v1-prompted decisions; required by
+   * v2 prompts.
+   */
+  anchor_band_hit?: string;
+  /**
+   * Quoted or paraphrased signal from the idea text or thread that the
+   * score is anchored on, or a named absence of evidence. Optional for
+   * backward compat; v2 prompts require it.
+   */
+  evidence?: string;
+}
+
+/** A structured clarifying question emitted on `decompose`. */
+export interface TriageDecomposeQuestion {
+  question: string;
+  /** Rubric axis id that this answer would unblock. */
+  blocking_axis: string;
+  /** One-line description of what shape of answer would unblock scoring. */
+  expected_signal: string;
+}
+
 export interface TriageDecisionPayload {
   outcome: "greenlit" | "parked" | "trashed" | "decompose";
   weighted_score?: number;
   uncertainty?: number;
-  axes?: Array<{ id: string; score: number; rationale: string }>;
+  axes?: TriageAxisScore[];
   rationale?: string;
   title_suggestion?: string;
   spec_stub?: {
@@ -30,7 +59,15 @@ export interface TriageDecisionPayload {
       acceptance?: string[];
     }>;
   };
+  /**
+   * Legacy flat-string clarifying questions. Kept for backward compat with
+   * v1-prompted decisions; prefer `decompose_questions`. Both fields may be
+   * present during the migration window — readers should prefer the
+   * structured shape and fall back to strings.
+   */
   clarifying_questions?: string[];
+  /** Structured clarifying questions emitted by v2-prompted decisions. */
+  decompose_questions?: TriageDecomposeQuestion[];
   what_would_change_verdict?: string;
   /** Conversational reply to the operator. Only present on follow-up runs. */
   reply?: string;

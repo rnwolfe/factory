@@ -8,7 +8,11 @@ bug task (lightweight: minimal capture, refine later).
 ## Inputs
 
 - `{{PROJECT_NAME}}` — project name.
-- `{{PROJECT_CEREMONY}}` — `tinker` | `personal` | `share` | `productize`.
+- `{{PROJECT_CEREMONY}}` — `tinker` | `personal` | `shared` | `production`.
+- `{{INTENT_ROLE}}` — `owner` | `contributor` | `null`. For
+  `contributor`-mode projects, default to `task_plan` even on
+  feature-shaped findings — feature plans don't fit a contributor's PR
+  scope.
 - `{{PROJECT_VISION_EXCERPT}}` — short excerpt from VISION.md if present,
   else "(no vision doc)".
 - `{{AUDIT_SKILL_NAME}}` — the audit skill that produced these findings.
@@ -24,6 +28,8 @@ Decide which path fits the selected findings:
      recommend `"plan"` with `planKind: "task_plan"`. Draft a goal statement.
    - **Yes** and the work spans multiple tasks / is feature-shaped:
      recommend `"plan"` with `planKind: "feature_plan"`. Draft a goal.
+     **Exception:** if `INTENT_ROLE == "contributor"`, downgrade to
+     `task_plan` regardless — contributor projects don't ship features.
    - **No**, or the work is too small to plan, or the findings need more
      analysis before a plan makes sense: recommend `"bug"`. Draft a one-
      paragraph task body and a short title.
@@ -34,7 +40,8 @@ plan-shaped" is unhelpful.
 
 ## Output schema
 
-Emit one fenced JSON block. The first character of your response must be `{`.
+Emit a single JSON object on stdout — no preamble, no commentary, no Markdown
+fences. The first character of your response must be `{`.
 
 ```json
 {
@@ -55,7 +62,7 @@ Or for the bug path:
   "planKind": null,
   "goal": null,
   "taskTitle": "string — short title (<80 chars)",
-  "taskBody": "string — markdown body, one paragraph or so",
+  "taskBody": "string — markdown body, one paragraph or so (<1500 chars)",
   "reasoning": "string — one paragraph explaining the choice"
 }
 ```
@@ -65,4 +72,6 @@ Or for the bug path:
 - This is a routing call, not a substantive analysis. Keep it short.
 - Lean toward `"bug"` when in doubt — bugs can be promoted to plans later
   via refinement, but iterating a too-thin plan wastes iteration turns.
-- Output JSON only.
+- Honor `INTENT_ROLE`. Contributor-mode never returns `feature_plan`.
+- Output JSON only. The first character of your response must be `{`.
+  No prose, no Markdown fences.

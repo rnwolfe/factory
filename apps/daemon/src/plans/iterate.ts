@@ -84,26 +84,32 @@ function formatThread(comments: PlanComment[]): string {
  * Compose a follow-up turn prompt for a resumed claude session. The session
  * already has the full template + thread + draft history in its context, so
  * we don't replay any of it — just hand the agent the operator's latest
- * comment and remind it of the JSON envelope shape so it doesn't drift into
- * prose.
+ * comment and re-state the envelope-completeness contract.
+ *
+ * The envelope is non-negotiable: every turn must emit the FULL draft, even
+ * when nothing changed. The persistence layer overwrites the stored draft
+ * with whatever the agent emitted — omitted fields become empty arrays /
+ * empty strings. A "do not restate" instruction here would silently wipe
+ * operator-approved drafts on the next conversational turn.
  */
 function renderFollowUpPrompt(args: {
   kind: PlanKind;
   operatorMessage: string;
   currentDraftJson: string;
 }): string {
-  const schemaHint = `{ "reply": "<short prose>", ...${args.kind} fields... }`;
   return [
-    `Operator just commented on this ${args.kind} plan:`,
+    `The operator just commented on this ${args.kind} plan:`,
     "",
     args.operatorMessage,
     "",
-    "Current draft (for reference — update if the operator's note changes it):",
+    "Current draft for reference:",
     "```json",
     args.currentDraftJson,
     "```",
     "",
-    `Reply with a single fenced JSON block matching the same envelope you used last turn (${schemaHint}). Keep "reply" short — one or two sentences. Do not restate the entire plan unless the operator asked you to revise it.`,
+    `Respond with a single JSON object on stdout — the **full** ${args.kind} envelope you emitted last turn, plus an updated \`reply\` field. **Always emit every field** with current values, even when nothing changed. If the operator's note didn't move the draft, repeat the prior values verbatim — never omit a field, never emit an empty array as a "no change" signal. Omitted fields are persisted as empty and silently overwrite the operator-approved draft.`,
+    "",
+    "Output JSON only. The first character of your response must be `{`. No prose, no Markdown fences.",
   ].join("\n");
 }
 
@@ -118,11 +124,18 @@ function projectSpecDraftFromPayload(payload: TriageDecisionPayload): ProjectSpe
     estimate: t.estimate ?? "small",
     acceptance: t.acceptance ?? [],
   }));
+  // Seed unknowns from whichever decompose-question shape the triage emitted.
+  // v2 prompts use the structured form; v1 used flat strings.
+  const structured = (payload.decompose_questions ?? []).map((q) =>
+    q.expected_signal ? `${q.question} (need: ${q.expected_signal})` : q.question,
+  );
+  const flat = payload.clarifying_questions ?? [];
+  const unknowns = structured.length > 0 ? structured : flat;
   return {
     kind: "project_spec",
     summary: stub.summary ?? "",
     tasks,
-    unknowns: payload.clarifying_questions ?? [],
+    unknowns,
     risks: [],
   };
 }

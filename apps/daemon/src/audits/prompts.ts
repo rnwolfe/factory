@@ -4,14 +4,45 @@ import path from "node:path";
 import { spawn as bunSpawn } from "bun";
 import type { AuditSkillFile } from "../projects/audit-skills.ts";
 
+/**
+ * Two-block envelope. The agent emits the report verbatim inside one
+ * `factory-audit-report` fence, then the structured findings inside a
+ * separate JSON fence. This is much more reliable than JSON-stringifying a
+ * multi-paragraph markdown report — same pattern the run-executor uses with
+ * `factory-status`.
+ */
 const AUDIT_REPORT_FOOTER = `
 ## Output contract
 
-Emit a single fenced JSON block with this shape:
+Emit **exactly two fenced blocks in order**, with no prose between or after.
+The first character of your response must be a backtick.
+
+### Block 1 — the operator-readable report
+
+\`\`\`factory-audit-report
+# <skill name> — <project name>
+
+## Summary
+
+<one to three sentences naming the scope you read and the headline result>
+
+## Findings
+
+<one section per finding using \`### <severity>: <title>\`, or the literal
+text \`No findings.\` when nothing actionable was found>
+
+<plus any skill-specific sections — per-doc walkthroughs, per-task tables,
+per-commit reviews. The skill body tells you what extra structure to add.>
+\`\`\`
+
+The report is rendered as Markdown verbatim — do not JSON-escape newlines,
+quotes, or code blocks. \`\`\` ticks inside your report content must be
+written as four backticks (\`\`\`\`) to avoid closing the outer fence.
+
+### Block 2 — the structured findings
 
 \`\`\`json
 {
-  "reportMarkdown": "<full markdown report — operator-readable>",
   "findings": [
     {
       "severity": "critical|major|minor|enhancement",
@@ -24,9 +55,15 @@ Emit a single fenced JSON block with this shape:
 }
 \`\`\`
 
-Findings is required; emit an empty array when nothing actionable was found.
-The first character of your response must be \`{\` if not in a fence, or
-\`\\\`\\\`\\\`\` if you wrap it in one.
+\`findings\` is required. Emit \`"findings": []\` when nothing actionable
+was found — the structured-empty case is how the operator distinguishes
+"clean audit" from "audit failed."
+
+Severity guide (consistent across all skills unless the skill body overrides):
+- **critical** — would-break-prod, security, or data-loss
+- **major** — significant logic error, contract violation, or stale-on-current-code
+- **minor** — small bug, missing detail, or low-impact gap
+- **enhancement** — not wrong, but worth doing
 `;
 
 interface BuildAuditPromptInput {
@@ -39,38 +76,37 @@ interface BuildAuditPromptInput {
 }
 
 /**
- * Render an audit prompt from the skill body with placeholder substitution.
- * Skill author writes the *body* (domain-specific instructions, criteria,
- * examples). Factory adds a project-context preamble and the output-contract
- * footer.
+ * Render an audit prompt from the skill body. Skill author writes the
+ * domain-specific instructions and criteria; Factory frames the project
+ * context in a single appended section and adds the output-contract
+ * footer. Skills do not interpolate context placeholders into their body —
+ * the framework owns that surface so per-skill drift is impossible.
  */
 export function buildAuditPrompt(input: BuildAuditPromptInput): string {
   const { skill, projectName, visionExcerpt, claudeMdExcerpt, recentCommits, priorAudits } = input;
-  let body = skill.body;
-  const subs: Record<string, string> = {
-    SKILL_NAME: skill.frontmatter.name,
-    PROJECT_NAME: projectName,
-    VISION_EXCERPT: visionExcerpt,
-    CLAUDE_MD_EXCERPT: claudeMdExcerpt,
-    RECENT_COMMITS: recentCommits,
-    PRIOR_AUDITS: priorAudits,
-    SKILL_BODY: skill.body,
-  };
-  for (const [k, v] of Object.entries(subs)) {
-    body = body.replaceAll(`{{${k}}}`, v);
-  }
 
   const header = [
     `# ${skill.frontmatter.name} — ${projectName}`,
     "",
-    body,
+    skill.body.trim(),
     "",
-    "## Project context",
+    "## Project context (framework-injected)",
     "",
-    `- Vision (excerpt): ${visionExcerpt}`,
-    `- CLAUDE.md (excerpt): ${claudeMdExcerpt}`,
-    `- Recent commits: ${recentCommits}`,
-    `- Prior audit summaries: ${priorAudits}`,
+    `### VISION.md (excerpt)`,
+    "",
+    visionExcerpt,
+    "",
+    `### CLAUDE.md (excerpt)`,
+    "",
+    claudeMdExcerpt,
+    "",
+    `### Recent commits`,
+    "",
+    recentCommits,
+    "",
+    `### Prior audit reports`,
+    "",
+    priorAudits,
   ].join("\n");
 
   return `${header}\n${AUDIT_REPORT_FOOTER}`;

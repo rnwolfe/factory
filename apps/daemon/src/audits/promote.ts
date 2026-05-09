@@ -73,6 +73,7 @@ export async function bridgePromoteFindings(
   const prompt = renderTemplate(promptRow.content, {
     PROJECT_NAME: project.name,
     PROJECT_CEREMONY: project.ceremony ?? "tinker",
+    INTENT_ROLE: project.role ?? "null",
     PROJECT_VISION_EXCERPT: visionExcerpt,
     AUDIT_SKILL_NAME: audit.skillName,
     FINDINGS_MARKDOWN: findingsMd,
@@ -94,7 +95,7 @@ export async function bridgePromoteFindings(
   }
 
   const parsed = extractJsonObject<Record<string, unknown>>(invocation.text);
-  return coerceRecommendation(parsed);
+  return coerceRecommendation(parsed, { intentRole: project.role ?? null });
 }
 
 function renderTemplate(template: string, vars: Record<string, string>): string {
@@ -133,7 +134,10 @@ async function readVisionExcerpt(workdirPath: string): Promise<string> {
   }
 }
 
-function coerceRecommendation(obj: Record<string, unknown>): PromoteRecommendation {
+function coerceRecommendation(
+  obj: Record<string, unknown>,
+  ctx: { intentRole: string | null },
+): PromoteRecommendation {
   const rec = obj.recommendation === "bug" ? "bug" : "plan";
   const reasoning = typeof obj.reasoning === "string" ? obj.reasoning : "";
 
@@ -151,7 +155,13 @@ function coerceRecommendation(obj: Record<string, unknown>): PromoteRecommendati
       reasoning,
     };
   }
-  const planKind = obj.planKind === "feature_plan" ? "feature_plan" : "task_plan";
+  // Defense in depth: contributor-mode projects don't ship features. Even if
+  // the agent ignored the prompt rule, downgrade feature_plan → task_plan.
+  const requestedKind = obj.planKind === "feature_plan" ? "feature_plan" : "task_plan";
+  const planKind =
+    ctx.intentRole === "contributor" && requestedKind === "feature_plan"
+      ? "task_plan"
+      : requestedKind;
   return {
     recommendation: "plan",
     planKind,

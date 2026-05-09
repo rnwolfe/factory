@@ -22,6 +22,7 @@ import {
   wrapPrompt,
   wrapPromptWithPlan,
   wrapResumePrompt,
+  wrapResumePromptWithPlan,
 } from "./factory-status.ts";
 import { recordMergeFailure } from "./merge-failure.ts";
 import type { WorkerPool } from "./pool.ts";
@@ -51,12 +52,21 @@ type RunStatus = (typeof schema.runStatusEnum)[number] extends string
  * Without this precedence, a graceful daemon shutdown (bun --watch reload,
  * SIGTERM, etc.) calls `runs.abortAll()` mid-run and discards completed
  * work. See the abort path in `apps/daemon/src/index.ts` `stop()`.
+ *
+ * Acceptance enforcement: when the agent declares `done` but its own
+ * `acceptance` array reports any criterion as `met: false`, we downgrade
+ * to `blocked`. The agent self-incriminated; we trust the structured
+ * signal over the prose `status`. This keeps half-finished work out of
+ * the auto-merge path.
  */
 function runStatusFor(parsed: FactoryStatus | null, aborted: boolean): RunStatus {
   if (parsed) {
     switch (parsed.status) {
-      case "done":
+      case "done": {
+        const unmet = parsed.acceptance.filter((a) => !a.met);
+        if (unmet.length > 0) return "blocked";
         return "completed";
+      }
       case "blocked":
         return "blocked";
       case "failed":
@@ -65,6 +75,24 @@ function runStatusFor(parsed: FactoryStatus | null, aborted: boolean): RunStatus
   }
   if (aborted) return "aborted";
   return "failed";
+}
+
+/**
+ * Build the questions list shown on the blocked-run decision card. When the
+ * agent declared `done` but had unmet acceptance, surface the per-criterion
+ * `reason` strings so the operator sees exactly which acceptance items
+ * failed without having to drill into the full report.
+ */
+function blockerQuestionsFor(parsed: FactoryStatus | null, finalStatus: RunStatus): string[] {
+  if (!parsed) return [];
+  if (finalStatus !== "blocked") return [];
+  const unmet = parsed.acceptance.filter((a) => !a.met);
+  const fromAcceptance = unmet.map((a) =>
+    a.reason
+      ? `Unmet acceptance — ${a.criterion} (${a.reason})`
+      : `Unmet acceptance — ${a.criterion}`,
+  );
+  return [...parsed.questions, ...fromAcceptance];
 }
 
 function taskStatusFor(runStatus: RunStatus): "ready" | "in_progress" | "done" | "blocked" {
@@ -149,13 +177,12 @@ export async function executeRun(
     `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`;
 
   // Plan-aware prompt: if the run has a frozen task_plan attached, fold its
-  // draft into the prompt as authoritative context. Resume prompts skip
-  // this — the agent already has prior conversation; we just nudge it to
-  // finish.
-  let prompt: string;
-  if (resuming) {
-    prompt = wrapResumePrompt(baseTaskBody);
-  } else if (row.taskPlanId) {
+  // draft into the prompt as authoritative context. Resume prompts get the
+  // same plan injection — the recovered Claude session may have lost the
+  // original plan block from its context, and we don't want a resumed agent
+  // improvising past the operator-approved scope.
+  let frozenTaskPlan: ReturnType<typeof parseStoredDraft> | null = null;
+  if (row.taskPlanId) {
     const planRow = await db
       .select()
       .from(schema.plans)
@@ -164,20 +191,23 @@ export async function executeRun(
     if (planRow && planRow.status === "frozen" && planRow.kind === "task_plan") {
       try {
         const draft = parseStoredDraft(planRow.draft);
-        if (draft.kind === "task_plan") {
-          prompt = wrapPromptWithPlan(row.taskId ?? "ad-hoc", baseTaskBody, draft);
-        } else {
-          prompt = wrapPrompt(baseTaskBody);
-        }
+        if (draft.kind === "task_plan") frozenTaskPlan = draft;
       } catch {
         // Plan draft unparseable — fall back to plan-less prompt rather than
         // failing the run. The run summary will still mention the attached
         // plan id for audit.
-        prompt = wrapPrompt(baseTaskBody);
       }
-    } else {
-      prompt = wrapPrompt(baseTaskBody);
     }
+  }
+
+  let prompt: string;
+  if (resuming) {
+    prompt =
+      frozenTaskPlan && frozenTaskPlan.kind === "task_plan"
+        ? wrapResumePromptWithPlan(baseTaskBody, frozenTaskPlan)
+        : wrapResumePrompt(baseTaskBody);
+  } else if (frozenTaskPlan && frozenTaskPlan.kind === "task_plan") {
+    prompt = wrapPromptWithPlan(row.taskId ?? "ad-hoc", baseTaskBody, frozenTaskPlan);
   } else {
     prompt = wrapPrompt(baseTaskBody);
   }
@@ -236,13 +266,19 @@ export async function executeRun(
     // that's *some* signal of work done — but we deliberately keep this as
     // failed. The operator should see a blank status block as a bug to fix in
     // the prompt, not as a silent pass.
-    const summary =
+    const acceptanceDowngraded =
+      parsed?.status === "done" && finalStatus === "blocked" && parsed.acceptance.length > 0;
+    const baseSummary =
       parsed?.summary ||
       (finalStatus === "completed"
         ? "Run completed without an explicit summary."
         : finalStatus === "aborted"
           ? "Run was aborted by the operator."
           : "Run ended without a status block — the agent may have stopped early.");
+    const summary = acceptanceDowngraded
+      ? `${baseSummary}\n\n_Note: agent declared done but ${parsed.acceptance.filter((a) => !a.met).length} acceptance criterion(s) reported as unmet — downgraded to blocked._`
+      : baseSummary;
+    const blockerQuestions = blockerQuestionsFor(parsed, finalStatus);
 
     await db
       .update(schema.runs)
@@ -255,10 +291,7 @@ export async function executeRun(
         branch: result.branch,
         iterationCount: result.iterationsCompleted,
         summary,
-        blockerQuestions:
-          parsed?.questions && parsed.questions.length > 0
-            ? JSON.stringify(parsed.questions)
-            : null,
+        blockerQuestions: blockerQuestions.length > 0 ? JSON.stringify(blockerQuestions) : null,
         acceptanceResults:
           parsed?.acceptance && parsed.acceptance.length > 0
             ? JSON.stringify(parsed.acceptance)
@@ -414,7 +447,6 @@ export async function executeRun(
     // the run blocked.
     if (finalStatus === "blocked") {
       const decisionId = createId();
-      const questions = parsed?.questions ?? [];
       await db.insert(schema.decisions).values({
         id: decisionId,
         kind: "blocked_run",
@@ -424,7 +456,7 @@ export async function executeRun(
           runId,
           taskId: row.taskId ?? null,
           summary,
-          questions,
+          questions: blockerQuestions,
           branch: result.branch,
         },
         status: "pending",

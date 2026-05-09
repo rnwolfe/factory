@@ -40,19 +40,26 @@ For each commit / change set, evaluate:
 
 ## Report shape
 
-Your `reportMarkdown` should be operator-readable: a one-paragraph summary
-of what you reviewed (which commits, scope), then findings rendered as
-sections.
+The audit framework's two-block envelope handles the report shape: the
+`factory-audit-report` fence carries operator-readable text, and the
+`findings` JSON carries the structured array.
+
+Inside the report fence:
+
+- A `## Summary` section: one paragraph naming what you reviewed (which
+  commits, what scope) and the headline result (clean / N findings).
+- A `## Findings` section: one `### <severity>: <title>` per finding,
+  with the body explaining what's wrong and (when applicable) the
+  file path + line. If there are no findings, write `No findings.` and
+  the structured `findings` array is `[]`.
+- Optional `## Notes` if there's reviewer commentary that didn't rise
+  to a finding.
 
 `findings` is the structured array — one finding per issue. Pin the file +
-line where applicable. Severity guide:
-
-- **critical**: would-break-prod / security / data-loss
-- **major**: significant logic error or convention violation
-- **minor**: small bug, style, or low-impact gap
-- **enhancement**: not wrong, but worth doing
-
-If you found nothing, emit `"findings": []` and a short report saying so.
+line where applicable. Use the framework severity guide (critical / major
+/ minor / enhancement) — it's already in the output-contract footer the
+framework appends, so you don't need to re-state it in the report unless
+your skill diverges.
 
 ## Procedure (you have shell access)
 

@@ -19,6 +19,11 @@ export interface DecisionRow {
     rationale?: string;
     title_suggestion?: string;
     clarifying_questions?: string[];
+    decompose_questions?: Array<{
+      question: string;
+      blocking_axis?: string;
+      expected_signal?: string;
+    }>;
     what_would_change_verdict?: string;
     // blocked_run / merge_failure shape
     runId?: string;

@@ -15,13 +15,28 @@ interface DecisionComment {
   createdAt: number;
 }
 
+interface DecisionAxis {
+  id: string;
+  score: number;
+  rationale: string;
+  /** v2 prompts add anchor + evidence; older payloads omit them. */
+  anchor_band_hit?: string;
+  evidence?: string;
+}
+
+interface DecomposeQuestion {
+  question: string;
+  blocking_axis?: string;
+  expected_signal?: string;
+}
+
 interface DecisionPayload {
   outcome?: string;
   weighted_score?: number;
   uncertainty?: number;
   rationale?: string;
   title_suggestion?: string;
-  axes?: Array<{ id: string; score: number; rationale: string }>;
+  axes?: DecisionAxis[];
   spec_stub?: {
     summary?: string;
     initial_tasks?: Array<{
@@ -30,7 +45,10 @@ interface DecisionPayload {
       acceptance?: string[];
     }>;
   };
+  /** v1 flat-string clarifying questions. */
   clarifying_questions?: string[];
+  /** v2 structured decompose questions. */
+  decompose_questions?: DecomposeQuestion[];
   what_would_change_verdict?: string;
   // tag_change shape
   previousTag?: string;
@@ -235,6 +253,16 @@ export function DecisionDetail() {
                     <span className="text-[var(--color-fg-3)] text-[12px] ml-0.5">/10</span>
                   </span>
                 </div>
+                {a.anchor_band_hit ? (
+                  <p className="mono text-[11px] text-[var(--color-fg-3)] leading-snug mb-1">
+                    band: {a.anchor_band_hit}
+                  </p>
+                ) : null}
+                {a.evidence ? (
+                  <p className="text-[12.5px] leading-relaxed text-[var(--color-fg-2)] italic mb-1">
+                    “{a.evidence}”
+                  </p>
+                ) : null}
                 <p className="text-[13px] leading-relaxed text-[var(--color-fg-1)]">
                   {a.rationale}
                 </p>
@@ -282,7 +310,30 @@ export function DecisionDetail() {
         </Section>
       ) : null}
 
-      {payload.clarifying_questions && payload.clarifying_questions.length > 0 ? (
+      {payload.decompose_questions && payload.decompose_questions.length > 0 ? (
+        <Section title="clarifying questions">
+          <ol className="px-4 py-3 space-y-3 text-[14px] leading-relaxed text-[var(--color-fg-1)] list-decimal list-inside">
+            {payload.decompose_questions.map((q, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: questions are positional
+              <li key={i} className="space-y-1">
+                <div>{q.question}</div>
+                {q.blocking_axis || q.expected_signal ? (
+                  <div className="ml-5 mono text-[11px] text-[var(--color-fg-3)] leading-snug">
+                    {q.blocking_axis ? (
+                      <span>
+                        blocking:{" "}
+                        <span className="text-[var(--color-fg-2)]">{q.blocking_axis}</span>
+                      </span>
+                    ) : null}
+                    {q.blocking_axis && q.expected_signal ? <span> · </span> : null}
+                    {q.expected_signal ? <span>need: {q.expected_signal}</span> : null}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </Section>
+      ) : payload.clarifying_questions && payload.clarifying_questions.length > 0 ? (
         <Section title="clarifying questions">
           <ol className="px-4 py-3 space-y-2 text-[14px] leading-relaxed text-[var(--color-fg-1)] list-decimal list-inside">
             {payload.clarifying_questions.map((q, i) => (

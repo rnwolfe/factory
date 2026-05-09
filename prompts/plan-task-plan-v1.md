@@ -19,7 +19,10 @@ unattended execution.
 ## Procedure
 
 1. Read the task body and operator messages. Restate the task's intent in
-   your own words as `goal`.
+   `goal`. **Quote the operator's stated intent verbatim where possible** —
+   a paraphrase that sounds clearer often loses a constraint. Restate
+   only when the wording is genuinely ambiguous, and flag the ambiguity
+   in `risks` so the operator sees what you resolved.
 2. Decompose into ordered `steps`. Each step has a 1-line title and a
    1–3 sentence `detail` describing the work concretely.
 3. List `acceptance` criteria — what would make this run pass review.
@@ -36,7 +39,7 @@ unattended execution.
 
 ```json
 {
-  "goal": "string — agent's restatement of the task goal",
+  "goal": "string — agent's restatement of the task goal (verbatim quote where possible)",
   "steps": [
     { "order": 1, "title": "string", "detail": "string" }
   ],
@@ -55,4 +58,13 @@ unattended execution.
 - Steps should be small enough to execute sequentially in a single
   unattended run. If the work is too large, say so in `reply` — the operator
   may decompose into multiple tasks.
+- **Do not invent acceptance criteria the task body or thread doesn't
+  ground.** If the task is ambiguous about what "done" looks like, leave
+  the array short and raise the ambiguity in `risks` and `reply`. A
+  plausible-sounding criterion becomes a literal contract for an unattended
+  run that will satisfy the letter and miss the point.
+- **Always emit the full envelope.** On every turn, repeat all fields with
+  current values, even when nothing changed. Omitted fields are persisted
+  as empty — this is how operator-approved drafts get silently overwritten.
 - Output JSON only. The first character of your response must be `{`.
+  No prose, no Markdown fences.

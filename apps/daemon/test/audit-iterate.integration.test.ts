@@ -110,6 +110,75 @@ describe("parseAuditResponse", () => {
     expect(out.ok).toBe(false);
   });
 
+  test("parses two-block envelope (factory-audit-report fence + json findings)", () => {
+    const text = [
+      "```factory-audit-report",
+      "# Report",
+      "",
+      "## Summary",
+      "",
+      "Audited 5 commits. One stale reference in README.",
+      "",
+      "## Findings",
+      "",
+      "### minor: Stale link",
+      "",
+      "README.md links to `docs/old-guide.md` which was renamed.",
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        findings: [
+          {
+            severity: "minor",
+            title: "Stale link",
+            body: "README.md links to a renamed doc.",
+            filePath: "README.md",
+            line: 42,
+          },
+        ],
+      }),
+      "```",
+    ].join("\n");
+    const out = parseAuditResponse(text);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      // Report content is the verbatim fence body — no JSON-string escaping.
+      expect(out.reportMarkdown).toContain("# Report");
+      expect(out.reportMarkdown).toContain("## Summary");
+      expect(out.reportMarkdown).not.toContain("```factory-audit-report");
+      expect(out.findings).toHaveLength(1);
+      expect(out.findings[0]?.severity).toBe("minor");
+      expect(out.findings[0]?.line).toBe(42);
+    }
+  });
+
+  test("two-block envelope tolerates empty findings array", () => {
+    const text = [
+      "```factory-audit-report",
+      "# Report",
+      "",
+      "Clean.",
+      "```",
+      "",
+      "```json",
+      '{ "findings": [] }',
+      "```",
+    ].join("\n");
+    const out = parseAuditResponse(text);
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.findings).toHaveLength(0);
+      expect(out.reportMarkdown).toContain("Clean.");
+    }
+  });
+
+  test("two-block envelope: report fence present but findings json missing → ok:false", () => {
+    const text = ["```factory-audit-report", "# Report", "", "Clean.", "```"].join("\n");
+    const out = parseAuditResponse(text);
+    expect(out.ok).toBe(false);
+  });
+
   test("invalid severity falls back to minor; out-of-spec fields ignored", () => {
     const out = parseAuditResponse(
       JSON.stringify({
