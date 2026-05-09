@@ -16,8 +16,6 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { MarkdownBlock } from "./markdown-block.tsx";
-
 export interface RunEvent {
   kind: string;
   iteration?: number;
@@ -72,12 +70,18 @@ function stripAnsi(s: string): string {
 
 export function RunEventRow({ event }: { event: RunEvent }) {
   switch (event.kind) {
-    case "text":
+    case "text": {
+      // Plain pre — markdown rendering on hundreds of agent-text events
+      // adds up to seconds of synchronous parsing on initial paint, which
+      // can lock the main thread. The raw xterm view ([raw] toggle above)
+      // still preserves the full stream including any color/formatting.
+      const text = event.text ?? "";
       return (
         <div className="run-event run-event-text">
-          <MarkdownBlock source={event.text ?? ""} />
+          <pre className="run-event-text-pre">{text}</pre>
         </div>
       );
+    }
 
     case "tool": {
       const Icon = iconForTool(event.name ?? "");

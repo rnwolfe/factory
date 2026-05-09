@@ -63,16 +63,19 @@ export function LivePane() {
     },
   });
 
-  // Replay the persisted tmux log on mount so revisiting a run shows what
-  // actually happened. Runs once per mount; the live WS picks up afterwards.
+  // Replay the persisted tmux log on first switch to raw view. Lazy with
+  // the terminal — fetches and replays only when the operator opens raw,
+  // not on every page mount (saves a 256KB query and a multi-thousand-line
+  // xterm write on every run-page navigation).
   const rawLog = useQuery({
     queryKey: ["runs.rawLog", runId],
     queryFn: () => trpc.runs.rawLog.query({ runId }),
-    enabled: runId.length > 0 && !replayedRef.current,
+    enabled: runId.length > 0 && view === "raw" && !replayedRef.current,
     staleTime: Number.POSITIVE_INFINITY,
   });
 
   useEffect(() => {
+    if (view !== "raw") return;
     if (!rawLog.data || replayedRef.current) return;
     const term = termRef.current;
     if (!term) return;
@@ -82,18 +85,22 @@ export function LivePane() {
       );
     }
     if (rawLog.data.content.length > 0) {
-      // Stream lines so xterm renders incrementally rather than blocking on
-      // one massive write.
       for (const line of rawLog.data.content.split("\n")) {
         term.write(`${line}\r\n`);
       }
     }
     replayedRef.current = true;
-  }, [rawLog.data]);
+  }, [rawLog.data, view]);
 
-  // Boot the terminal once.
+  // Boot the terminal lazily — only once the operator switches to the raw
+  // view. Mounting xterm eagerly (on every LivePane mount, even for users
+  // who never toggle to raw) burns ~50–150ms of synchronous DOM construction
+  // on every navigation into a run page. The structured view is the default
+  // and covers 95% of operator needs.
   useEffect(() => {
+    if (view !== "raw") return;
     if (!containerRef.current) return;
+    if (termRef.current) return; // already booted from a prior toggle
     const term = new Terminal({
       cursorBlink: false,
       cursorStyle: "underline",
@@ -156,7 +163,7 @@ export function LivePane() {
       termRef.current = null;
       fitRef.current = null;
     };
-  }, []);
+  }, [view]);
 
   const runStatus = run.data?.status;
 

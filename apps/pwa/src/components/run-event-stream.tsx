@@ -5,7 +5,12 @@ import { trpc } from "../lib/trpc.ts";
 import { ErrorBoundary } from "./error-boundary.tsx";
 import { type RunEvent, RunEventRow } from "./run-event-row.tsx";
 
-const MAX_EVENTS = 500;
+// Cap the structured-view buffer. 200 is plenty to represent the tail of a
+// run; the raw [raw] toggle preserves the full xterm stream. Lower numbers
+// help: each row is a flex container with several spans, and on a phone or
+// even a busy laptop, mounting hundreds of rows at once costs measurable
+// frame time on the navigation into a run page.
+const MAX_EVENTS = 200;
 
 interface PersistedEventRow {
   id: number;
