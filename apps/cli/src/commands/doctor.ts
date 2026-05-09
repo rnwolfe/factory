@@ -122,6 +122,58 @@ async function checkRemote(): Promise<CheckResult> {
   return { name: "remote", status: "pass", detail: `${cfg.remote}=${r.stdout.trim()}` };
 }
 
+/**
+ * Surface the daemon's configured bind host. The PWA on a phone or other
+ * LAN device can only reach the daemon if it's bound to 0.0.0.0 (or a
+ * specific external interface). A host of `127.0.0.1` / `localhost`
+ * means localhost-only — diagnostically useful when "the PWA is
+ * unreachable from my phone" reports come in.
+ *
+ * Reads the live daemon's config from <FACTORY_HOME>/config.yaml,
+ * resolved by parsing `Environment=FACTORY_HOME=` from the systemd unit
+ * file. Falls back to ~/.factory/config.yaml when the unit isn't
+ * installed.
+ */
+async function checkBind(): Promise<CheckResult> {
+  let factoryHome = process.env.FACTORY_HOME ?? path.join(os.homedir(), ".factory");
+  if (existsSync(unitPath())) {
+    try {
+      const { readFile: rf } = await import("node:fs/promises");
+      const unit = await rf(unitPath(), "utf8");
+      const m = unit.match(/^Environment=FACTORY_HOME=(.+)$/m);
+      if (m) factoryHome = (m[1] ?? "").trim();
+    } catch {
+      // best-effort
+    }
+  }
+  const liveCfgPath = path.join(factoryHome, "config.yaml");
+  if (!existsSync(liveCfgPath)) {
+    return {
+      name: "bind",
+      status: "warn",
+      detail: `${liveCfgPath} missing (daemon hasn't booted yet?)`,
+    };
+  }
+  try {
+    const { readFile: rf } = await import("node:fs/promises");
+    const yaml = await import("yaml");
+    const text = await rf(liveCfgPath, "utf8");
+    const parsed = yaml.parse(text) as { host?: unknown; port?: unknown } | null;
+    const host = typeof parsed?.host === "string" ? parsed.host : "0.0.0.0";
+    const port = typeof parsed?.port === "number" ? parsed.port : 4080;
+    if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
+      return {
+        name: "bind",
+        status: "warn",
+        detail: `host=${host}:${port} — LOCALHOST ONLY. set host: "0.0.0.0" in ${liveCfgPath} and restart for LAN access`,
+      };
+    }
+    return { name: "bind", status: "pass", detail: `${host}:${port}` };
+  } catch (err) {
+    return { name: "bind", status: "warn", detail: (err as Error).message };
+  }
+}
+
 async function checkDb(): Promise<CheckResult> {
   // Bun's built-in sqlite — open read-only and verify it's a valid db.
   const home = process.env.FACTORY_HOME || path.join(os.homedir(), ".factory");
@@ -158,6 +210,7 @@ export async function runDoctor(args: DoctorArgs): Promise<number> {
     await checkConfig(),
     await checkRemote(),
     await checkLinger(),
+    await checkBind(),
     await checkDb(),
   ];
   for (const c of checks) process.stdout.write(`${fmt(c)}\n`);

@@ -239,6 +239,15 @@ export async function startDaemon(): Promise<DaemonHandle> {
     console.log(`[factoryd] port ${config.port} unavailable — bound ${boundPort} instead`);
   }
   console.log(`[factoryd] listening on http://${config.host}:${boundPort}`);
+  // Loud warning for localhost-only binds — operators expect to reach the
+  // PWA from their phone over LAN; a 127.0.0.1 bind silently breaks that.
+  // Common cause: hand-edited config.yaml or a stale value from an old
+  // install. The fix is one line — point operators at it.
+  if (config.host === "127.0.0.1" || config.host === "localhost" || config.host === "::1") {
+    console.warn(
+      `[factoryd] WARNING: bound to ${config.host} — LAN clients (phone, other devices) cannot reach this daemon. set host: "0.0.0.0" in ${source.configPath} and restart.`,
+    );
+  }
   console.log(`[factoryd] tRPC endpoint:   /trpc`);
   console.log(`[factoryd] WS channels:     /ws/events  /ws/pane  /ws/inbox  /ws/script`);
   console.log(`[factoryd] workdir:         ${config.workdir}`);
