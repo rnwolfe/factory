@@ -20,6 +20,7 @@ import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.
 import {
   type AutonomyMode,
   type FactoryStatus,
+  parseFactoryDefer,
   parseFactoryStatus,
   prependOperatorContext,
   wrapPrompt,
@@ -41,9 +42,7 @@ export interface RunnerDeps {
   pool: WorkerPool;
 }
 
-type RunStatus = (typeof schema.runStatusEnum)[number] extends string
-  ? "queued" | "running" | "completed" | "failed" | "aborted" | "blocked"
-  : never;
+type RunStatus = (typeof schema.runStatusEnum)[number];
 
 /**
  * Map a parsed factory-status to the run row's terminal status. The agent's
@@ -335,7 +334,14 @@ export async function executeRun(
     }
 
     const parsed = parseFactoryStatus(agentText);
-    const finalStatus = runStatusFor(parsed, aborted);
+    const defer = aborted ? null : parseFactoryDefer(agentText);
+    // factory-defer wins over factory-status. If the agent emitted both
+    // (against the protocol's instruction), we treat the deferred work
+    // as the load-bearing signal — the agent was about to ask Factory to
+    // run something that outlives the turn, and silently dropping the
+    // defer would lose that work entirely. We log this case for the
+    // operator's awareness via the run summary below.
+    const finalStatus: RunStatus = defer ? "deferred" : runStatusFor(parsed, aborted);
 
     // If parsing returned null and the runtime spawn nonetheless emitted commits,
     // that's *some* signal of work done — but we deliberately keep this as
@@ -343,15 +349,20 @@ export async function executeRun(
     // the prompt, not as a silent pass.
     const acceptanceDowngraded =
       parsed?.status === "done" && finalStatus === "blocked" && parsed.acceptance.length > 0;
-    const baseSummary =
-      parsed?.summary ||
-      (finalStatus === "completed"
-        ? "Run completed without an explicit summary."
-        : finalStatus === "aborted"
-          ? "Run was aborted by the operator."
-          : "Run ended without a status block — the agent may have stopped early.");
+    const baseSummary = defer
+      ? `Deferred: ${defer.summary}${
+          parsed
+            ? `\n\n_Note: agent emitted both factory-defer and factory-status (${parsed.status}); deferred work takes precedence._`
+            : ""
+        }`
+      : parsed?.summary ||
+        (finalStatus === "completed"
+          ? "Run completed without an explicit summary."
+          : finalStatus === "aborted"
+            ? "Run was aborted by the operator."
+            : "Run ended without a status block — the agent may have stopped early.");
     const summary = acceptanceDowngraded
-      ? `${baseSummary}\n\n_Note: agent declared done but ${parsed.acceptance.filter((a) => !a.met).length} acceptance criterion(s) reported as unmet — downgraded to blocked._`
+      ? `${baseSummary}\n\n_Note: agent declared done but ${parsed?.acceptance.filter((a) => !a.met).length ?? 0} acceptance criterion(s) reported as unmet — downgraded to blocked._`
       : baseSummary;
     const blockerQuestions = blockerQuestionsFor(parsed, finalStatus);
 
@@ -382,7 +393,9 @@ export async function executeRun(
     // Stamp the task file's terminal status — but in the run's worktree, not
     // in the project's main tree. Committing it here means the upcoming
     // merge into main brings the status update along with the agent's work.
-    if (row.taskId) {
+    // Skipped for deferred runs: the task is logically still in flight, and
+    // the continuation run will write the terminal status when it lands.
+    if (row.taskId && finalStatus !== "deferred") {
       try {
         const updated = await updateTaskStatus(
           result.worktreePath,
@@ -407,6 +420,47 @@ export async function executeRun(
       decisionId: runId,
       projectId: project.id,
     });
+
+    // Hand off long-running work to the daemon-supervised deferred-task
+    // primitive. The agent's `factory-defer` block told us "run X, then
+    // resume me with the result" — Factory now owns that bridge between
+    // claude --print invocations. Quality / merge / auto-advance below
+    // all naturally skip when finalStatus === "deferred"; the continuation
+    // run will land on the same worktree+branch via reuseFromRunId and
+    // will go through those checks itself once the agent declares done.
+    if (finalStatus === "deferred" && defer) {
+      const { spawnDeferredTask } = await import("../deferred-tasks/orchestrate.ts");
+      try {
+        const { deferredTaskId } = await spawnDeferredTask(
+          { config, db, events, runs, pool },
+          {
+            id: runId,
+            projectId: project.id,
+            taskId: row.taskId ?? null,
+            worktreePath: result.worktreePath,
+            branch: result.branch,
+          },
+          defer,
+        );
+        await db
+          .update(schema.runs)
+          .set({ summary: `${summary}\n\n_Deferred task id: ${deferredTaskId}_` })
+          .where(eq(schema.runs.id, runId));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[runner] failed to spawn deferred task for ${runId}: ${msg}`);
+        // Demote: spawn failed, so the run cannot legitimately be deferred.
+        // Mark it failed so the operator notices instead of seeing a run
+        // stuck in `deferred` forever.
+        await db
+          .update(schema.runs)
+          .set({
+            status: "failed",
+            summary: `${summary}\n\n[deferred-spawn] failed to start: ${msg}`,
+          })
+          .where(eq(schema.runs.id, runId));
+      }
+    }
 
     // Quality signal: run lint/typecheck/test inside the worktree after the
     // agent's auto-commit and before merging into main. Failures do NOT

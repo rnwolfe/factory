@@ -5,12 +5,32 @@ import type { RuntimeEvent } from "@factory/runtime";
  * not produced by `runtime.spawn`. Used for post-spawn signals like the
  * quality report that lands after the agent's auto-commit.
  */
-export type DaemonRunEvent = {
-  kind: "quality_report";
-  runId: string;
-  iteration: number;
-  overall: "pass" | "fail" | "skipped";
-};
+export type DaemonRunEvent =
+  | {
+      kind: "quality_report";
+      runId: string;
+      iteration: number;
+      overall: "pass" | "fail" | "skipped";
+    }
+  | {
+      kind: "deferred_task_started";
+      runId: string;
+      deferredTaskId: string;
+      summary: string;
+    }
+  | {
+      kind: "deferred_task_completed";
+      runId: string;
+      deferredTaskId: string;
+      exitCode: number;
+      continuationRunId: string;
+    }
+  | {
+      kind: "deferred_task_orphaned";
+      runId: string;
+      deferredTaskId: string;
+      pid: number | null;
+    };
 
 /**
  * `projectId` is attached opportunistically at publish sites so that the

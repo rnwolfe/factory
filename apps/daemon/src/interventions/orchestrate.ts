@@ -453,6 +453,11 @@ async function finalizeBlockedRunResume(
     .where(eq(schema.decisions.id, intervention.decisionId))
     .get();
   const decisionPayload = (decisionRow?.payload ?? {}) as BlockedRunPayload;
+  const header = `## Operator notes (from prior blocked run + intervention)
+
+The operator opened an intervention session over your worktree, then chose
+to resume. Treat the notes below as authoritative — they're the operator's
+most recent intent and the resolution path for whatever blocked you.`;
   const questionsBlock =
     decisionPayload.questions && decisionPayload.questions.length > 0
       ? `### Questions you asked\n\n${decisionPayload.questions
@@ -468,7 +473,7 @@ async function finalizeBlockedRunResume(
           )
           .join("\n\n")}\n\n`
       : "";
-  const operatorContext = `${questionsBlock}${repliesBlock}### Operator intervention\n\n${interventionCommitInfo}\n\nWhen you continue, run \`git status\` and \`git log --oneline -10\` first to see the current worktree state.`;
+  const operatorContext = `${header}\n\n${questionsBlock}${repliesBlock}### Operator intervention\n\n${interventionCommitInfo}\n\nWhen you continue, run \`git status\` and \`git log --oneline -10\` first to see the current worktree state.`;
 
   // Submit a new run that REUSES the source's worktree + branch. Critical:
   // a fresh sibling worktree branched from source.branch would lose the

@@ -59,11 +59,16 @@ function seedProject(db: ReturnType<typeof createDb>): string {
 }
 
 describe("prependOperatorContext", () => {
-  test("prepends an operator-notes block above the prompt", () => {
+  test("prepends caller-supplied context above the prompt with a separator", () => {
     const wrapped = wrapPrompt("do the thing", "collaborative");
-    const out = prependOperatorContext(wrapped, "Use sqlite-vec, not pgvector.");
+    // Helper is generic glue — caller owns the section header. Verifies that
+    // an arbitrary header survives as the leading line and the original
+    // prompt rides intact below the `---` separator.
+    const ctx = "## Operator notes\n\nUse sqlite-vec, not pgvector.";
+    const out = prependOperatorContext(wrapped, ctx);
     expect(out.startsWith("## Operator notes")).toBe(true);
     expect(out).toContain("Use sqlite-vec, not pgvector.");
+    expect(out).toContain("\n\n---\n\n");
     // Original prompt must still ride at the bottom — the wrap-up footer
     // is the contract that keeps the agent honest about completion.
     expect(out).toContain("do the thing");
@@ -170,11 +175,15 @@ describe("blocked_run retry · operator-context flow", () => {
         .orderBy(asc(schema.decisionComments.createdAt))
         .all();
       const operatorReplies = thread.filter((c) => c.role === "operator");
-      const operatorContext = operatorReplies
+      // Mirror `renderBlockedRunOperatorContext` from decisions.ts: the
+      // section header is the caller's responsibility under the new
+      // `prependOperatorContext` contract; the helper is just glue.
+      const replyBlocks = operatorReplies
         .map(
           (c) => `### Operator reply · ${new Date(c.createdAt).toISOString()}\n\n${c.body.trim()}`,
         )
         .join("\n\n");
+      const operatorContext = `## Operator notes (from prior blocked run)\n\n${replyBlocks}`;
 
       const newRunId = createId();
       h.db
@@ -209,7 +218,7 @@ describe("blocked_run retry · operator-context flow", () => {
       // factory-status helper. Verify the composed prompt has both layers.
       const wrapped = wrapPrompt("Run the M21 corpus build.", "collaborative");
       const finalPrompt = prependOperatorContext(wrapped, newRun?.operatorContext ?? "");
-      expect(finalPrompt).toMatch(/^## Operator notes/);
+      expect(finalPrompt).toMatch(/^## Operator notes \(from prior blocked run\)/);
       expect(finalPrompt).toContain("corpus/m21/raw/2026-04 export.zip");
       expect(finalPrompt).toContain("Run the M21 corpus build.");
     } finally {

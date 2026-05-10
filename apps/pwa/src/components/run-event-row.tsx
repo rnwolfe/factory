@@ -3,11 +3,13 @@ import {
   Bot,
   CircleAlert,
   CircleSlash,
+  Clock,
   CornerDownRight,
   FileEdit,
   FileText,
   GitCommit,
   Globe,
+  Hourglass,
   ListChecks,
   ListTodo,
   Search,
@@ -37,6 +39,11 @@ export interface RunEvent {
     outputTokens?: number;
     durationMs?: number;
   };
+  /** deferred_task_* payloads */
+  deferredTaskId?: string;
+  summary?: string;
+  continuationRunId?: string;
+  pid?: number | null;
 }
 
 const TOOL_ICON: Record<string, LucideIcon> = {
@@ -189,6 +196,39 @@ export function RunEventRow({ event }: { event: RunEvent }) {
         <div className="run-event run-event-iteration">
           <CircleSlash size={11} />
           <span>idle timeout</span>
+        </div>
+      );
+
+    case "deferred_task_started":
+      return (
+        <div className="run-event run-event-iteration">
+          <Hourglass size={13} />
+          <span>deferred work started — {event.summary ?? ""}</span>
+        </div>
+      );
+
+    case "deferred_task_completed":
+      return (
+        <div
+          className={`run-event run-event-exit ${
+            event.exitCode === 0 ? "run-event-exit-ok" : "run-event-exit-bad"
+          }`}
+        >
+          {event.exitCode === 0 ? <ListChecks size={13} /> : <XCircle size={13} />}
+          <span>
+            deferred work {event.exitCode === 0 ? "completed" : `failed (${event.exitCode ?? "?"})`}
+            {event.continuationRunId ? " · continuation submitted" : ""}
+          </span>
+        </div>
+      );
+
+    case "deferred_task_orphaned":
+      return (
+        <div className="run-event run-event-exit run-event-exit-bad">
+          <Clock size={13} />
+          <span>
+            deferred work orphaned{event.pid != null ? ` (pid ${event.pid} unreachable)` : ""}
+          </span>
         </div>
       );
 

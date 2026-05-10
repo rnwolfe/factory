@@ -160,6 +160,73 @@ export function parseFactoryStatus(text: string): FactoryStatus | null {
   return lastValid;
 }
 
+/**
+ * The agent's request to hand off long-running work to Factory and
+ * receive a continuation prompt when it completes. Emitted as an
+ * alternative to `factory-status` — when present, the run is deferred
+ * (status = "deferred") and the named command runs as a child of the
+ * daemon (NOT the agent's tmux). On completion, daemon submits a
+ * continuation run reusing the source's worktree, with `continuation`
+ * as the operator-context preamble + a structured outcome block.
+ */
+export interface FactoryDefer {
+  /** Shell command to run, executed via `sh -c` in the run's worktree. */
+  command: string;
+  /** Agent's note-to-future-self capturing intent and current state. */
+  summary: string;
+  /** Becomes the continuation run's task body (above an outcome block). */
+  continuation: string;
+}
+
+const DEFER_FENCE_RE = /```\s*factory-defer\s*\n([\s\S]*?)```/i;
+
+interface MaybeDefer {
+  command?: unknown;
+  summary?: unknown;
+  continuation?: unknown;
+  /** Tolerate `continuationPrompt` as an alternate spelling. */
+  continuationPrompt?: unknown;
+}
+
+function coerceDefer(raw: unknown): FactoryDefer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as MaybeDefer;
+  const command = typeof obj.command === "string" ? obj.command.trim() : "";
+  const summary = typeof obj.summary === "string" ? obj.summary.trim() : "";
+  const continuation =
+    typeof obj.continuation === "string"
+      ? obj.continuation.trim()
+      : typeof obj.continuationPrompt === "string"
+        ? obj.continuationPrompt.trim()
+        : "";
+  if (command.length === 0 || summary.length === 0 || continuation.length === 0) {
+    // All three fields are load-bearing — agent's continuation is what the
+    // future relaunch sees instead of session context, summary is the
+    // operator-facing card label, command is what we run. Reject partials
+    // rather than spawn something we can't track or describe.
+    return null;
+  }
+  return { command, summary, continuation };
+}
+
+/**
+ * Parse a `factory-defer` block from accumulated agent text. Returns null
+ * when no parseable block is present. The fenced block is the canonical
+ * shape; we don't tail-scan for naked JSON the way `parseFactoryStatus`
+ * does — defer is opt-in and ambiguity-prone, so we want the explicit
+ * fence or nothing.
+ */
+export function parseFactoryDefer(text: string): FactoryDefer | null {
+  const fenced = DEFER_FENCE_RE.exec(text);
+  if (!fenced?.[1]) return null;
+  try {
+    const parsed = JSON.parse(fenced[1].trim());
+    return coerceDefer(parsed);
+  } catch {
+    return null;
+  }
+}
+
 const COMPLETION_FOOTER_BASE = `
 
 ---
@@ -191,6 +258,64 @@ Rules:
   daemon will fall back to auto-committing residual dirty state, but
   committed-with-message work is what review reads — auto-commit is a
   safety net, not your default.
+`;
+
+/**
+ * Long-running work that exceeds a single --print turn — corpus builds,
+ * indexing, exhaustive test runs, dataset generation. This protocol is
+ * appended after the completion + decision protocols so the agent has
+ * seen both terminal-status options and the decision-surfacing rules
+ * before learning about deferral.
+ */
+const DEFER_PROTOCOL = `
+
+---
+
+# Factory deferred-work protocol — bridging beyond a single turn
+
+This run executes via \`claude --print\`, which is **one-shot**. When your
+turn ends:
+- \`ScheduleWakeup\`, \`Monitor\`, and Claude Code's other "I'll check back
+  later" tools do **not** fire — there is no harness running to fire them.
+  Treat any "scheduled / will check back" pattern as broken in this mode.
+- \`--resume <sessionId>\` does NOT replay your prior conversation history
+  in --print mode. The next run sees only the prompt body Factory builds,
+  not your reasoning chain.
+
+For work that genuinely needs to outlive your turn, emit a \`factory-defer\`
+block **instead of** \`factory-status\`. Factory will run the command as
+a child of the daemon (NOT inside your tmux, which goes away when your
+turn ends), and when it completes, submit a continuation run that lands
+in **the same worktree** — your built artifacts, env files, and other
+gitignored state are right where you left them.
+
+\`\`\`factory-defer
+{
+  "command": "<shell command, run via sh -c in this worktree>",
+  "summary": "<1-2 sentences: what you kicked off, why, current state.>",
+  "continuation": "<the prompt your future self should receive when the
+    deferred command completes. write this as if to a fresh agent that
+    has no memory of this turn — describe what to do with the result,
+    what to verify, what 'done' looks like.>"
+}
+\`\`\`
+
+Rules:
+- Use defer only when the work genuinely cannot complete in this turn —
+  long builds, multi-stage indexing jobs, anything you'd otherwise have
+  backgrounded with \`&\`. For everything else, run it foreground and emit
+  \`factory-status\` normally.
+- \`continuation\` is your only context bridge. The continuation run sees
+  it verbatim (plus an outcome block: exit code, log tail, log path) and
+  the original task body. **Write it as if to a stranger** — your
+  reasoning chain doesn't carry forward.
+- Commit deliberate state changes before deferring. The continuation
+  starts on the same branch + worktree, but anything uncommitted plus
+  anything the deferred command produces will be auto-committed before
+  the continuation begins.
+- Emit \`factory-defer\` OR \`factory-status\` — never both. Defer is the
+  whole turn's terminal signal.
+- If you don't need to defer, ignore this protocol entirely.
 `;
 
 const DECISION_PROTOCOL_COLLABORATIVE = `
@@ -312,7 +437,7 @@ export type AutonomyMode = "collaborative" | "autonomous";
 
 /** Append the completion + decision protocols to the operator's task body. */
 export function wrapPrompt(taskBody: string, autonomyMode: AutonomyMode = "collaborative"): string {
-  return `${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
+  return `${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 interface FrozenTaskPlanForPrompt {
@@ -394,7 +519,7 @@ export function wrapPromptWithPlan(
   autonomyMode: AutonomyMode = "collaborative",
 ): string {
   const taskHeader = `You are working on task ${taskId}.\n\n## Task body\n\n`;
-  return `${taskHeader}${taskBody.trim()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
+  return `${taskHeader}${taskBody.trim()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 const RESUME_PREFIX = `The factory daemon was restarted while you were working on this task. The previous Claude session has been resumed; you have full context of what you were doing. Pick up where you left off.
@@ -419,7 +544,7 @@ export function wrapResumePrompt(
   taskBody: string,
   autonomyMode: AutonomyMode = "collaborative",
 ): string {
-  return `${RESUME_PREFIX}${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 /**
@@ -433,32 +558,34 @@ export function wrapResumePromptWithPlan(
   plan: FrozenTaskPlanForPrompt,
   autonomyMode: AutonomyMode = "collaborative",
 ): string {
-  return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 /**
- * Prepend operator answers / extra context to a built run prompt. Used by
- * the blocked-run retry path: when the operator approves a blocked_run
- * decision after replying in the thread, the gathered comments are folded
- * in here so the new run starts with answers to the prior run's questions
- * instead of repeating itself.
+ * Prepend a context block to a built run prompt with a horizontal-rule
+ * separator. The CALLER owns the content + framing — typically the
+ * caller passes a Markdown-headed block like:
  *
- * Operator notes are authoritative — they directly resolve the blocker the
- * prior run surfaced. If the operator's notes contradict the task body,
- * treat the notes as the more recent operator intent.
+ *   ## Operator notes (from prior blocked run)
+ *   ... operator's thread replies ...
+ *
+ *   ## Deferred task continuation
+ *   ... agent's continuation prompt + outcome block ...
+ *
+ * Used by:
+ *   - the blocked-run retry path (decisions.ts builds an "Operator notes"
+ *     section with the operator's thread replies);
+ *   - the intervention-resume path (orchestrate.ts adds an intervention
+ *     summary on top of the operator notes);
+ *   - the deferred-task continuation path (runner.ts builds a
+ *     "Deferred task continuation" section with the agent's own
+ *     continuation prose + an outcome block).
+ *
+ * Empty / whitespace-only context is a no-op so callers can pass through
+ * conditionally without branching.
  */
 export function prependOperatorContext(prompt: string, operatorContext: string): string {
   const trimmed = operatorContext.trim();
   if (trimmed.length === 0) return prompt;
-  return `## Operator notes (from prior blocked run)
-
-The operator replied to your prior run's blocking questions. Treat this as
-authoritative — these answers are the resolution for the blocker. If they
-contradict the task body, the operator's notes are the more recent intent.
-
-${trimmed}
-
----
-
-${prompt}`;
+  return `${trimmed}\n\n---\n\n${prompt}`;
 }

@@ -20,6 +20,7 @@ export const runStatusEnum = [
   "failed",
   "aborted",
   "blocked",
+  "deferred",
 ] as const;
 export const taskStatusEnum = [
   "ready",
@@ -747,6 +748,68 @@ export const interventions = sqliteTable(
 
 export type Intervention = typeof interventions.$inferSelect;
 export type NewIntervention = typeof interventions.$inferInsert;
+
+export const deferredTaskStatusEnum = [
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "orphaned",
+  "cancelled",
+] as const;
+export type DeferredTaskStatus = (typeof deferredTaskStatusEnum)[number];
+
+/**
+ * v0.7 — operator-managed bridge for long-running work that exceeds a
+ * single `claude --print` turn. The agent emits a `factory-defer` block
+ * declaring (1) a command to run, (2) a self-summary capturing intent,
+ * and (3) a continuation prompt. Factory spawns the command as a child
+ * of the daemon (NOT in the agent's tmux — that pty closes when the
+ * agent's --print exits) and tracks it here. On completion, the daemon
+ * submits a NEW run reusing the source's worktree, with the continuation
+ * prompt + a structured outcome block (exit code, log tail) folded in
+ * via operatorContext. The agent picks up where it left off — without
+ * ScheduleWakeup, which doesn't survive --print mode.
+ *
+ * `pid` is the OS pid of the spawned subprocess. Detached subprocesses
+ * survive a daemon restart but the daemon loses the wait handle; the
+ * boot reaper inspects pid liveness to decide between `running` and
+ * `orphaned`.
+ */
+export const deferredTasks = sqliteTable(
+  "deferred_tasks",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .references(() => runs.id)
+      .notNull(),
+    projectId: text("project_id")
+      .references(() => projects.id)
+      .notNull(),
+    /** Shell command — executed via `sh -c` in the run's worktree. */
+    command: text("command").notNull(),
+    /** Agent's note-to-future-self for context-free relaunch. */
+    summary: text("summary").notNull(),
+    /** Agent's continuation instruction; becomes the continuation run's task body. */
+    continuationPrompt: text("continuation_prompt").notNull(),
+    /** Combined stdout/stderr capture path inside the worktree's .factory/. */
+    logPath: text("log_path").notNull(),
+    status: text("status", { enum: deferredTaskStatusEnum }).notNull().default("queued"),
+    pid: integer("pid"),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+    exitCode: integer("exit_code"),
+    /** Continuation run id, set when the daemon submits the follow-up run. */
+    continuationRunId: text("continuation_run_id"),
+  },
+  (t) => [
+    index("deferred_tasks_run_idx").on(t.runId),
+    index("deferred_tasks_status_started_idx").on(t.status, t.startedAt),
+  ],
+);
+
+export type DeferredTask = typeof deferredTasks.$inferSelect;
+export type NewDeferredTask = typeof deferredTasks.$inferInsert;
 
 /**
  * Operator-tunable runtime settings. Key/value text rows; the daemon parses

@@ -712,9 +712,11 @@ function RunStatusChip({ status }: { status: string }) {
       ? "chip-greenlit"
       : status === "running" || status === "queued"
         ? "chip-accent"
-        : status === "failed" || status === "aborted" || status === "blocked"
-          ? "chip-trashed"
-          : "";
+        : status === "deferred"
+          ? "chip-decompose"
+          : status === "failed" || status === "aborted" || status === "blocked"
+            ? "chip-trashed"
+            : "";
   return <span className={`chip ${tone}`}>{status}</span>;
 }
 

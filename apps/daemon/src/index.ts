@@ -6,6 +6,7 @@ import { bindAgentBudgetConfig } from "./agent-budget.ts";
 import { authorizeRequest } from "./auth.ts";
 import { ensureVapid, type FactoryConfig, loadConfig, writeInitialConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
+import { recoverOrphanedDeferredTasks } from "./deferred-tasks/orchestrate.ts";
 import { EventBus } from "./events.ts";
 import { buildHealth } from "./health.ts";
 import {
@@ -147,6 +148,17 @@ export async function startDaemon(): Promise<DaemonHandle> {
   if (orphanedInterventions > 0) {
     console.log(
       `[factoryd] orphaned ${orphanedInterventions} active intervention(s) on boot — operator can intervene again`,
+    );
+  }
+  // Deferred-task subprocesses were daemon-children; we lost the
+  // `proc.exited` handle when the daemon went down. Mark any still-running
+  // rows as orphaned so the operator can reconcile manually — we don't
+  // auto-kill them because long builds may legitimately still be in flight,
+  // reparented to init.
+  const orphanedDeferred = await recoverOrphanedDeferredTasks(db, events);
+  if (orphanedDeferred > 0) {
+    console.log(
+      `[factoryd] orphaned ${orphanedDeferred} deferred task(s) on boot — operator must reconcile`,
     );
   }
 

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { ArrowLeft, ListTree, Pencil, Square } from "lucide-react";
+import { ArrowLeft, Hourglass, ListTree, Pencil, Square, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { QualityReportPanel, type QualityReportView } from "../components/quality-report.tsx";
@@ -213,10 +213,13 @@ export function LivePane() {
   // Per-route invalidations: runs.get / runs.list / projects.get refetch on
   // any event matching this run. The structured stream (RunEventStream)
   // additionally handles its own UI updates via the same scoped channel.
+  // `deferredTasks.forRun` is folded in so deferred_task_* events refresh
+  // the panel immediately, instead of waiting for the 5s poll interval.
   useRunChannel(runId || null, [
     ["runs.get", runId],
     ["runs.list", id],
     ["projects.get", id],
+    ["deferredTasks.forRun", runId],
   ]);
 
   const abort = async () => {
@@ -336,6 +339,8 @@ export function LivePane() {
       {acceptanceResults && acceptanceResults.length > 0 ? (
         <AcceptancePanel results={acceptanceResults} />
       ) : null}
+
+      {status === "deferred" ? <DeferredTaskPanel runId={runId} /> : null}
 
       {qualityReport || run.data?.status === "completed" ? (
         <QualityReportPanel report={qualityReport} />
@@ -552,7 +557,8 @@ function DiffPanel({ diff }: { diff: RunDiff }) {
 function chipForStatus(s: string): string {
   if (s === "completed") return "chip-greenlit";
   if (s === "running") return "chip-accent";
-  if (s === "failed" || s === "aborted") return "chip-trashed";
+  if (s === "failed" || s === "aborted" || s === "blocked") return "chip-trashed";
+  if (s === "deferred") return "chip-decompose";
   return "";
 }
 
@@ -562,4 +568,123 @@ function fmtElapsed(s: number): string {
   if (m < 60) return `${m}m${String(s % 60).padStart(2, "0")}s`;
   const h = Math.floor(m / 60);
   return `${h}h${String(m % 60).padStart(2, "0")}m`;
+}
+
+function chipForDeferredStatus(s: string): string {
+  if (s === "completed") return "chip-greenlit";
+  if (s === "running" || s === "queued") return "chip-decompose";
+  if (s === "failed" || s === "orphaned" || s === "cancelled") return "chip-trashed";
+  return "";
+}
+
+/**
+ * Shows the in-flight (or recently-finished) deferred subprocess attached
+ * to a deferred run. Polls the row + log tail every few seconds so the
+ * operator can watch a long build progress; deferred_task_* events folded
+ * into the run channel make state transitions instantaneous instead of
+ * poll-bounded.
+ */
+function DeferredTaskPanel({ runId }: { runId: string }) {
+  const qc = useQueryClient();
+  const task = useQuery({
+    queryKey: ["deferredTasks.forRun", runId],
+    queryFn: () => trpc.deferredTasks.forRun.query({ runId }),
+    enabled: runId.length > 0,
+    // Cheap query — small DB row. Channel-driven invalidation handles the
+    // hot transitions; this poll is a safety net for missed events.
+    refetchInterval: 5_000,
+  });
+  const tail = useQuery({
+    queryKey: ["deferredTasks.tail", task.data?.id],
+    queryFn: () => trpc.deferredTasks.tail.query({ id: task.data?.id ?? "" }),
+    enabled: Boolean(task.data?.id),
+    // Poll the log tail more aggressively while the task is in flight.
+    refetchInterval: task.data?.status === "running" ? 3_000 : false,
+  });
+
+  const cancel = useMutation({
+    mutationFn: (id: string) => trpc.deferredTasks.cancel.mutate({ id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["deferredTasks.forRun", runId] });
+      qc.invalidateQueries({ queryKey: ["runs.get", runId] });
+    },
+  });
+
+  if (!task.data) {
+    return (
+      <div className="surface mb-2 px-3 py-2.5 mono text-[11.5px] text-[var(--color-fg-3)]">
+        deferred — waiting for subprocess metadata…
+      </div>
+    );
+  }
+
+  const t = task.data;
+  const elapsed = Math.max(0, Math.floor(((t.endedAt ?? Date.now()) - t.startedAt) / 1000));
+  const isLive = t.status === "running" || t.status === "queued";
+  const tailContent = tail.data?.content ?? "";
+
+  return (
+    <div className="surface mb-2 p-0 overflow-hidden border-l-2 border-[var(--color-accent)]">
+      <div className="px-3 py-1.5 border-b border-[var(--color-line)] flex items-center gap-2">
+        <Hourglass size={13} className="text-[var(--color-accent)]" />
+        <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          deferred work
+        </span>
+        <span className={`chip ${chipForDeferredStatus(t.status)}`}>{t.status}</span>
+        <div className="flex-1" />
+        <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+          {fmtElapsed(elapsed)}
+          {t.exitCode != null ? ` · exit ${t.exitCode}` : ""}
+        </span>
+        {isLive ? (
+          <button
+            type="button"
+            onClick={() => cancel.mutate(t.id)}
+            disabled={cancel.isPending}
+            className="btn btn-danger !h-6 !px-2 text-[11px]"
+            aria-label="cancel deferred task"
+          >
+            <X size={11} /> cancel
+          </button>
+        ) : null}
+      </div>
+      <div className="px-3 py-2 space-y-1.5">
+        <div>
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            summary
+          </div>
+          <p className="text-[13px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
+            {t.summary}
+          </p>
+        </div>
+        <div>
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            command
+          </div>
+          <pre className="mono text-[11.5px] text-[var(--color-fg-1)] whitespace-pre-wrap break-words bg-[var(--color-bg-1)] px-2 py-1 rounded-[2px] border border-[var(--color-line)]">
+            {t.command}
+          </pre>
+        </div>
+        {t.continuationRunId ? (
+          <div className="text-[12px] text-[var(--color-fg-2)]">
+            continuation run:{" "}
+            <Link
+              to={`/projects/${t.projectId}/runs/${t.continuationRunId}`}
+              className="mono text-[var(--color-accent)] hover:underline"
+            >
+              {t.continuationRunId.slice(0, 12)}
+            </Link>
+          </div>
+        ) : null}
+      </div>
+      <div className="border-t border-[var(--color-line)]">
+        <div className="px-3 py-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          log tail{tail.data?.truncated ? " · (truncated)" : ""}
+        </div>
+        <pre className="mono text-[11.5px] text-[var(--color-fg-1)] whitespace-pre-wrap px-3 pb-2 max-h-[260px] overflow-y-auto">
+          {tailContent.length > 0 ? tailContent : "(no output yet)"}
+        </pre>
+      </div>
+    </div>
+  );
 }

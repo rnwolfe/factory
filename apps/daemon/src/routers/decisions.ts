@@ -52,6 +52,12 @@ function renderBlockedRunOperatorContext(
   const operatorReplies = thread.filter((c) => c.role === "operator");
   if (operatorReplies.length === 0) return "";
 
+  const header = `## Operator notes (from prior blocked run)
+
+The operator replied to your prior run's blocking questions. Treat this as
+authoritative — these answers are the resolution for the blocker. If they
+contradict the task body, the operator's notes are the more recent intent.`;
+
   const questionsBlock =
     payload.questions && payload.questions.length > 0
       ? `### Questions you asked\n\n${payload.questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n\n`
@@ -61,7 +67,7 @@ function renderBlockedRunOperatorContext(
     .map((c) => `### Operator reply · ${new Date(c.createdAt).toISOString()}\n\n${c.body.trim()}`)
     .join("\n\n");
 
-  return `${questionsBlock}${repliesBlock}`;
+  return `${header}\n\n${questionsBlock}${repliesBlock}`;
 }
 
 function renderOverrideComment(
