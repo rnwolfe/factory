@@ -80,7 +80,7 @@ export function Metrics() {
           runtime metrics
         </h1>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
-          Cost and token usage across every Claude invocation Factory has made.
+          Cost and token usage across every Claude invocation Heimdall has made.
         </p>
       </header>
 
