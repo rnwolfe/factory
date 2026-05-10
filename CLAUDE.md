@@ -4,15 +4,17 @@ This file is the on-arrival orientation. Read `docs/spec.md` once before any
 non-trivial change; come back here for conventions. For v0.2 work, also read
 `docs/spec-v0.2.md` and `docs/adr/002-plan-primitive.md`. For v0.3 work, also
 read `docs/spec-v0.3.md` and `docs/adr/003-audit-primitive.md`. For v0.4 work,
-also read `docs/spec-v0.4.md` and `docs/adr/004-audit-cadence.md`.
+also read `docs/spec-v0.4.md` and `docs/adr/004-audit-cadence.md`. For desktop
+UX work, also read `docs/desktop-spec.md` and `docs/adr/005-responsive-shell.md`.
 
 - **v0.1 spec:** [`docs/spec.md`](./docs/spec.md) — frozen.
 - **v0.2 spec:** [`docs/spec-v0.2.md`](./docs/spec-v0.2.md) — implementation-ready delta. Plan primitive + quality signal. Shipped.
 - **v0.3 spec:** [`docs/spec-v0.3.md`](./docs/spec-v0.3.md) — implementation-ready delta. Audit primitive + Path-B unlock + tier-aware onboarding. Shipped.
 - **v0.4 spec:** [`docs/spec-v0.4.md`](./docs/spec-v0.4.md) — implementation-ready delta. Audit cadence (schedule layer on the audit primitive).
+- **Desktop UX spec:** [`docs/desktop-spec.md`](./docs/desktop-spec.md) — Vercel-style chrome layered over the phone-first PWA. Phased migration; mobile invariant explicit. Foundation for the Tauri wrapper (#1).
 - **Post-v0.1 direction:** [`docs/vision.md`](./docs/vision.md) — what's next, informed by living with each release.
 - **Milestone playbook:** [`docs/handoff.md`](./docs/handoff.md) — historical, kept for context.
-- **ADRs:** [`docs/adr/`](./docs/adr/) — non-obvious decisions. ADR-002 underpins v0.2 (plans). ADR-003 underpins v0.3 (audits). ADR-004 underpins v0.4 (audit cadence).
+- **ADRs:** [`docs/adr/`](./docs/adr/) — non-obvious decisions. ADR-002 underpins v0.2 (plans). ADR-003 underpins v0.3 (audits). ADR-004 underpins v0.4 (audit cadence). ADR-005 underpins the desktop UX initiative (one Shell, responsive).
 
 ## Quick orient
 
