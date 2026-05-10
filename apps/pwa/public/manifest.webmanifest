@@ -7,5 +7,25 @@
   "background_color": "#0a0908",
   "theme_color": "#0a0908",
   "orientation": "portrait-primary",
-  "icons": []
+  "icons": [],
+  "shortcuts": [
+    {
+      "name": "Inbox",
+      "short_name": "Inbox",
+      "description": "Decisions, plans, and audits awaiting your call",
+      "url": "/"
+    },
+    {
+      "name": "Capture",
+      "short_name": "Capture",
+      "description": "Capture a new idea for triage",
+      "url": "/inbox/new"
+    },
+    {
+      "name": "Projects",
+      "short_name": "Projects",
+      "description": "Browse projects and active runs",
+      "url": "/projects"
+    }
+  ]
 }

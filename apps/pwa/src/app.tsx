@@ -3,6 +3,7 @@ import { AuthGate } from "./components/auth-gate.tsx";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import { Shell } from "./components/shell.tsx";
 import { useAuth } from "./lib/auth.ts";
+import { useAppBadge } from "./lib/use-app-badge.ts";
 import { AuditPane } from "./routes/audit-pane.tsx";
 import { DecisionDetail } from "./routes/decision-detail.tsx";
 import { Deepen } from "./routes/deepen.tsx";
@@ -43,6 +44,7 @@ function RouteBoundary({ label, children }: { label: string; children: React.Rea
 
 export function App() {
   const token = useAuth((s) => s.token);
+  useAppBadge(Boolean(token));
   if (!token) return <AuthGate />;
   return (
     <Shell>
