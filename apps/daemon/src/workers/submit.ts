@@ -26,6 +26,14 @@ export interface SubmitRunInput {
    * agent invocation picks up its predecessor's auto-commit + partial work.
    */
   baseRef?: string;
+  /**
+   * Operator-supplied answers / extra context, prepended to the agent's
+   * prompt as a top-level "Operator notes" section. Used by the
+   * blocked-run retry path: gathered comments from the decision thread
+   * ride forward so the new run starts with answers to the prior run's
+   * questions.
+   */
+  operatorContext?: string;
 }
 
 /**
@@ -72,6 +80,8 @@ export async function submitRun(
   const branch = `factory/run-${runId}`;
   const worktreePath = `${config.worktreesRoot}/${project.slug}/${runId}`;
 
+  const operatorContext = input.operatorContext?.trim();
+
   await db.insert(schema.runs).values({
     id: runId,
     projectId: project.id,
@@ -84,6 +94,7 @@ export async function submitRun(
     budgetSeconds: input.budgetSeconds ?? config.defaultRunBudgetSeconds,
     baseRef: input.baseRef ?? null,
     taskPlanId,
+    operatorContext: operatorContext && operatorContext.length > 0 ? operatorContext : null,
   });
 
   void pool.submit(async () => {

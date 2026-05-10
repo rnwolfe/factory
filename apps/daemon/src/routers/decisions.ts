@@ -37,6 +37,33 @@ const OverrideShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("custom"), text: z.string().min(1).max(2000) }),
 ]);
 
+/**
+ * Render the operator-context payload threaded into a blocked-run retry.
+ * Quotes the agent's prior questions back at it (so the agent sees what
+ * was asked even if its session context is cold) and inlines the operator
+ * thread in chronological order. Empty-string return signals "no operator
+ * input — submit the retry without a context block" so the runner falls
+ * back to the original prompt.
+ */
+function renderBlockedRunOperatorContext(
+  payload: BlockedRunPayload,
+  thread: Array<{ role: "operator" | "agent"; body: string; createdAt: number }>,
+): string {
+  const operatorReplies = thread.filter((c) => c.role === "operator");
+  if (operatorReplies.length === 0) return "";
+
+  const questionsBlock =
+    payload.questions && payload.questions.length > 0
+      ? `### Questions you asked\n\n${payload.questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n\n`
+      : "";
+
+  const repliesBlock = operatorReplies
+    .map((c) => `### Operator reply · ${new Date(c.createdAt).toISOString()}\n\n${c.body.trim()}`)
+    .join("\n\n");
+
+  return `${questionsBlock}${repliesBlock}`;
+}
+
 function renderOverrideComment(
   payload: AgentDecisionPayloadShape,
   override:
@@ -189,6 +216,18 @@ export const decisionsRouter = router({
           .where(eq(schema.runs.id, payload.runId))
           .get();
         if (!source) throw new Error("source run not found");
+
+        // Gather operator answers from the decision thread and fold them
+        // into the new run's prompt. Without this, the retry re-runs with
+        // the same task body and the agent re-hits its prior blocker.
+        const thread = await ctx.db
+          .select()
+          .from(schema.decisionComments)
+          .where(eq(schema.decisionComments.decisionId, decision.id))
+          .orderBy(asc(schema.decisionComments.createdAt))
+          .all();
+        const operatorContext = renderBlockedRunOperatorContext(payload, thread);
+
         const result = await submitRun(
           {
             config: ctx.config,
@@ -201,6 +240,7 @@ export const decisionsRouter = router({
             projectId: source.projectId,
             taskId: source.taskId ?? undefined,
             baseRef: source.branch,
+            operatorContext,
           },
         );
         retryRunId = result.runId;
@@ -453,8 +493,13 @@ export const decisionsRouter = router({
       if (decision.status !== "pending") {
         throw new Error(`decision already ${decision.status} — cannot add comments`);
       }
-      if (decision.kind !== "triage") {
-        throw new Error("comments are only supported on triage decisions");
+      // triage: comments fire a follow-up agent pass that re-scores the
+      // verdict in place. blocked_run: comments are operator answers to
+      // the agent's questions; they're stored verbatim and ride forward
+      // as `operatorContext` when the operator approves the retry. Other
+      // decision kinds don't have a meaningful comment semantics yet.
+      if (decision.kind !== "triage" && decision.kind !== "blocked_run") {
+        throw new Error(`comments are not supported on ${decision.kind} decisions`);
       }
 
       const commentId = createId();
@@ -472,6 +517,14 @@ export const decisionsRouter = router({
         decisionId: input.decisionId,
         role: "operator",
       });
+
+      // For blocked_run, the comment is operator answers — there's no
+      // agent re-pass at comment time. The retry happens later when the
+      // operator approves; that path gathers all comments and threads
+      // them into the new run's prompt as `operatorContext`.
+      if (decision.kind !== "triage") {
+        return { commentId };
+      }
 
       // Fire the follow-up triage in the background — the mutation returns
       // immediately so the UI shows the operator's message instantly. The

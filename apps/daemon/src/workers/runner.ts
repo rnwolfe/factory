@@ -21,6 +21,7 @@ import {
   type AutonomyMode,
   type FactoryStatus,
   parseFactoryStatus,
+  prependOperatorContext,
   wrapPrompt,
   wrapPromptWithPlan,
   wrapResumePrompt,
@@ -214,6 +215,16 @@ export async function executeRun(
     prompt = wrapPromptWithPlan(row.taskId ?? "ad-hoc", baseTaskBody, frozenTaskPlan, autonomyMode);
   } else {
     prompt = wrapPrompt(baseTaskBody, autonomyMode);
+  }
+
+  // If this run was submitted with operator context (the blocked-run retry
+  // path gathers comments from the decision thread), prepend it so the
+  // agent reads the operator's answers before the task body. Skipped on
+  // resume — the resumed Claude session already has the prior conversation
+  // in context, and the operator's reply is delivered as the new user turn
+  // implicitly via the run's session continuation.
+  if (!resuming && row.operatorContext && row.operatorContext.trim().length > 0) {
+    prompt = prependOperatorContext(prompt, row.operatorContext);
   }
 
   // Per-run state for the streaming agent-decision parser. Skipped entirely

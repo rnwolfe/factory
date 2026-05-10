@@ -361,6 +361,14 @@ export const runs = sqliteTable("runs", {
    * criterion results. JSON array of {criterion, met, evidence?, reason?}.
    */
   acceptanceResults: text("acceptance_results"),
+  /**
+   * Operator answers / extra context, prepended to the agent's prompt as a
+   * top-level "Operator notes" section. Set by the blocked-run retry path:
+   * when the operator approves a `blocked_run` decision after replying in
+   * the thread, the gathered comments ride forward so the new run starts
+   * with answers to the agent's questions, instead of repeating itself.
+   */
+  operatorContext: text("operator_context"),
 });
 
 export const events = sqliteTable("events", {

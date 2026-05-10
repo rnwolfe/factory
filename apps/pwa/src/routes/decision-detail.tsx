@@ -477,7 +477,7 @@ export function DecisionDetail() {
         </Section>
       ) : null}
 
-      {isTriage && (isPending || (comments.data && comments.data.length > 0)) ? (
+      {(isTriage || isBlockedRun) && (isPending || (comments.data && comments.data.length > 0)) ? (
         <Section title="thread">
           {comments.data && comments.data.length > 0 ? (
             <ul className="divide-y divide-[var(--color-line)]">
@@ -503,9 +503,14 @@ export function DecisionDetail() {
                   </div>
                 </li>
               ))}
-              {sendComment.isPending ||
-              (comments.data.length > 0 &&
-                comments.data[comments.data.length - 1]?.role === "operator") ? (
+              {/* Triage fires a follow-up agent pass on each operator comment;
+                  show a thinking placeholder while we wait for the reply.
+                  blocked_run has no re-pass — the operator's answers ride
+                  forward into the retry instead, so no placeholder. */}
+              {isTriage &&
+              (sendComment.isPending ||
+                (comments.data.length > 0 &&
+                  comments.data[comments.data.length - 1]?.role === "operator")) ? (
                 <li className="px-4 py-3">
                   <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
                     agent · thinking
@@ -539,14 +544,20 @@ export function DecisionDetail() {
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="reply to the agent — answer questions, push back, add context…"
+                placeholder={
+                  isBlockedRun
+                    ? "answer the agent's questions or add context — your reply rides forward when you retry…"
+                    : "reply to the agent — answer questions, push back, add context…"
+                }
                 rows={3}
                 className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)] resize-y"
                 disabled={sendComment.isPending}
               />
               <div className="flex justify-between items-center gap-2">
                 <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
-                  the agent will re-score using the rubric
+                  {isBlockedRun
+                    ? "saved as operator answers — folded into retry"
+                    : "the agent will re-score using the rubric"}
                 </span>
                 <button
                   type="submit"
@@ -624,8 +635,17 @@ export function DecisionDetail() {
           ) : null}
           <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
             retry resumes from this run's branch tip — partial work and the auto-commit ride
-            forward.
+            forward. operator replies in the thread fold into the new run's prompt.
           </p>
+          {isPending &&
+          (comments.data?.filter((c) => c.role === "operator").length ?? 0) === 0 &&
+          payload.questions &&
+          payload.questions.length > 0 ? (
+            <p className="px-2 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+              no operator reply yet — retrying without answers will likely re-block on the same
+              questions.
+            </p>
+          ) : null}
         </>
       ) : null}
 

@@ -435,3 +435,30 @@ export function wrapResumePromptWithPlan(
 ): string {
   return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}`;
 }
+
+/**
+ * Prepend operator answers / extra context to a built run prompt. Used by
+ * the blocked-run retry path: when the operator approves a blocked_run
+ * decision after replying in the thread, the gathered comments are folded
+ * in here so the new run starts with answers to the prior run's questions
+ * instead of repeating itself.
+ *
+ * Operator notes are authoritative — they directly resolve the blocker the
+ * prior run surfaced. If the operator's notes contradict the task body,
+ * treat the notes as the more recent operator intent.
+ */
+export function prependOperatorContext(prompt: string, operatorContext: string): string {
+  const trimmed = operatorContext.trim();
+  if (trimmed.length === 0) return prompt;
+  return `## Operator notes (from prior blocked run)
+
+The operator replied to your prior run's blocking questions. Treat this as
+authoritative — these answers are the resolution for the blocker. If they
+contradict the task body, the operator's notes are the more recent intent.
+
+${trimmed}
+
+---
+
+${prompt}`;
+}
