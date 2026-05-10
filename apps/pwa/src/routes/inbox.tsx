@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Plus, ThumbsDown, ThumbsUp } from "lucide-react";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuditCard, type AuditRow } from "../components/audit-card.tsx";
 import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx";
+import { type InboxDetailItem, InboxDetailPane } from "../components/inbox-detail-pane.tsx";
 import { PlanCard, type PlanRow } from "../components/plan-card.tsx";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -37,9 +38,14 @@ type InboxItem =
   | { kind: "audit"; row: AuditRow }
   | { kind: "feedback"; row: FeedbackInboxRow };
 
+function isDesktopViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+}
+
 export function Inbox() {
   const qc = useQueryClient();
   const nav = useNavigate();
+  const [selected, setSelected] = useState<InboxDetailItem | null>(null);
 
   const inbox = useQuery({
     queryKey: ["decisions.inbox"],
@@ -139,6 +145,13 @@ export function Inbox() {
     },
   });
 
+  const handleDecisionAction = useCallback(
+    (decisionId: string, a: "approve" | "park" | "trash" | "decompose" | "dismiss") => {
+      action.mutate({ decisionId, action: a });
+    },
+    [action],
+  );
+
   const triagingRows = triaging.data ?? [];
 
   if (inbox.isLoading && triagingRows.length === 0 && !planInbox.data) {
@@ -177,6 +190,16 @@ export function Inbox() {
     .sort((a, b) => b.ts - a.ts)
     .map(({ ts: _ts, ...rest }) => rest as InboxItem);
 
+  // Drop selection if the item left the list (e.g. operator approved a decision).
+  const selectedStillPresent =
+    selected !== null &&
+    merged.some((m) => m.kind === selected.kind && m.row.id === selected.row.id);
+  if (selected !== null && !selectedStillPresent) {
+    // Set during render is fine when next state is null and depends only on
+    // current props/state — React will re-render with the new state.
+    setSelected(null);
+  }
+
   if (merged.length === 0 && triagingRows.length === 0) {
     return (
       <div className="px-2 pt-8">
@@ -201,48 +224,115 @@ export function Inbox() {
     );
   }
 
+  // Click handler that picks between in-pane selection (desktop) and
+  // route navigation (mobile). Each card kind needs a slightly different
+  // detail item shape because the pane needs derived context (idea text,
+  // project name) that the card alone doesn't carry.
+  const openDecision = (row: DecisionRow) => {
+    if (isDesktopViewport()) {
+      setSelected({
+        kind: "decision",
+        row,
+        ideaText: row.ideaId ? (ideasById.get(row.ideaId) ?? null) : null,
+      });
+    } else {
+      nav(`/decisions/${row.id}`);
+    }
+  };
+  const openPlan = (row: PlanRow) => {
+    if (isDesktopViewport()) setSelected({ kind: "plan", row });
+    else nav(`/plans/${row.id}`);
+  };
+  const openAudit = (row: AuditRow) => {
+    if (isDesktopViewport()) {
+      setSelected({
+        kind: "audit",
+        row,
+        projectName: projectNameById.get(row.projectId) ?? null,
+      });
+    } else {
+      nav(`/projects/${row.projectId}/audits/${row.id}`);
+    }
+  };
+  const openFeedback = (row: FeedbackInboxRow) => {
+    if (isDesktopViewport()) setSelected({ kind: "feedback", row });
+    else nav(`/feedback/${row.id}`);
+  };
+
   return (
-    <div className="space-y-2.5">
-      {triagingRows.map((idea) => (
-        <TriagingRow key={idea.id} idea={idea} />
-      ))}
-      {merged.map((item, i) => {
-        if (item.kind === "decision") {
-          const d = item.row;
+    <div className="md:grid md:grid-cols-[minmax(320px,400px)_1fr] md:gap-6 md:items-start">
+      <div className="space-y-2.5">
+        {triagingRows.map((idea) => (
+          <TriagingRow key={idea.id} idea={idea} />
+        ))}
+        {merged.map((item, i) => {
+          const isSelected =
+            selected !== null && selected.kind === item.kind && selected.row.id === item.row.id;
+          if (item.kind === "decision") {
+            const d = item.row;
+            return (
+              <SelectableWrapper key={d.id} active={isSelected}>
+                <DecisionCard
+                  decision={d}
+                  ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
+                  index={i}
+                  onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
+                  onOpen={() => openDecision(d)}
+                />
+              </SelectableWrapper>
+            );
+          }
+          if (item.kind === "plan") {
+            const p = item.row;
+            return (
+              <SelectableWrapper key={p.id} active={isSelected}>
+                <PlanCard plan={p} index={i} onOpen={() => openPlan(p)} />
+              </SelectableWrapper>
+            );
+          }
+          if (item.kind === "feedback") {
+            return (
+              <SelectableWrapper key={item.row.id} active={isSelected}>
+                <FeedbackCard row={item.row} onOpen={() => openFeedback(item.row)} />
+              </SelectableWrapper>
+            );
+          }
+          const a = item.row;
           return (
-            <DecisionCard
-              key={d.id}
-              decision={d}
-              ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
-              index={i}
-              onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
-              onOpen={() => nav(`/decisions/${d.id}`)}
-            />
+            <SelectableWrapper key={a.id} active={isSelected}>
+              <AuditCard
+                audit={a}
+                projectName={projectNameById.get(a.projectId) ?? null}
+                index={i}
+                onOpen={() => openAudit(a)}
+              />
+            </SelectableWrapper>
           );
-        }
-        if (item.kind === "plan") {
-          const p = item.row;
-          return <PlanCard key={p.id} plan={p} index={i} onOpen={() => nav(`/plans/${p.id}`)} />;
-        }
-        if (item.kind === "feedback") {
-          return <FeedbackCard key={item.row.id} row={item.row} />;
-        }
-        const a = item.row;
-        return (
-          <AuditCard
-            key={a.id}
-            audit={a}
-            projectName={projectNameById.get(a.projectId) ?? null}
-            index={i}
-            onOpen={() => nav(`/projects/${a.projectId}/audits/${a.id}`)}
-          />
-        );
-      })}
+        })}
+      </div>
+
+      <div className="hidden md:block md:sticky md:top-5">
+        <InboxDetailPane item={selected} onDecisionAction={handleDecisionAction} />
+      </div>
     </div>
   );
 }
 
-function FeedbackCard({ row }: { row: FeedbackInboxRow }) {
+function SelectableWrapper({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={
+        active
+          ? "md:ring-1 md:ring-[var(--color-accent-line)] md:rounded-sm md:transition"
+          : "md:transition"
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
+function FeedbackCard({ row, onOpen }: { row: FeedbackInboxRow; onOpen: () => void }) {
   const elapsed = Math.max(0, Math.floor((Date.now() - row.createdAt) / 1000));
   const elapsedLabel =
     elapsed < 60
@@ -253,6 +343,12 @@ function FeedbackCard({ row }: { row: FeedbackInboxRow }) {
   return (
     <Link
       to={`/feedback/${row.id}`}
+      onClick={(e) => {
+        if (isDesktopViewport()) {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
       className="surface drop-in px-4 py-3 flex flex-col gap-1.5 active:bg-[var(--color-bg-2)]"
     >
       <div className="flex items-center gap-2 mb-1">
