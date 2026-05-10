@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { useInboxCount } from "../lib/use-inbox-count.ts";
+import { DesktopTopBar } from "./desktop-top-bar.tsx";
 import { FeedbackFab } from "./feedback-fab.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
@@ -29,6 +30,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <Sidebar inboxCount={inboxCount} />
 
       <div className="flex-1 flex flex-col min-w-0">
+        <DesktopTopBar />
         <header
           className="md:hidden sticky top-0 z-20 border-b border-[var(--color-line)] bg-[var(--color-bg)]/95 backdrop-blur"
           style={{ paddingTop: "env(safe-area-inset-top)" }}
