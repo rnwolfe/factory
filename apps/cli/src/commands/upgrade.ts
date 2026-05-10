@@ -97,6 +97,33 @@ async function checkoutFromUnit(): Promise<string | null> {
 }
 
 /**
+ * Recover the daemon's FACTORY_HOME from the systemd unit file. The
+ * install command writes \`Environment=FACTORY_HOME=<path>\` into the
+ * unit; that path is the daemon's data dir (where data.db, config.yaml,
+ * and worktrees live). Without this resolution, the migrate + seed
+ * subprocesses inherit only the operator's interactive shell env — which
+ * typically does NOT export FACTORY_HOME — so they target the default
+ * \`~/factory/data.db\` instead of the live daemon's DB. The seed
+ * silently lands on the wrong DB, the live DB drifts, and missing-
+ * prompts/missing-table failures appear at runtime (e.g. the v0.5.0
+ * push_subscriptions regression). Returns null if the unit doesn't
+ * exist or carries no FACTORY_HOME.
+ */
+async function factoryHomeFromUnit(): Promise<string | null> {
+  const p = unitPath();
+  if (!existsSync(p)) return null;
+  try {
+    const text = await readFile(p, "utf8");
+    const m = text.match(/^Environment=FACTORY_HOME=(.+)$/m);
+    if (!m) return null;
+    const candidate = (m[1] ?? "").trim();
+    return candidate.length > 0 ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Verify that `checkout` is the root of a git working tree before we
  * lean on `git status`. Otherwise the operator gets a confusing
  * "fatal: not a git repository — re-run with --force" message, where
@@ -189,6 +216,22 @@ export async function runUpgrade(args: UpgradeArgs): Promise<number> {
 
   const bunBin = await detectBun();
 
+  // Resolve FACTORY_HOME from the systemd unit so subprocess calls
+  // (migrate, seed) target the live daemon's DB. Without this, an
+  // operator running `factory upgrade` from an interactive shell that
+  // doesn't export FACTORY_HOME silently seeds `~/factory/data.db` —
+  // not the daemon's DB. Falls back to whatever's already in the
+  // process env (e.g. when the operator did export it explicitly).
+  const factoryHomeUnit = await factoryHomeFromUnit();
+  const subprocessEnv: Record<string, string | undefined> = factoryHomeUnit
+    ? { FACTORY_HOME: factoryHomeUnit }
+    : {};
+  if (factoryHomeUnit && process.env.FACTORY_HOME !== factoryHomeUnit) {
+    process.stdout.write(
+      `factory: using FACTORY_HOME=${factoryHomeUnit} for migrate + seed (resolved from factory.service)\n`,
+    );
+  }
+
   // 1. precheck — clean tree
   const cleanState = await checkClean(checkout);
   if (cleanState.dirty && !args.force) {
@@ -267,7 +310,7 @@ export async function runUpgrade(args: UpgradeArgs): Promise<number> {
 
   // 5. migrate
   process.stdout.write("factory: running db:migrate\n");
-  const mig = await runMigrations(checkout, bunBin);
+  const mig = await runMigrations(checkout, bunBin, subprocessEnv);
   if (!mig.ok) {
     process.stderr.write(`factory: db:migrate failed: ${mig.stderr.trim()}\n`);
     process.stderr.write(
@@ -286,7 +329,7 @@ export async function runUpgrade(args: UpgradeArgs): Promise<number> {
 
   // 5a. seed (idempotent — picks up new prompts/rubrics shipped by the release)
   process.stdout.write("factory: seeding prompts + rubrics\n");
-  const seedRes = await runSeed(checkout, bunBin);
+  const seedRes = await runSeed(checkout, bunBin, subprocessEnv);
   if (!seedRes.ok) {
     process.stderr.write(`factory: seed failed: ${seedRes.stderr.trim()}\n`);
     await appendUpgradeLog({

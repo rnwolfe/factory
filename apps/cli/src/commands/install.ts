@@ -216,8 +216,12 @@ export async function runInstall(args: InstallArgs): Promise<number> {
 
   // Seed prompts + rubrics into the daemon's DB. Idempotent; runs
   // migrations as a side-effect so the schema is ready for the daemon.
+  // Pass FACTORY_HOME explicitly so the seed targets the same DB path
+  // we just wrote into the unit file — operator's interactive shell may
+  // not export FACTORY_HOME, in which case the subprocess would silently
+  // seed `~/factory/data.db` instead of the daemon's DB.
   process.stdout.write("factory: seeding prompts + rubrics\n");
-  const seedRes = await runSeed(checkout, bunBin);
+  const seedRes = await runSeed(checkout, bunBin, { FACTORY_HOME: factoryHome });
   if (!seedRes.ok) {
     process.stderr.write(`factory: seed failed: ${seedRes.stderr.trim()}\n`);
     return 1;
