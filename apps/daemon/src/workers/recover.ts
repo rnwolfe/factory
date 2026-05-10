@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { schema } from "@factory/db";
+import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { eq, inArray } from "drizzle-orm";
-import { parseFactoryStatus } from "./factory-status.ts";
+import { type FactoryStatus, parseFactoryStatus } from "./factory-status.ts";
 import { resumeOrphanedRun, type SubmitRunDeps } from "./submit.ts";
 
 /**
@@ -27,6 +28,15 @@ export function tmuxSessionNameFor(slug: string, runId: string): string {
   return `factory-${slug}-${runId}`.slice(0, 60);
 }
 
+interface RecoveredFactoryStatus {
+  status: "completed" | "blocked" | "failed";
+  summary: string;
+  /** Mirrors the runner's `blockerQuestions` derivation when status='blocked'. */
+  blockerQuestions: string[];
+  /** Raw parsed status block — kept so callers can mirror the runner's persistence shape. */
+  parsed: FactoryStatus;
+}
+
 /**
  * Read the agent's persisted log for an orphaned run and try to extract its
  * `factory-status` declaration. The log lives at
@@ -40,7 +50,7 @@ export function tmuxSessionNameFor(slug: string, runId: string): string {
 async function recoverFactoryStatusFromLog(
   workdirPath: string,
   runId: string,
-): Promise<{ status: "completed" | "blocked" | "failed"; summary: string } | null> {
+): Promise<RecoveredFactoryStatus | null> {
   const logPath = path.join(workdirPath, ".factory", "runs", runId, "log.txt");
   let raw: string;
   try {
@@ -79,7 +89,26 @@ async function recoverFactoryStatusFromLog(
   const parsed = parseFactoryStatus(text);
   if (!parsed) return null;
   const map = { done: "completed", blocked: "blocked", failed: "failed" } as const;
-  return { status: map[parsed.status], summary: parsed.summary };
+  const status = map[parsed.status];
+
+  // Mirror runner.ts:blockerQuestionsFor — when blocked, surface the
+  // agent's questions plus any unmet acceptance criteria. Empty for any
+  // other status.
+  const blockerQuestions: string[] =
+    status === "blocked"
+      ? [
+          ...parsed.questions,
+          ...parsed.acceptance
+            .filter((a) => !a.met)
+            .map((a) =>
+              a.reason
+                ? `Unmet acceptance — ${a.criterion} (${a.reason})`
+                : `Unmet acceptance — ${a.criterion}`,
+            ),
+        ]
+      : [];
+
+  return { status, summary: parsed.summary, blockerQuestions, parsed };
 }
 
 export interface ReapStats {
@@ -112,10 +141,13 @@ export interface ReapStats {
  * in-flight work.
  */
 export async function reapOrphanedRuns(deps: SubmitRunDeps): Promise<ReapStats> {
-  const { db } = deps;
+  const { db, events } = deps;
   const orphans = await db
     .select({
       id: schema.runs.id,
+      projectId: schema.runs.projectId,
+      taskId: schema.runs.taskId,
+      branch: schema.runs.branch,
       sessionId: schema.runs.sessionId,
       slug: schema.projects.slug,
       workdirPath: schema.projects.workdirPath,
@@ -143,8 +175,47 @@ export async function reapOrphanedRuns(deps: SubmitRunDeps): Promise<ReapStats> 
           status: recovered.status,
           endedAt: now,
           summary: recovered.summary,
+          blockerQuestions:
+            recovered.blockerQuestions.length > 0
+              ? JSON.stringify(recovered.blockerQuestions)
+              : null,
+          acceptanceResults:
+            recovered.parsed.acceptance.length > 0
+              ? JSON.stringify(recovered.parsed.acceptance)
+              : null,
         })
         .where(eq(schema.runs.id, o.id));
+
+      // Mirror runner.ts:500 — surface blocked recoveries to the inbox
+      // so the operator can see them. Without this, a daemon-restart-
+      // recovered blocked run silently disappears: the run row is
+      // marked `blocked` but no decision exists, violating the
+      // inbox-as-only-attention-sink contract.
+      if (recovered.status === "blocked") {
+        const decisionId = createId();
+        await db.insert(schema.decisions).values({
+          id: decisionId,
+          kind: "blocked_run",
+          projectId: o.projectId,
+          outcome: "blocked",
+          payload: {
+            runId: o.id,
+            taskId: o.taskId ?? null,
+            summary: recovered.summary,
+            questions: recovered.blockerQuestions,
+            branch: o.branch,
+          },
+          status: "pending",
+          createdAt: now,
+        });
+        events.publish({
+          channel: "inbox",
+          kind: "decision_created",
+          decisionId,
+          projectId: o.projectId,
+        });
+      }
+
       stats.recovered += 1;
       continue;
     }
