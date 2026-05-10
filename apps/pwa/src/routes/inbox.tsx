@@ -260,7 +260,7 @@ export function Inbox() {
   };
 
   return (
-    <div className="md:grid md:grid-cols-[minmax(320px,400px)_1fr] md:gap-6 md:items-start">
+    <div className="md:grid md:grid-cols-[minmax(320px,400px)_minmax(0,640px)] md:gap-6 md:items-start md:max-w-[1080px] md:mx-auto">
       <div className="space-y-2.5">
         {triagingRows.map((idea) => (
           <TriagingRow key={idea.id} idea={idea} />

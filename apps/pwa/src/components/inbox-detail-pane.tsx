@@ -152,8 +152,12 @@ function DecisionDetail({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2 pt-2">
-        <button type="button" onClick={() => onAction("approve")} className="btn btn-primary">
+      <div className="flex flex-wrap gap-2 pt-2">
+        <button
+          type="button"
+          onClick={() => onAction("approve")}
+          className="btn btn-primary flex-1 min-w-[120px]"
+        >
           approve
         </button>
         <button type="button" onClick={() => onAction("decompose")} className="btn">
@@ -168,7 +172,7 @@ function DecisionDetail({
         <button
           type="button"
           onClick={() => onAction("dismiss")}
-          className="btn col-span-2 text-[12px]"
+          className="btn btn-ghost text-[12px] basis-full"
         >
           dismiss
         </button>

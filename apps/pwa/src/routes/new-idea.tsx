@@ -39,7 +39,7 @@ export function NewIdea() {
   const can = text.trim().length > 0 && !submit.isPending;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 md:max-w-3xl md:mx-auto">
       <Link
         to="/inbox/import-spec"
         className="surface px-4 py-3 flex items-center gap-3 active:bg-[var(--color-bg-2)] hover:border-[var(--color-line-bright)]"

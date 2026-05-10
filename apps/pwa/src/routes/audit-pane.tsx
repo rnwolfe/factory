@@ -141,7 +141,7 @@ export function AuditPane() {
   const finalState = a.status === "approved" || a.status === "rejected" || a.status === "failed";
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 md:max-w-3xl md:mx-auto">
       <div className="surface px-4 py-3 flex items-center gap-2 flex-wrap">
         <Link
           to={`/projects/${projectId}`}
