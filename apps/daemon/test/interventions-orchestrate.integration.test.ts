@@ -90,6 +90,7 @@ async function setupHarness(): Promise<Harness> {
     gitAuthor: { name: "Test", email: "test@test" },
     githubToken: null,
     factoryProjectId: null,
+    notifyOnRunComplete: false,
     vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },
   };
   return {

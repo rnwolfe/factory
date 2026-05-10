@@ -27,6 +27,7 @@ export const settingsRouter = router({
       agentBudgetSeconds: snap.agentBudgetSeconds,
       githubToken: { has: snap.githubToken !== null && snap.githubToken.length > 0 },
       factoryProjectId: snap.factoryProjectId,
+      notifyOnRunComplete: snap.notifyOnRunComplete,
       overridden: snap.overridden,
     };
   }),
@@ -71,6 +72,16 @@ export const settingsRouter = router({
       }
       if (input.key === "git-author-email" && input.value && !/.+@.+/.test(input.value)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "git-author-email looks malformed" });
+      }
+      if (
+        input.key === "notify-on-run-complete" &&
+        input.value !== "true" &&
+        input.value !== "false"
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "notify-on-run-complete: 'true' or 'false'",
+        });
       }
       setSetting(ctx.db, ctx.config, input.key, input.value);
       return { ok: true };

@@ -43,6 +43,13 @@ export interface FactoryConfig {
    */
   factoryProjectId: string | null;
   /**
+   * When true, a successful agent_exit fires a push notification (in addition
+   * to existing pushes for blocked / failed / merge_failure outcomes). Off by
+   * default — auto-advance + 4-worker concurrency would otherwise spam the
+   * dock with one push per completed run.
+   */
+  notifyOnRunComplete: boolean;
+  /**
    * VAPID keypair for Web Push. The PWA uses `publicKey` to register a
    * subscription with the browser's push service; the daemon signs delivery
    * requests with `privateKey`. `subject` is a `mailto:` or `https:` URI
@@ -110,6 +117,7 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
     },
     githubToken: p.auth?.githubToken ?? process.env.FACTORY_GITHUB_TOKEN ?? null,
     factoryProjectId: p.factoryProjectId ?? process.env.FACTORY_META_PROJECT_ID ?? null,
+    notifyOnRunComplete: false,
     // VAPID is filled in by `ensureVapid` after first load — the keypair is
     // material that needs to be generated, not synthesized from env defaults.
     // Until then the fields are empty strings; the notifications router

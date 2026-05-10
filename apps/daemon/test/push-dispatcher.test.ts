@@ -4,7 +4,25 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
+import type { FactoryConfig } from "../src/config.ts";
 import { payloadFor } from "../src/push/dispatcher.ts";
+
+const cfg: FactoryConfig = {
+  port: 0,
+  host: "127.0.0.1",
+  auth: { token: "" },
+  workdir: "/tmp",
+  worktreesRoot: "/tmp/wt",
+  dbPath: "/tmp/db",
+  maxConcurrentRuns: 1,
+  defaultRunBudgetSeconds: 60,
+  agentBudgetSeconds: 0,
+  gitAuthor: { name: "t", email: "t@t" },
+  githubToken: null,
+  factoryProjectId: null,
+  notifyOnRunComplete: false,
+  vapid: { publicKey: "", privateKey: "", subject: "mailto:t@t" },
+};
 
 function tempDb(): { dbPath: string; cleanup: () => void } {
   const root = mkdtempSync(path.join(tmpdir(), "factory-push-test-"));
@@ -51,6 +69,25 @@ async function insertProject(
   return id;
 }
 
+async function insertRun(
+  db: Setup["db"],
+  opts: { projectId: string; summary?: string | null },
+): Promise<string> {
+  const id = createId();
+  const now = Date.now();
+  await db.insert(schema.runs).values({
+    id,
+    projectId: opts.projectId,
+    status: "completed",
+    branch: `factory/run-${id}`,
+    worktreePath: `/tmp/wt/${id}`,
+    startedAt: now,
+    budgetSeconds: 60,
+    summary: opts.summary ?? null,
+  });
+  return id;
+}
+
 async function insertDecision(
   db: Setup["db"],
   opts: {
@@ -86,6 +123,7 @@ describe("push dispatcher · payloadFor", () => {
       const payload = await payloadFor(
         { channel: "inbox", kind: "decision_created", decisionId, projectId },
         db,
+        cfg,
       );
       expect(payload).toBeNull();
     } finally {
@@ -105,6 +143,7 @@ describe("push dispatcher · payloadFor", () => {
       const payload = await payloadFor(
         { channel: "inbox", kind: "decision_created", decisionId, projectId },
         db,
+        cfg,
       );
       expect(payload).not.toBeNull();
       expect(payload?.title).toContain("decision");
@@ -130,6 +169,7 @@ describe("push dispatcher · payloadFor", () => {
       const payload = await payloadFor(
         { channel: "inbox", kind: "decision_created", decisionId, projectId },
         db,
+        cfg,
       );
       expect(payload).not.toBeNull();
       expect(payload?.title).toBe("run blocked");
@@ -150,6 +190,7 @@ describe("push dispatcher · payloadFor", () => {
       const payload = await payloadFor(
         { channel: "inbox", kind: "decision_created", decisionId, projectId },
         db,
+        cfg,
       );
       expect(payload).not.toBeNull();
       expect(payload?.title).toBe("merge failed");
@@ -169,6 +210,7 @@ describe("push dispatcher · payloadFor", () => {
           projectId: null,
         },
         db,
+        cfg,
       );
       expect(payload).toBeNull();
     } finally {
@@ -190,6 +232,7 @@ describe("push dispatcher · payloadFor", () => {
           commitCount: 2,
         },
         db,
+        cfg,
       );
       expect(payload).not.toBeNull();
       expect(payload?.url).toBe(`/projects/${projectId}/sessions/sess-123`);
@@ -212,6 +255,7 @@ describe("push dispatcher · payloadFor", () => {
           commitCount: 2,
         },
         db,
+        cfg,
       );
       expect(payload).toBeNull();
     } finally {
@@ -225,6 +269,80 @@ describe("push dispatcher · payloadFor", () => {
       const payload = await payloadFor(
         { channel: "inbox", kind: "comment_added", decisionId: "x", role: "agent" },
         db,
+        cfg,
+      );
+      expect(payload).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("agent_exit success does not push when notifyOnRunComplete is off", async () => {
+    const { db, cleanup } = setup();
+    try {
+      const projectId = await insertProject(db, { autonomyMode: "collaborative" });
+      const runId = await insertRun(db, { projectId });
+      const payload = await payloadFor(
+        {
+          channel: "events",
+          kind: "agent_exit",
+          exitCode: 0,
+          ts: Date.now(),
+          runId,
+          iteration: 1,
+        },
+        db,
+        cfg,
+      );
+      expect(payload).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("agent_exit success pushes when notifyOnRunComplete is on", async () => {
+    const { db, cleanup } = setup();
+    try {
+      const projectId = await insertProject(db, { autonomyMode: "collaborative" });
+      const runId = await insertRun(db, { projectId, summary: "added auth gate" });
+      const payload = await payloadFor(
+        {
+          channel: "events",
+          kind: "agent_exit",
+          exitCode: 0,
+          ts: Date.now(),
+          runId,
+          iteration: 1,
+        },
+        db,
+        { ...cfg, notifyOnRunComplete: true },
+      );
+      expect(payload).not.toBeNull();
+      expect(payload?.title).toBe("run complete");
+      expect(payload?.body).toContain("added auth gate");
+      expect(payload?.url).toBe(`/projects/${projectId}/runs/${runId}`);
+      expect(payload?.tag).toBe(`run:${runId}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("agent_exit non-zero never pushes — failures land via decision_created", async () => {
+    const { db, cleanup } = setup();
+    try {
+      const projectId = await insertProject(db, { autonomyMode: "collaborative" });
+      const runId = await insertRun(db, { projectId });
+      const payload = await payloadFor(
+        {
+          channel: "events",
+          kind: "agent_exit",
+          exitCode: 1,
+          ts: Date.now(),
+          runId,
+          iteration: 1,
+        },
+        db,
+        { ...cfg, notifyOnRunComplete: true },
       );
       expect(payload).toBeNull();
     } finally {
