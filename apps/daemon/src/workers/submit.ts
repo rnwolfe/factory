@@ -47,6 +47,24 @@ export interface SubmitRunInput {
    * has to re-discover context.
    */
   resumeFromSessionId?: string;
+  /**
+   * Reuse the worktree path + branch of an existing run, instead of
+   * creating a fresh worktree from `baseRef`. The new run still gets
+   * its own row + runId, but operates on the same on-disk checkout
+   * the source run was working in.
+   *
+   * Critical for the intervene-resume path: the source run's worktree
+   * carries gitignored data (built artifacts, `.env*`, corpus/, etc.)
+   * that the agent built up across the prior turn. A fresh sibling
+   * worktree branched from the source's tip would have the committed
+   * code but lose all that local-only state, and the resumed agent
+   * would boot into an empty workspace and fail.
+   *
+   * When set, `baseRef` is ignored (the worktree is already on the
+   * right branch). The new run row inherits the source's worktreePath
+   * and branch verbatim.
+   */
+  reuseFromRunId?: string;
 }
 
 /**
@@ -90,11 +108,40 @@ export async function submitRun(
 
   const runId = createId();
   const now = Date.now();
-  const branch = `factory/run-${runId}`;
-  const worktreePath = `${config.worktreesRoot}/${project.slug}/${runId}`;
+
+  // Default: fresh worktree at <worktreesRoot>/<slug>/<runId> on a new
+  // branch. When reuseFromRunId is set, override both with the source
+  // run's values so the new run operates on the existing on-disk
+  // checkout (preserving gitignored data the agent built up).
+  let branch = `factory/run-${runId}`;
+  let worktreePath = `${config.worktreesRoot}/${project.slug}/${runId}`;
+  let inheritedSessionId: string | null = null;
+  if (input.reuseFromRunId) {
+    const source = await db
+      .select({
+        branch: schema.runs.branch,
+        worktreePath: schema.runs.worktreePath,
+        sessionId: schema.runs.sessionId,
+      })
+      .from(schema.runs)
+      .where(eq(schema.runs.id, input.reuseFromRunId))
+      .get();
+    if (!source) {
+      throw new Error(`reuseFromRunId target ${input.reuseFromRunId} not found`);
+    }
+    branch = source.branch;
+    worktreePath = source.worktreePath;
+    inheritedSessionId = source.sessionId;
+  }
 
   const operatorContext = input.operatorContext?.trim();
   const resumeSessionId = input.resumeFromSessionId?.trim();
+  // Explicit `resumeFromSessionId` wins over inherited (the orchestrate
+  // layer may want to resume from the source's session even when not
+  // reusing its worktree, or vice versa). Inherit only if the caller
+  // didn't pass one.
+  const sessionIdForRow =
+    resumeSessionId && resumeSessionId.length > 0 ? resumeSessionId : inheritedSessionId;
 
   await db.insert(schema.runs).values({
     id: runId,
@@ -106,13 +153,18 @@ export async function submitRun(
     worktreePath,
     startedAt: now,
     budgetSeconds: input.budgetSeconds ?? config.defaultRunBudgetSeconds,
-    baseRef: input.baseRef ?? null,
+    // baseRef is meaningless when reusing — the worktree is already on
+    // the target branch; the runner switches strategy accordingly.
+    baseRef: input.reuseFromRunId ? null : (input.baseRef ?? null),
     taskPlanId,
     operatorContext: operatorContext && operatorContext.length > 0 ? operatorContext : null,
-    sessionId: resumeSessionId && resumeSessionId.length > 0 ? resumeSessionId : null,
+    sessionId: sessionIdForRow ?? null,
   });
 
-  const resume = resumeSessionId !== undefined && resumeSessionId.length > 0;
+  // Resume mode: explicit sessionId set, OR inherited via reuseFromRunId
+  // when the source carried one. Either way the runner needs the flag.
+  const resume =
+    (sessionIdForRow ?? "").length > 0 && Boolean(input.reuseFromRunId || resumeSessionId);
   void pool.submit(async () => {
     await executeRun({ config, db, events, runs, pool }, runId, { resume });
   });

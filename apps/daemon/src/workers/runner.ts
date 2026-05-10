@@ -236,6 +236,18 @@ export async function executeRun(
 
   let lastSessionId: string | undefined;
 
+  // Reuse vs. fresh detection: a fresh run's branch is `factory/run-<runId>`
+  // by convention. When the row's branch deviates, the run was submitted
+  // with `reuseFromRunId` and is operating on an existing worktree+branch
+  // (e.g. the intervene-resume path keeps the agent's gitignored data
+  // intact). Use a "branch" strategy so the runtime attaches to the
+  // existing branch rather than trying to create a new one.
+  const expectedFreshBranch = `factory/run-${runId}`;
+  const isReusedWorktree = row.branch !== expectedFreshBranch;
+  const runStrategy = isReusedWorktree
+    ? { type: "branch" as const, name: row.branch, baseRef: row.baseRef ?? undefined }
+    : { type: "head" as const, baseRef: row.baseRef ?? undefined };
+
   try {
     const result = await runtime.spawn({
       runId,
@@ -246,7 +258,7 @@ export async function executeRun(
       task: { id: row.taskId ?? "ad-hoc", prompt },
       agent: claudeCodeAgent,
       sandbox: hostSandbox,
-      strategy: { type: "head", baseRef: row.baseRef ?? undefined },
+      strategy: runStrategy,
       // row.budgetSeconds is NOT NULL; preserve 0 (= infinite) instead of
       // collapsing to the default via `||`.
       budgetSeconds: row.budgetSeconds,

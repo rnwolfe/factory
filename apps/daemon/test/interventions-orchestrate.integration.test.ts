@@ -353,9 +353,23 @@ describe("interventions orchestrate · blocked_run", () => {
 
       const newRunId = result.newRunId as string;
       const newRun = h.db.select().from(schema.runs).where(eq(schema.runs.id, newRunId)).get();
+      const sourceRun = h.db
+        .select()
+        .from(schema.runs)
+        .where(eq(schema.runs.id, sourceRunId))
+        .get();
       expect(newRun?.id).toBe(newRunId);
       // Resume mode requires sessionId on the row before runner.ts reads it.
       expect(newRun?.sessionId).toBe(`claude-session-${sourceRunId.slice(0, 8)}`);
+      // The new run REUSES the source's worktree + branch — that's the
+      // load-bearing fix. A fresh sibling worktree from source.branch
+      // would lose the gitignored data the agent built up (corpus/,
+      // .env*, build artifacts, node_modules), and the resumed agent
+      // would boot into an empty workspace.
+      expect(newRun?.worktreePath).toBe(sourceRun?.worktreePath);
+      expect(newRun?.branch).toBe(sourceRun?.branch);
+      // baseRef is meaningless on a reused worktree (already on branch).
+      expect(newRun?.baseRef).toBeNull();
       // operatorContext carries forward the operator's thread reply + the
       // intervention summary so the resumed agent sees both layers.
       expect(newRun?.operatorContext).toContain("corpus/m21/raw/2026-04 export.zip");

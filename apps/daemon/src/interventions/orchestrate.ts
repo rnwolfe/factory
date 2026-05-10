@@ -470,9 +470,17 @@ async function finalizeBlockedRunResume(
       : "";
   const operatorContext = `${questionsBlock}${repliesBlock}### Operator intervention\n\n${interventionCommitInfo}\n\nWhen you continue, run \`git status\` and \`git log --oneline -10\` first to see the current worktree state.`;
 
-  // Submit a new run with resume:true. SubmitRun will copy the sessionId
-  // forward via a fresh run row whose sessionId we pre-set; runner.ts in
-  // resume mode passes that to runtime.spawn for `claude --resume`.
+  // Submit a new run that REUSES the source's worktree + branch. Critical:
+  // a fresh sibling worktree branched from source.branch would lose the
+  // gitignored data (corpus, .env*, build artifacts, node_modules,
+  // anything in .gitignore) that the agent and operator just spent time
+  // building up. The only state that carries forward via git is committed
+  // files. By reusing the worktree, the resumed agent boots into the
+  // exact filesystem state the operator left behind — the operator's
+  // intervention isn't wasted.
+  //
+  // sessionId is inherited from source via reuseFromRunId; runner.ts in
+  // resume mode passes it to runtime.spawn for `claude --resume`.
   const result = await submitRun(
     {
       config,
@@ -484,9 +492,8 @@ async function finalizeBlockedRunResume(
     {
       projectId: intervention.projectId,
       taskId: source.taskId ?? undefined,
-      baseRef: source.branch,
       operatorContext,
-      resumeFromSessionId: source.sessionId,
+      reuseFromRunId: source.id,
     },
   );
 
