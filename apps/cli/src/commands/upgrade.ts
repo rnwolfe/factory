@@ -13,6 +13,7 @@ import { run, whichBin } from "../lib/exec.ts";
 import { appendUpgradeLog, readLastGood, writeLastGood } from "../lib/state.ts";
 import { systemctl } from "../lib/systemctl.ts";
 import { unitPath } from "../lib/unit.ts";
+import { buildCli } from "../upgrade/build-cli.ts";
 import { buildPwa } from "../upgrade/build-pwa.ts";
 import { checkoutSha } from "../upgrade/checkout.ts";
 import { bunInstall } from "../upgrade/deps.ts";
@@ -343,7 +344,30 @@ export async function runUpgrade(args: UpgradeArgs): Promise<number> {
     return 1;
   }
 
-  // 5b. build PWA dist before the new daemon starts
+  // 5b. rebuild the CLI dist so a CLI bug-fix shipped in this release
+  // actually reaches the operator's `~/.local/bin/factory` symlink. The
+  // process currently running this upgrade IS the old CLI; replacing
+  // dist/factory in place is safe (Linux keeps the running process's
+  // inode open) and the next `factory <anything>` picks up the new code.
+  // Without this step, CLI fixes ship in `src/` but stay dormant in
+  // `dist/factory` until someone manually `bun run cli:install`s — the
+  // exact trap that masked the FACTORY_HOME-for-seed fix in v0.6.0.
+  process.stdout.write("factory: rebuilding cli\n");
+  const cli = await buildCli(checkout, bunBin);
+  if (!cli.ok) {
+    process.stderr.write(`factory: cli build failed: ${cli.stderr.trim()}\n`);
+    await appendUpgradeLog({
+      ts: Date.now(),
+      from: fromSha,
+      to: target.sha,
+      channel,
+      ok: false,
+      error: "cli build failed",
+    });
+    return 1;
+  }
+
+  // 5c. build PWA dist before the new daemon starts
   process.stdout.write("factory: building pwa\n");
   const pwa = await buildPwa(checkout, bunBin);
   if (!pwa.ok) {
