@@ -114,10 +114,18 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
     // material that needs to be generated, not synthesized from env defaults.
     // Until then the fields are empty strings; the notifications router
     // refuses operations when publicKey is empty.
+    //
+    // The default subject uses example.com (RFC 2606 reserved) rather than
+    // localhost because APNs (Apple's push service) validates the JWT `sub`
+    // claim and rejects subjects with non-routable TLDs — `factory@localhost`
+    // returns 403 BadJwtToken on every iOS push attempt. example.com is a
+    // real DNS-resolvable IANA-reserved domain that all push services
+    // (APNs, FCM, Mozilla) accept. Operators with their own domain can
+    // override via `vapid.subject` in config.yaml.
     vapid: {
       publicKey: p.vapid?.publicKey ?? "",
       privateKey: p.vapid?.privateKey ?? "",
-      subject: p.vapid?.subject ?? "mailto:factory@localhost",
+      subject: p.vapid?.subject ?? "mailto:noreply@example.com",
     },
   };
 }
@@ -199,7 +207,8 @@ export async function ensureVapid(config: FactoryConfig, configPath: string): Pr
   config.vapid = {
     publicKey: keys.publicKey,
     privateKey: keys.privateKey,
-    subject: config.vapid.subject || "mailto:factory@localhost",
+    // See fillDefaults — `mailto:factory@localhost` is rejected by APNs.
+    subject: config.vapid.subject || "mailto:noreply@example.com",
   };
   await mkdir(path.dirname(configPath), { recursive: true });
   await writeFile(configPath, YAML.stringify(serializeConfig(config)), { mode: 0o600 });

@@ -85,6 +85,18 @@ export async function startDaemon(): Promise<DaemonHandle> {
     console.log(`[factoryd] generated VAPID keypair and wrote to ${source.configPath}`);
   }
 
+  // APNs (Apple's push service) validates the VAPID JWT `sub` claim and
+  // rejects subjects with non-routable TLDs — every iOS push attempt
+  // returns 403 BadJwtToken when the subject is `mailto:*@localhost`.
+  // FCM and Mozilla don't validate, so the failure mode is iOS-only and
+  // silent in journalctl. Surface it on every boot so the operator
+  // knows where to look without having to walk the whole diagnostic.
+  if (config.vapid.subject.includes("@localhost")) {
+    console.warn(
+      `[factoryd] WARNING: vapid.subject is "${config.vapid.subject}" — APNs (iOS) rejects this with BadJwtToken. Edit ${source.configPath} and set vapid.subject to a real address (e.g. mailto:you@your-domain.com), then restart. Web Push to Chrome/Firefox is unaffected.`,
+    );
+  }
+
   // DB
   runMigrations(config.dbPath);
   const db = createDb(config.dbPath);
