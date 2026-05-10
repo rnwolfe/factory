@@ -4,6 +4,59 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.6.0 — 2026-05-09
+
+The unblock-and-survive-restart release. Blocked runs are no longer a
+dead end: the operator can answer the agent's questions in a thread on
+the decision and have those answers ride forward into the retry's
+prompt — instead of re-running the same task and re-hitting the same
+blocker. Plus two infrastructure fixes that surfaced when push
+notifications failed against the live DB and an orphaned run silently
+disappeared from the inbox.
+
+### Added
+- Operator reply thread on blocked_run decisions. The agent's questions
+  are answered in-line; on approve (= retry), the gathered replies are
+  folded into the new run's prompt as an authoritative "Operator notes"
+  preamble — the agent starts with answers instead of looping back into
+  the same blocker. Reuses the triage thread pattern (no new primitive),
+  with non-triage copy and a soft warning when retrying with no reply.
+  New `runs.operator_context` column persists the threaded answers on
+  the run row.
+
+### Fixed
+- Recovered blocked runs no longer disappear from the inbox.
+  `reapOrphanedRuns` (the daemon-startup salvage path that reads the
+  agent's persisted log when a `running` row is found post-restart) now
+  mirrors `runner.ts` and creates the matching `blocked_run` decision +
+  publishes a `decision_created` event. Previously the run was flipped
+  to `blocked` but no decision existed, violating the
+  inbox-as-only-attention-sink contract.
+- `factory upgrade`'s migrate + seed subprocesses now inherit
+  `FACTORY_HOME` resolved from the systemd unit file. Without this they
+  silently targeted `~/factory/data.db` instead of the live daemon's
+  DB — masking missing migrations because the daemon also runs
+  migrations at boot, but leaving rubric_versions and prompts seeded
+  against the wrong DB. This was the root cause of v0.5.0's
+  "no such table: push_subscriptions" failure on live: the seed-time
+  CREATE TABLE never targeted the live DB.
+- Registers the previously-orphaned `0018_push_subscriptions` migration
+  in `meta/_journal.json`. The SQL file shipped in v0.5.0 but its
+  journal entry was never added, so drizzle silently skipped it.
+  Combined with the FACTORY_HOME fix, the next upgrade applies it
+  cleanly.
+- `factory upgrade` now accepts `--help`/`-h`, auto-discovers the dev
+  checkout from the systemd unit's `WorkingDirectory` when
+  `upgrade.checkout` isn't set, and replaces "fatal: not a git
+  repository" with a directive error pointing at `factory install
+  --force`.
+- `doctor` and the daemon's startup banner now surface localhost-only
+  binds — operators on phones won't quietly fail to reach the daemon
+  because `host: 127.0.0.1` shipped in their config.
+- PWA shell + auth-gate version chip now reads from `package.json`
+  instead of a hard-coded string, so it stops drifting from the
+  installed sha.
+
 ## v0.5.0 — 2026-05-09
 
 The attention-surface release. The operator gets two new ways to be told
