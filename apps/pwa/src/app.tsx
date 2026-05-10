@@ -1,9 +1,12 @@
+import { useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { AuthGate } from "./components/auth-gate.tsx";
+import { CommandPalette } from "./components/command-palette.tsx";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import { Shell } from "./components/shell.tsx";
 import { useAuth } from "./lib/auth.ts";
 import { useAppBadge } from "./lib/use-app-badge.ts";
+import { usePalette } from "./lib/use-palette.ts";
 import { AuditPane } from "./routes/audit-pane.tsx";
 import { DecisionDetail } from "./routes/decision-detail.tsx";
 import { Deepen } from "./routes/deepen.tsx";
@@ -45,203 +48,221 @@ function RouteBoundary({ label, children }: { label: string; children: React.Rea
 export function App() {
   const token = useAuth((s) => s.token);
   useAppBadge(Boolean(token));
+  useCommandPaletteHotkey(Boolean(token));
   if (!token) return <AuthGate />;
   return (
-    <Shell>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <RouteBoundary label="inbox">
-              <Inbox />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/inbox/new"
-          element={
-            <RouteBoundary label="new-idea">
-              <NewIdea />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/inbox/import-spec"
-          element={
-            <RouteBoundary label="import-spec">
-              <ImportSpec />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/decisions/:id"
-          element={
-            <RouteBoundary label="decision-detail">
-              <DecisionDetail />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/plans/:id"
-          element={
-            <RouteBoundary label="plan-detail">
-              <PlanDetail />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects"
-          element={
-            <RouteBoundary label="projects">
-              <Projects />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/import"
-          element={
-            <RouteBoundary label="import-project">
-              <ImportProject />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id"
-          element={
-            <RouteBoundary label="project-detail">
-              <ProjectDetail />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id/tasks/:taskId"
-          element={
-            <RouteBoundary label="task-detail">
-              <TaskDetail />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id/runs/:runId"
-          element={
-            <RouteBoundary label="live-pane">
-              <LivePane />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id/scripts/:scriptId"
-          element={
-            <RouteBoundary label="script-pane">
-              <ScriptPane />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id/code"
-          element={
-            <RouteBoundary label="repo-browser">
-              <RepoBrowser />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id/sessions/:sessionId"
-          element={
-            <RouteBoundary label="session-pane">
-              <SessionPane />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id/audits/:auditId"
-          element={
-            <RouteBoundary label="audit-pane">
-              <AuditPane />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/projects/:id/deepen"
-          element={
-            <RouteBoundary label="deepen">
-              <Deepen />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/feedback/:id"
-          element={
-            <RouteBoundary label="feedback-detail">
-              <FeedbackDetail />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <RouteBoundary label="settings">
-              <Settings />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/settings/prompts"
-          element={
-            <RouteBoundary label="prompts-viewer">
-              <PromptsViewer />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/settings/prompts/:key"
-          element={
-            <RouteBoundary label="prompt-detail">
-              <PromptDetail />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/settings/rubrics"
-          element={
-            <RouteBoundary label="rubrics-viewer">
-              <RubricsViewer />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/settings/rubrics/:key"
-          element={
-            <RouteBoundary label="rubric-detail">
-              <RubricDetail />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/settings/worktrees"
-          element={
-            <RouteBoundary label="worktrees">
-              <WorktreesAdmin />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="/metrics"
-          element={
-            <RouteBoundary label="metrics">
-              <Metrics />
-            </RouteBoundary>
-          }
-        />
-        <Route
-          path="*"
-          element={
-            <RouteBoundary label="inbox-fallback">
-              <Inbox />
-            </RouteBoundary>
-          }
-        />
-      </Routes>
-    </Shell>
+    <>
+      <CommandPalette />
+      <Shell>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <RouteBoundary label="inbox">
+                <Inbox />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/inbox/new"
+            element={
+              <RouteBoundary label="new-idea">
+                <NewIdea />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/inbox/import-spec"
+            element={
+              <RouteBoundary label="import-spec">
+                <ImportSpec />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/decisions/:id"
+            element={
+              <RouteBoundary label="decision-detail">
+                <DecisionDetail />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/plans/:id"
+            element={
+              <RouteBoundary label="plan-detail">
+                <PlanDetail />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects"
+            element={
+              <RouteBoundary label="projects">
+                <Projects />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/import"
+            element={
+              <RouteBoundary label="import-project">
+                <ImportProject />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id"
+            element={
+              <RouteBoundary label="project-detail">
+                <ProjectDetail />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/tasks/:taskId"
+            element={
+              <RouteBoundary label="task-detail">
+                <TaskDetail />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/runs/:runId"
+            element={
+              <RouteBoundary label="live-pane">
+                <LivePane />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/scripts/:scriptId"
+            element={
+              <RouteBoundary label="script-pane">
+                <ScriptPane />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/code"
+            element={
+              <RouteBoundary label="repo-browser">
+                <RepoBrowser />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/sessions/:sessionId"
+            element={
+              <RouteBoundary label="session-pane">
+                <SessionPane />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/audits/:auditId"
+            element={
+              <RouteBoundary label="audit-pane">
+                <AuditPane />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/deepen"
+            element={
+              <RouteBoundary label="deepen">
+                <Deepen />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/feedback/:id"
+            element={
+              <RouteBoundary label="feedback-detail">
+                <FeedbackDetail />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <RouteBoundary label="settings">
+                <Settings />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/prompts"
+            element={
+              <RouteBoundary label="prompts-viewer">
+                <PromptsViewer />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/prompts/:key"
+            element={
+              <RouteBoundary label="prompt-detail">
+                <PromptDetail />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/rubrics"
+            element={
+              <RouteBoundary label="rubrics-viewer">
+                <RubricsViewer />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/rubrics/:key"
+            element={
+              <RouteBoundary label="rubric-detail">
+                <RubricDetail />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/worktrees"
+            element={
+              <RouteBoundary label="worktrees">
+                <WorktreesAdmin />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/metrics"
+            element={
+              <RouteBoundary label="metrics">
+                <Metrics />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <RouteBoundary label="inbox-fallback">
+                <Inbox />
+              </RouteBoundary>
+            }
+          />
+        </Routes>
+      </Shell>
+    </>
   );
+}
+
+function useCommandPaletteHotkey(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        usePalette.getState().toggle();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [enabled]);
 }
