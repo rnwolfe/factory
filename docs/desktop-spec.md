@@ -1,7 +1,7 @@
 # Desktop UX spec — Vercel-style chrome over the phone-first PWA
 
-> **Status:** living. Started 2026-05-10. Slice 1 (chrome only) on
-> branch `desktop/responsive-shell` at time of writing.
+> **Status:** living. Started 2026-05-10. Phases 1–5 shipped to `main`
+> on the same day; phase 6 (activity rail) deferred per §6.
 > **Scope:** the PWA's desktop layout, leading toward the Tauri-wrapped
 > desktop client tracked in #1.
 > **Audience:** future Ryan, future Claude sessions.
@@ -138,12 +138,14 @@ Routes that should *not* opt in:
 
 | # | Scope | Status |
 |---|-------|--------|
-| 1 | Chrome only — sidebar + responsive shell, no route changes | **In progress** on `desktop/responsive-shell` |
-| 2 | Inbox split-view (list left, detail right on desktop) | Pending |
-| 3 | Project detail tabs (Tasks / Runs / Audits / Plans) + per-tab split-view | Pending |
-| 4 | Top-bar enhancements: project switcher, breadcrumb, ⌘K trigger | Pending — partially deferrable until tabs land |
-| 5 | ⌘K command palette (jump to project / decision / run / setting) | Pending |
+| 1 | Chrome only — sidebar + responsive shell, no route changes | **Shipped** (2026-05-10) |
+| 2 | Inbox split-view (list left, detail right on desktop) | **Shipped** (2026-05-10) |
+| 3 | Project detail tabs (Tasks / Runs / Audits / Workdir) | **Shipped** (2026-05-10) — `?tab=…` for bookmarkability |
+| 4 | Top-bar enhancements: project switcher, breadcrumb, ⌘K trigger | **Shipped** (2026-05-10) |
+| 5 | ⌘K command palette (nav + projects) | **Shipped** (2026-05-10) — decisions/plans/audits/feedback as palette items deferred so the palette doesn't re-implement the inbox |
 | 6 | Activity rail (right column, "what's running" cross-project) | Optional / deferred until lived experience asks for it |
+
+Each phase landed as a `--no-ff` merge from a `desktop/<phase>` branch.
 
 Each phase is a single PR, ideally < 1 day of work.
 
