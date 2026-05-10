@@ -30,7 +30,7 @@ export function AuthGate() {
     <div className="min-h-screen flex items-center justify-center px-6">
       <div className="w-full max-w-[420px] surface p-6">
         <div className="flex items-baseline justify-between mb-6">
-          <span className="display text-2xl text-[var(--color-fg)]">factory</span>
+          <span className="display text-2xl text-[var(--color-fg)]">Heimdall</span>
           <span className="chip">v{__FACTORY_VERSION__}</span>
         </div>
         <p className="text-sm text-[var(--color-fg-2)] leading-relaxed mb-5">
@@ -59,7 +59,7 @@ export function AuthGate() {
         </button>
         <div className="hairline mt-6" />
         <div className="mt-4 text-[11px] text-[var(--color-fg-3)] mono leading-relaxed">
-          this device is now your only console for this factory.
+          this device is now your only console for Heimdall.
           <br />
           rotate the token via{" "}
           <span className="text-[var(--color-fg-2)]">factoryd rotate-token</span>.

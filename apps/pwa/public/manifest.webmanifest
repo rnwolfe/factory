@@ -1,7 +1,7 @@
 {
-  "name": "factory",
-  "short_name": "factory",
-  "description": "single-operator software factory — decisions inbox",
+  "name": "Heimdall",
+  "short_name": "Heimdall",
+  "description": "single-operator console — decisions inbox",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0908",

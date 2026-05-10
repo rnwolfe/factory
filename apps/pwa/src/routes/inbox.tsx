@@ -148,7 +148,7 @@ export function Inbox() {
     return (
       <div className="surface p-4 text-sm">
         <div className="display text-[var(--color-verdict-trashed)] mb-2">
-          something is wrong with your factory.
+          something is wrong with Heimdall.
         </div>
         <div className="text-[var(--color-fg-2)]">{(inbox.error as Error).message}</div>
       </div>
@@ -183,7 +183,7 @@ export function Inbox() {
         <div className="text-center">
           <div className="display text-2xl text-[var(--color-fg)] mb-2">no decisions</div>
           <p className="text-[var(--color-fg-2)] text-sm leading-relaxed mb-6">
-            the inbox is empty. capture an idea — the factory triages within ~2 min.
+            the inbox is empty. capture an idea — Heimdall triages within ~2 min.
           </p>
           <div className="flex flex-col gap-2 items-center">
             <Link to="/inbox/new" className="btn btn-primary">

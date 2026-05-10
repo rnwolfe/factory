@@ -19,7 +19,7 @@ export function Shell({ children }: { children: ReactNode }) {
     "/projects": "projects",
     "/settings": "settings",
   };
-  const title = titleByRoute[loc.pathname] ?? "factory";
+  const title = titleByRoute[loc.pathname] ?? "Heimdall";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -29,7 +29,7 @@ export function Shell({ children }: { children: ReactNode }) {
       >
         <div className="flex items-center justify-between px-4 h-12">
           <div className="flex items-baseline gap-3">
-            <span className="display text-lg leading-none text-[var(--color-fg)]">factory</span>
+            <span className="display text-lg leading-none text-[var(--color-fg)]">Heimdall</span>
             <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
               · {title}
             </span>

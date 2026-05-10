@@ -575,7 +575,7 @@ function FactoryProjectRow({
     <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] text-[var(--color-fg-1)]">factory meta-project</span>
+          <span className="text-[13px] text-[var(--color-fg-1)]">Heimdall meta-project</span>
           {overridden ? (
             <span className="mono text-[10.5px] text-[var(--color-fg-3)]">db</span>
           ) : (
@@ -752,7 +752,7 @@ function NotificationsSection() {
       {status && !status.supported ? (
         <p className="px-3 pb-3 pt-1 text-[10.5px] mono text-[var(--color-fg-3)] leading-relaxed">
           this browser doesn't expose the Push API. on iOS, web push works only after you add
-          factory to the home screen and open it from there.
+          Heimdall to the home screen and open it from there.
         </p>
       ) : null}
 

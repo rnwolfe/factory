@@ -41,7 +41,7 @@ export function FeedbackDrawer({ onClose, contextRoute, contextHint }: Props) {
         style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}
       >
         <div className="flex items-start justify-between">
-          <span className="display text-lg">feedback on factory</span>
+          <span className="display text-lg">feedback on Heimdall</span>
           <button
             type="button"
             onClick={onClose}

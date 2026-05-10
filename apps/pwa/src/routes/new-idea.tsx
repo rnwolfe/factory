@@ -133,7 +133,7 @@ export function NewIdea() {
       </div>
 
       <p className="text-[12px] mono text-[var(--color-fg-3)] px-2">
-        the factory will triage this against the active rubric within ~2 min and surface a decision
+        Heimdall will triage this against the active rubric within ~2 min and surface a decision
         card.
       </p>
     </div>
