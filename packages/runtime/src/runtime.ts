@@ -67,7 +67,6 @@ class HostRuntime implements Runtime {
     let agentExitCode = 0;
     let sessionId: string | undefined;
     let stalenessTripped = false;
-    let handleRef: { kill(): Promise<void> } | null = null;
 
     const onLine = (line: string) => {
       // Always emit the raw line so consumers can stream pane output to xterm.
@@ -80,15 +79,19 @@ class HostRuntime implements Runtime {
         if (e.kind === "session") sessionId = e.id;
         if (e.kind === "agent_exit") {
           agentExitCode = e.exitCode;
-          // The agent's own `result` envelope is authoritative. Some tmux
-          // configs keep the session alive after the inner command exits
-          // (e.g. `set-option -g remain-on-exit on`), in which case the
-          // sandbox's session-existence poll never breaks and the runtime
-          // hangs forever. Schedule an explicit kill once we've seen the
-          // exit envelope; the small delay lets any trailing output flush.
-          setTimeout(() => {
-            void handleRef?.kill();
-          }, 500);
+          // We deliberately do NOT force-kill tmux here. Factory used to
+          // schedule an eager `kill-session` 500ms after agent_exit, which
+          // pre-empted anything the harness had backgrounded — `nohup`'d
+          // builds, `setsid`'d watchers, etc. — by sending SIGHUP to the
+          // whole session. The original concern (`remain-on-exit on`
+          // hangs the session-existence poll) is already addressed by the
+          // explicit `set-option -t <session> remain-on-exit off` we run
+          // when starting the session (see tmux.ts), so the pane closes
+          // naturally when claude --print's `sh` exits.
+          //
+          // Trust the harness. The agent owns what survives its turn:
+          // detached children survive pty closure, attached ones don't,
+          // and Factory shouldn't second-guess either way.
         }
         spec.onEvent({ ...e, runId: spec.runId, iteration });
       }
@@ -114,7 +117,6 @@ class HostRuntime implements Runtime {
         onLine,
         tmux: { sessionName, logSocketPath: logPath },
       });
-      handleRef = handle;
 
       sandboxExit = await handle.exit;
     } finally {
