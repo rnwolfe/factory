@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
+import { usePalette } from "../lib/use-palette.ts";
 
 interface ProjectRow {
   id: string;
@@ -212,10 +213,11 @@ function parseBreadcrumb(pathname: string, projects: ProjectRow[]): Crumb[] {
 }
 
 function CommandPaletteTrigger() {
+  const setOpen = usePalette((s) => s.setOpen);
   return (
     <button
       type="button"
-      // Phase 5 will wire this up to the actual command palette overlay.
+      onClick={() => setOpen(true)}
       className="flex items-center gap-2 px-2.5 h-7 surface border border-[var(--color-line)] hover:border-[var(--color-line-bright)] hover:text-[var(--color-fg-1)] text-[var(--color-fg-3)]"
       aria-label="open command palette"
     >
