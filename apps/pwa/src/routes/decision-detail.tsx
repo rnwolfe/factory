@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
@@ -156,6 +157,29 @@ export function DecisionDetail() {
     },
   });
 
+  const activeIntervention = useQuery({
+    queryKey: ["interventions.forDecision", id],
+    queryFn: () =>
+      trpc.interventions.forDecision.query({ decisionId: id }) as unknown as Promise<{
+        id: string;
+        decisionId: string;
+        decisionKind: "blocked_run" | "merge_failure";
+        worktreePath: string;
+        tmuxSessionName: string;
+        status: "active" | "resumed" | "cancelled" | "orphaned";
+        startedAt: number;
+        endedAt: number | null;
+      } | null>,
+    enabled: id.length > 0,
+  });
+
+  const startIntervention = useMutation({
+    mutationFn: () => trpc.interventions.start.mutate({ decisionId: id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["interventions.forDecision", id] });
+    },
+  });
+
   const [draft, setDraft] = useState("");
 
   // /ws/inbox carries comment_added and decision_updated. Filter to this
@@ -177,6 +201,14 @@ export function DecisionDetail() {
           }
           if (evt.kind === "decision_updated") {
             qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+            // Interventions emit decision_updated on start/cancel/orphan
+            // so the pane shows up / goes away without a refresh.
+            qc.invalidateQueries({ queryKey: ["interventions.forDecision", id] });
+          }
+          if (evt.kind === "decision_actioned") {
+            qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+            qc.invalidateQueries({ queryKey: ["interventions.forDecision", id] });
+            qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
           }
         } catch {
           // non-JSON frame; ignore
@@ -684,6 +716,15 @@ export function DecisionDetail() {
         </>
       ) : null}
 
+      {/* Active intervention pane — when the operator has opened a tmux to
+          repair the blocked run / merge failure, the pane is the primary
+          attention surface. Retry/dismiss buttons are hidden in that mode
+          so the operator's only choices are "resume agent" / "cancel"
+          inside the pane. */}
+      {(isBlockedRun || isMergeFailure) && activeIntervention.data ? (
+        <InterventionPane intervention={activeIntervention.data} projectId={d.projectId} />
+      ) : null}
+
       {rubric.data ? (
         <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
           rubric · {rubric.data.rubricKey}@{rubric.data.version}
@@ -753,6 +794,49 @@ export function DecisionDetail() {
               dismiss without action
             </button>
           </div>
+        ) : (isBlockedRun || isMergeFailure) && activeIntervention.data ? (
+          // Active intervention is the only action surface — the pane has
+          // its own resume/cancel buttons, so the bottom action bar
+          // would be redundant and confusing.
+          <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
+            intervention active above — resume or cancel from the tmux pane.
+          </p>
+        ) : isBlockedRun || isMergeFailure ? (
+          // blocked_run + merge_failure get a third "intervene" verb that
+          // opens a tmux over the relevant worktree (run's for blocked,
+          // project's for merge_failure) so the operator can resolve the
+          // problem in-place before retrying.
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => action.mutate({ action: "approve" })}
+              disabled={action.isPending || startIntervention.isPending}
+            >
+              {isBlockedRun ? "retry" : "retry merge"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => startIntervention.mutate()}
+              disabled={action.isPending || startIntervention.isPending}
+              title={
+                isBlockedRun
+                  ? "open a tmux over the run's worktree to inspect/edit before resuming the agent"
+                  : "open a tmux over the project's main checkout to resolve the conflict before retrying"
+              }
+            >
+              {startIntervention.isPending ? "starting…" : "intervene"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => action.mutate({ action: "dismiss" })}
+              disabled={action.isPending || startIntervention.isPending}
+            >
+              dismiss
+            </button>
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -761,7 +845,7 @@ export function DecisionDetail() {
               onClick={() => action.mutate({ action: "approve" })}
               disabled={action.isPending}
             >
-              {isBlockedRun ? "retry" : isMergeFailure ? "retry merge" : "confirm"}
+              confirm
             </button>
             <button
               type="button"

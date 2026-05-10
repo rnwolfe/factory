@@ -8,6 +8,10 @@ import { ensureVapid, type FactoryConfig, loadConfig, writeInitialConfig } from 
 import type { DaemonContext } from "./context.ts";
 import { EventBus } from "./events.ts";
 import { buildHealth } from "./health.ts";
+import {
+  recoverOrphanedInterventions,
+  tmuxNameForIntervention,
+} from "./interventions/orchestrate.ts";
 import { startPushDispatcher } from "./push/dispatcher.ts";
 import { appRouter } from "./router.ts";
 import { ScriptRegistry } from "./scripts/registry.ts";
@@ -139,6 +143,12 @@ export async function startDaemon(): Promise<DaemonHandle> {
   if (orphanedSessions > 0) {
     console.log(`[factoryd] aborted ${orphanedSessions} orphaned session(s) on boot`);
   }
+  const orphanedInterventions = await recoverOrphanedInterventions(db, events);
+  if (orphanedInterventions > 0) {
+    console.log(
+      `[factoryd] orphaned ${orphanedInterventions} active intervention(s) on boot — operator can intervene again`,
+    );
+  }
 
   // Web Push: relay attention-worthy events to enrolled browsers. The
   // unsubscribe is held so we can detach on shutdown — without it, the
@@ -216,17 +226,19 @@ export async function startDaemon(): Promise<DaemonHandle> {
           attachWsChannel(ws, ctx);
         },
         message(ws, msg) {
-          // Pane channel carries operator keystrokes for both runs and ad-hoc
-          // sessions. The runId field on ws.data carries either a runId (legacy
-          // pane subscribe) or a sessionId — cuid namespace is shared, so a
-          // single lookup chain (sessions → runs) finds the right tmux name.
+          // Pane channel carries operator keystrokes for runs, ad-hoc
+          // sessions, and operator interventions. The runId field on
+          // ws.data is the carrier id — cuid namespace is shared across
+          // all three primitives, so a single lookup chain (interventions
+          // → sessions → runs) finds the right tmux name.
           if (ws.data.channel !== "pane") return;
           const runId = ws.data.runId;
           if (!runId) return;
           const data = typeof msg === "string" ? msg : (msg as Buffer);
           void (async () => {
-            // Sessions registry first (in-memory, no DB hit).
-            let sessionName = tmuxNameForSession(runId);
+            // Interventions registry first (in-memory, no DB hit).
+            let sessionName = tmuxNameForIntervention(runId);
+            if (!sessionName) sessionName = tmuxNameForSession(runId);
             if (!sessionName) {
               const row = await db
                 .select({ tmuxSession: schema.runs.tmuxSession })

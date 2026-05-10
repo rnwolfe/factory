@@ -694,6 +694,60 @@ export const sessions = sqliteTable(
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
+export const interventionStatusEnum = ["active", "resumed", "cancelled", "orphaned"] as const;
+export const interventionDecisionKindEnum = ["blocked_run", "merge_failure"] as const;
+export type InterventionStatus = (typeof interventionStatusEnum)[number];
+
+/**
+ * v0.7 — operator-driven repair on a blocked run or merge failure. An
+ * intervention spawns a tmux session over an EXISTING worktree (no new
+ * worktree creation, no own branch) so the operator can inspect git
+ * state, fix conflicts, edit files, run commands. On "resume agent"
+ * the intervention's terminal action is decision-kind-dependent:
+ *   - blocked_run: auto-commit dirty work, submit a NEW run with
+ *     `resume: true` against the source run's claude session_id, with
+ *     the operator's thread replies + intervention summary folded in
+ *     as `operatorContext`. The agent picks up its prior conversation,
+ *     sees the new commits, and continues with full context (no
+ *     re-seeding, no break in reasoning).
+ *   - merge_failure: re-run mergeIntoMain (the operator presumably
+ *     fixed the conflict in main).
+ *
+ * worktreePath is captured at start time:
+ *   - blocked_run: source run's worktreePath (the agent was just
+ *     working there; same files, same git state)
+ *   - merge_failure: project's main workdirPath (where the merge
+ *     failed; that's the tree the operator needs to reconcile)
+ *
+ * sourceRunId is the blocked run's id when decision_kind='blocked_run';
+ * null otherwise. Used at resume time to pull the run's session_id +
+ * branch + thread comments without joining decisions+runs again.
+ */
+export const interventions = sqliteTable(
+  "interventions",
+  {
+    id: text("id").primaryKey(),
+    decisionId: text("decision_id")
+      .references(() => decisions.id)
+      .notNull(),
+    decisionKind: text("decision_kind", { enum: interventionDecisionKindEnum }).notNull(),
+    projectId: text("project_id")
+      .references(() => projects.id)
+      .notNull(),
+    /** Run id when decision_kind='blocked_run'; null for merge_failure. */
+    sourceRunId: text("source_run_id"),
+    worktreePath: text("worktree_path").notNull(),
+    tmuxSessionName: text("tmux_session_name").notNull(),
+    status: text("status", { enum: interventionStatusEnum }).notNull().default("active"),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+  },
+  (t) => [index("interventions_decision_status_idx").on(t.decisionId, t.status)],
+);
+
+export type Intervention = typeof interventions.$inferSelect;
+export type NewIntervention = typeof interventions.$inferInsert;
+
 /**
  * Operator-tunable runtime settings. Key/value text rows; the daemon parses
  * each by key. Bootstrap fields (auth.token, port, host, dbPath, workdir)

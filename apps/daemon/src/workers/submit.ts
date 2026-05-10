@@ -34,6 +34,19 @@ export interface SubmitRunInput {
    * questions.
    */
   operatorContext?: string;
+  /**
+   * Resume an existing Claude conversation. When set, the new run row
+   * is created with this `sessionId` already attached and the runner
+   * is invoked with `opts.resume = true` — runtime.spawn passes
+   * `claude --resume <sessionId>` so the agent picks up its prior
+   * reasoning chain instead of starting fresh.
+   *
+   * Used by the post-intervention "resume agent" path: the operator
+   * fixed something in the worktree, and we want the SAME Claude
+   * session to continue from where it blocked, not a fresh run that
+   * has to re-discover context.
+   */
+  resumeFromSessionId?: string;
 }
 
 /**
@@ -81,6 +94,7 @@ export async function submitRun(
   const worktreePath = `${config.worktreesRoot}/${project.slug}/${runId}`;
 
   const operatorContext = input.operatorContext?.trim();
+  const resumeSessionId = input.resumeFromSessionId?.trim();
 
   await db.insert(schema.runs).values({
     id: runId,
@@ -95,10 +109,12 @@ export async function submitRun(
     baseRef: input.baseRef ?? null,
     taskPlanId,
     operatorContext: operatorContext && operatorContext.length > 0 ? operatorContext : null,
+    sessionId: resumeSessionId && resumeSessionId.length > 0 ? resumeSessionId : null,
   });
 
+  const resume = resumeSessionId !== undefined && resumeSessionId.length > 0;
   void pool.submit(async () => {
-    await executeRun({ config, db, events, runs, pool }, runId);
+    await executeRun({ config, db, events, runs, pool }, runId, { resume });
   });
 
   return { runId };
