@@ -171,7 +171,25 @@ export async function disable(): Promise<NotificationStatus> {
   return getStatus();
 }
 
-export async function sendTest(): Promise<{ sent: number; failed: number }> {
-  const res = await trpc.notifications.test.mutate();
-  return { sent: res.sent, failed: res.failed };
+export interface TestPushError {
+  deviceId: string;
+  ua: string | null;
+  statusCode: number | null;
+  message: string;
+  responseSnippet: string | null;
+  endpointHost: string | null;
+  apnsId: string | null;
+}
+
+export async function sendTest(): Promise<{
+  sent: number;
+  failed: number;
+  errors: TestPushError[];
+}> {
+  const res = (await trpc.notifications.test.mutate()) as {
+    sent: number;
+    failed: number;
+    errors?: TestPushError[];
+  };
+  return { sent: res.sent, failed: res.failed, errors: res.errors ?? [] };
 }

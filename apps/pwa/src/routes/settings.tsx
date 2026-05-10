@@ -701,11 +701,22 @@ function NotificationsSection() {
     setInfo(null);
     try {
       const res = await notifications.sendTest();
-      setInfo(
-        res.failed === 0
-          ? `test push sent to ${res.sent} device${res.sent === 1 ? "" : "s"}.`
-          : `sent: ${res.sent} · failed: ${res.failed}`,
-      );
+      if (res.failed === 0) {
+        setInfo(`test push sent to ${res.sent} device${res.sent === 1 ? "" : "s"}.`);
+      } else {
+        // Render the per-device failure detail inline so the operator
+        // can tell APNs-rejected from FCM-rejected from "VAPID subject
+        // wrong" without having to ssh into the host. Shows status code,
+        // host (apns vs fcm vs mozilla), and the first chunk of the
+        // response body if the push service returned one.
+        const lines = res.errors.map((e) => {
+          const host = e.endpointHost ?? "unknown host";
+          const status = e.statusCode != null ? `${e.statusCode}` : "?";
+          const snippet = e.responseSnippet ? ` — ${e.responseSnippet}` : "";
+          return `[${host}] ${status}: ${e.message}${snippet}`;
+        });
+        setError(`sent: ${res.sent} · failed: ${res.failed}\n${lines.join("\n")}`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -785,9 +796,9 @@ function NotificationsSection() {
             </p>
           ) : null}
           {error ? (
-            <p className="text-[10.5px] mono text-[var(--color-verdict-trashed)] leading-relaxed">
+            <pre className="text-[10.5px] mono text-[var(--color-verdict-trashed)] leading-relaxed whitespace-pre-wrap break-words">
               {error}
-            </p>
+            </pre>
           ) : null}
           {info ? (
             <p className="text-[10.5px] mono text-[var(--color-fg-2)] leading-relaxed">{info}</p>
