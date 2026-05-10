@@ -4,6 +4,58 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.7.0 — 2026-05-10
+
+The intervene-and-defer release. Two new primitives that bridge the
+gaps between the agent's `claude --print` one-shot turns and the
+operator's reality.
+
+**Intervene** lets the operator jump into a stuck worktree (or a
+merge-failed project tree) over tmux, fix what's wrong by hand, then
+resume the *same* Claude session from where it blocked — gitignored
+data and built artifacts intact. Works on `blocked_run` and
+`merge_failure` decisions.
+
+**Deferred tasks** bridge work that genuinely outlives a single
+`--print` turn: long builds, multi-stage indexing, exhaustive test
+runs. The agent emits a `factory-defer` block declaring a command +
+self-summary + continuation prompt; Factory spawns the command as a
+daemon child (not the agent's tmux pty, which dies with `--print`)
+and submits a continuation run reusing the source worktree when the
+work finishes. This replaces the broken pattern of agents trying to
+use `ScheduleWakeup` / `Monitor` / `Bash &` under `--print`.
+
+### Added
+- **Intervene flow.** `blocked_run` and `merge_failure` decisions
+  surface an "intervene" action that opens a tmux session over the
+  existing worktree (no fresh checkout, so gitignored state is
+  preserved). On resume, the agent's prior session is re-attached
+  with the intervention notes folded into the prompt as
+  operatorContext. Boot recovery marks active interventions as
+  orphaned across daemon restarts.
+- **Deferred-task primitive.** New `factory-defer` block protocol
+  taught alongside the `factory-status` footer. `runs.status` gains
+  `deferred`; new `deferred_tasks` table tracks subprocess id, log
+  path, exit code, and continuation run id. PWA shows a live
+  DeferredTaskPanel with status chip, log tail, cancel button, and a
+  link to the continuation run. Boot recovery marks running rows as
+  `orphaned` (subprocess pids may have been reparented to init).
+
+### Fixed
+- `factory upgrade` now rebuilds the CLI dist mid-flow so the next
+  invocation runs the new code instead of the old binary.
+- Surface per-device push-notification failures in the test push
+  result so an iOS-only failure doesn't look like a generic success.
+- Default VAPID subject is now a real address; boot logs warn when
+  the configured subject is APNs-incompatible (e.g. `mailto:*@localhost`)
+  before the operator hits a silent 403 BadJwtToken on iOS.
+- Intervene-resume now reuses the source worktree+branch instead of
+  branching from its tip — keeps gitignored build output and `.env*`
+  files where the resumed agent expects them.
+- Runtime no longer force-kills the agent's tmux 500ms after
+  `agent_exit`. Lets nohup'd children survive long enough to be
+  picked up by the deferred-task primitive.
+
 ## v0.6.0 — 2026-05-09
 
 The unblock-and-survive-restart release. Blocked runs are no longer a
