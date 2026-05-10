@@ -126,7 +126,7 @@ export function TaskDetail() {
   const isDone = fm.status === "done";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 md:max-w-3xl md:mx-auto">
       <header className="surface p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">

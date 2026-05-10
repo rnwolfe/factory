@@ -48,7 +48,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 px-3 pt-3 pb-[calc(72px+env(safe-area-inset-bottom))] md:px-6 md:pt-5 md:pb-6">
+        <main className="flex-1 px-3 pt-3 pb-[calc(72px+env(safe-area-inset-bottom))] md:px-6 md:pt-5 md:pb-6 md:max-w-[1400px] md:w-full md:mx-auto">
           {children}
         </main>
       </div>

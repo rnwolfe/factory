@@ -18,7 +18,7 @@ const PRIMARY: NavItem[] = [
 export function Sidebar({ inboxCount }: { inboxCount: number }) {
   return (
     <aside className="hidden md:flex w-[240px] flex-shrink-0 flex-col border-r border-[var(--color-line)] sticky top-0 h-screen bg-[var(--color-bg)]">
-      <div className="px-4 h-12 border-b border-[var(--color-line)] flex items-baseline gap-3">
+      <div className="px-4 h-12 border-b border-[var(--color-line)] flex items-center gap-3">
         <span className="display text-lg leading-none text-[var(--color-fg)]">Heimdall</span>
         <span className="mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
           v{__FACTORY_VERSION__}

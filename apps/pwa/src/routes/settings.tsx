@@ -44,7 +44,7 @@ export function Settings() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 md:max-w-3xl md:mx-auto">
       <Section title="connection">
         <Row label="server">
           <span className="mono text-[12px]">{location.host}</span>

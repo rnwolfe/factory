@@ -10,7 +10,7 @@ export function RubricsViewer() {
   });
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 md:max-w-3xl md:mx-auto">
       <div className="flex items-center gap-2">
         <Link to="/settings" className="btn btn-ghost h-8 px-2" aria-label="back to settings">
           <ArrowLeft size={14} />

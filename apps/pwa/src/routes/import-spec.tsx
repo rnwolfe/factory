@@ -124,7 +124,7 @@ export function ImportSpec() {
   const can = specMarkdown.trim().length >= 20 && !propose.isPending;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 md:max-w-3xl md:mx-auto">
       <div className="surface px-4 py-3 flex items-center gap-2">
         <Link to="/" className="text-[var(--color-fg-3)] hover:text-[var(--color-fg)]">
           <ArrowLeft size={14} />

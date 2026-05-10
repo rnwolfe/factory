@@ -117,7 +117,7 @@ export function PromptDetail() {
   const a = active.data;
 
   return (
-    <div className="space-y-3 pb-4">
+    <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
       <header className="surface p-4">
         <Link
           to="/settings/prompts"
