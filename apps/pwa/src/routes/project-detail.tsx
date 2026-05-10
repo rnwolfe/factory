@@ -12,7 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AuditsSection } from "../components/audits-section.tsx";
 import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
@@ -35,6 +35,15 @@ interface RunRow {
   taskId: string | null;
   startedAt: number;
 }
+
+type ProjectTab = "tasks" | "runs" | "audits" | "workdir";
+
+const PROJECT_TABS: ReadonlyArray<{ id: ProjectTab; label: string }> = [
+  { id: "tasks", label: "tasks" },
+  { id: "runs", label: "runs" },
+  { id: "audits", label: "audits" },
+  { id: "workdir", label: "workdir" },
+];
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
 
@@ -59,6 +68,13 @@ export function ProjectDetail() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [showPublish, setShowPublish] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get("tab") ?? "tasks") as ProjectTab;
+  const setActiveTab = (tab: ProjectTab) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", tab);
+    setSearchParams(next, { replace: true });
+  };
 
   const project = useQuery({
     queryKey: ["projects.get", id],
@@ -351,172 +367,233 @@ export function ProjectDetail() {
         </div>
       </header>
 
-      <section>
-        <SectionHeader title="tasks" count={tasks.length} />
-        <div className="surface divide-y divide-[var(--color-line)]">
-          {tasks.length === 0 ? (
-            <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
-              no tasks yet — first run will create them.
-            </div>
-          ) : (
-            tasks.map((t) => {
-              const activeRun = activeRunByTask.get(t.id) ?? null;
-              const canStart = !activeRun && t.status !== "done" && t.status !== "in_progress";
-              return (
-                <div key={t.id} className="flex items-stretch">
-                  <Link
-                    to={`/projects/${id}/tasks/${t.id}`}
-                    className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]"
-                  >
-                    <span className={`chip status-${t.status}`}>{t.status}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[14px] truncate">{t.title}</div>
-                      <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
-                        {t.id} · {String(t.estimate ?? "—")}
-                      </div>
-                    </div>
-                    <ChevronRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
-                  </Link>
-                  <div className="flex items-center px-2 border-l border-[var(--color-line)]">
-                    {activeRun ? (
-                      <Link
-                        to={`/projects/${id}/runs/${activeRun.id}`}
-                        className="btn btn-ghost text-[11px] !h-8 !px-2"
-                        aria-label="view active run"
-                        title={`view active run ${activeRun.id.slice(0, 8)}`}
-                      >
-                        <Eye size={12} />
-                      </Link>
-                    ) : canStart ? (
-                      <button
-                        type="button"
-                        onClick={() => start.mutate({ taskId: t.id })}
-                        disabled={start.isPending}
-                        className="btn btn-ghost text-[11px] !h-8 !px-2"
-                        aria-label="run this task"
-                      >
-                        <Play size={12} />
-                      </button>
-                    ) : (
-                      <span className="w-8" aria-hidden="true" />
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
+      <ProjectTabStrip active={activeTab} setActive={setActiveTab} />
 
-      {projectPlans.data && projectPlans.data.length > 0 ? (
+      <ProjectTabPanel value="tasks" active={activeTab}>
         <section>
-          <SectionHeader
-            title="plans"
-            count={projectPlans.data.filter((p) => p.status === "drafting").length}
-          />
+          <SectionHeader title="tasks" count={tasks.length} />
           <div className="surface divide-y divide-[var(--color-line)]">
-            {projectPlans.data.map((p) => (
-              <Link
-                key={p.id}
-                to={`/plans/${p.id}`}
-                className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
-              >
-                <ListTree size={12} className="text-[var(--color-fg-3)] shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[14px] truncate">{p.goal || "(unnamed plan)"}</div>
-                  <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
-                    {p.kind} · {p.taskId ?? "—"}
+            {tasks.length === 0 ? (
+              <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
+                no tasks yet — first run will create them.
+              </div>
+            ) : (
+              tasks.map((t) => {
+                const activeRun = activeRunByTask.get(t.id) ?? null;
+                const canStart = !activeRun && t.status !== "done" && t.status !== "in_progress";
+                return (
+                  <div key={t.id} className="flex items-stretch">
+                    <Link
+                      to={`/projects/${id}/tasks/${t.id}`}
+                      className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]"
+                    >
+                      <span className={`chip status-${t.status}`}>{t.status}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] truncate">{t.title}</div>
+                        <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+                          {t.id} · {String(t.estimate ?? "—")}
+                        </div>
+                      </div>
+                      <ChevronRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
+                    </Link>
+                    <div className="flex items-center px-2 border-l border-[var(--color-line)]">
+                      {activeRun ? (
+                        <Link
+                          to={`/projects/${id}/runs/${activeRun.id}`}
+                          className="btn btn-ghost text-[11px] !h-8 !px-2"
+                          aria-label="view active run"
+                          title={`view active run ${activeRun.id.slice(0, 8)}`}
+                        >
+                          <Eye size={12} />
+                        </Link>
+                      ) : canStart ? (
+                        <button
+                          type="button"
+                          onClick={() => start.mutate({ taskId: t.id })}
+                          disabled={start.isPending}
+                          className="btn btn-ghost text-[11px] !h-8 !px-2"
+                          aria-label="run this task"
+                        >
+                          <Play size={12} />
+                        </button>
+                      ) : (
+                        <span className="w-8" aria-hidden="true" />
+                      )}
+                    </div>
                   </div>
-                </div>
-                <span
-                  className={`chip ${
-                    p.status === "drafting"
-                      ? "chip-decompose"
-                      : p.status === "frozen"
-                        ? "chip-greenlit"
-                        : ""
-                  }`}
-                >
-                  {p.status}
-                </span>
-              </Link>
-            ))}
+                );
+              })
+            )}
           </div>
         </section>
-      ) : null}
 
-      <AuditsSection projectId={id} />
-
-      <SessionsList projectId={id} />
-
-      <ScriptsSection projectId={id} />
-
-      <section>
-        <SectionHeader
-          title="workdir"
-          count={
-            workdir.data?.exists
-              ? (workdir.data.status.length ?? 0) + (workdir.data.tree.length ?? 0)
-              : 0
-          }
-        />
-        <WorkdirPanel projectId={id} data={workdir.data} loading={workdir.isLoading} />
-      </section>
-
-      <section>
-        <SectionHeader title="runs" count={runs.data?.length ?? 0} />
-        <div className="surface divide-y divide-[var(--color-line)]">
-          {runs.isLoading ? (
-            <div className="px-3 py-4">
-              <div className="skel h-4 w-2/3 mb-1" />
-              <div className="skel h-3 w-1/3" />
-            </div>
-          ) : runs.data && runs.data.length > 0 ? (
-            runs.data.map((r) => {
-              const isActive = ACTIVE_RUN_STATUSES.has(r.status);
-              const m = runMetrics.data?.[r.id];
-              const costLabel =
-                m && m.totalCostUsd > 0
-                  ? m.totalCostUsd < 0.01
-                    ? "<$0.01"
-                    : `$${m.totalCostUsd.toFixed(2)}`
-                  : null;
-              return (
+        {projectPlans.data && projectPlans.data.length > 0 ? (
+          <section>
+            <SectionHeader
+              title="plans"
+              count={projectPlans.data.filter((p) => p.status === "drafting").length}
+            />
+            <div className="surface divide-y divide-[var(--color-line)]">
+              {projectPlans.data.map((p) => (
                 <Link
-                  key={r.id}
-                  to={`/projects/${id}/runs/${r.id}`}
-                  className={`block px-3 py-2.5 hover:bg-[var(--color-bg-2)] ${
-                    isActive ? "bg-[var(--color-bg-2)]/60" : ""
-                  }`}
+                  key={p.id}
+                  to={`/plans/${p.id}`}
+                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <RunStatusChip status={r.status} />
-                      <span className="mono text-[11px] text-[var(--color-fg-3)] truncate">
-                        {r.id.slice(0, 8)} · {r.taskId ?? "ad-hoc"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {costLabel ? (
-                        <span className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)]">
-                          {costLabel}
-                        </span>
-                      ) : null}
-                      <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
-                        {timeAgo(r.startedAt)}
-                      </span>
+                  <ListTree size={12} className="text-[var(--color-fg-3)] shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] truncate">{p.goal || "(unnamed plan)"}</div>
+                    <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+                      {p.kind} · {p.taskId ?? "—"}
                     </div>
                   </div>
+                  <span
+                    className={`chip ${
+                      p.status === "drafting"
+                        ? "chip-decompose"
+                        : p.status === "frozen"
+                          ? "chip-greenlit"
+                          : ""
+                    }`}
+                  >
+                    {p.status}
+                  </span>
                 </Link>
-              );
-            })
-          ) : (
-            <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">no runs yet.</div>
-          )}
-        </div>
-      </section>
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </ProjectTabPanel>
+
+      <ProjectTabPanel value="runs" active={activeTab}>
+        <section>
+          <SectionHeader title="runs" count={runs.data?.length ?? 0} />
+          <div className="surface divide-y divide-[var(--color-line)]">
+            {runs.isLoading ? (
+              <div className="px-3 py-4">
+                <div className="skel h-4 w-2/3 mb-1" />
+                <div className="skel h-3 w-1/3" />
+              </div>
+            ) : runs.data && runs.data.length > 0 ? (
+              runs.data.map((r) => {
+                const isActive = ACTIVE_RUN_STATUSES.has(r.status);
+                const m = runMetrics.data?.[r.id];
+                const costLabel =
+                  m && m.totalCostUsd > 0
+                    ? m.totalCostUsd < 0.01
+                      ? "<$0.01"
+                      : `$${m.totalCostUsd.toFixed(2)}`
+                    : null;
+                return (
+                  <Link
+                    key={r.id}
+                    to={`/projects/${id}/runs/${r.id}`}
+                    className={`block px-3 py-2.5 hover:bg-[var(--color-bg-2)] ${
+                      isActive ? "bg-[var(--color-bg-2)]/60" : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <RunStatusChip status={r.status} />
+                        <span className="mono text-[11px] text-[var(--color-fg-3)] truncate">
+                          {r.id.slice(0, 8)} · {r.taskId ?? "ad-hoc"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {costLabel ? (
+                          <span className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)]">
+                            {costLabel}
+                          </span>
+                        ) : null}
+                        <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                          {timeAgo(r.startedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })
+            ) : (
+              <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">no runs yet.</div>
+            )}
+          </div>
+        </section>
+
+        <SessionsList projectId={id} />
+      </ProjectTabPanel>
+
+      <ProjectTabPanel value="audits" active={activeTab}>
+        <AuditsSection projectId={id} />
+      </ProjectTabPanel>
+
+      <ProjectTabPanel value="workdir" active={activeTab}>
+        <section>
+          <SectionHeader
+            title="workdir"
+            count={
+              workdir.data?.exists
+                ? (workdir.data.status.length ?? 0) + (workdir.data.tree.length ?? 0)
+                : 0
+            }
+          />
+          <WorkdirPanel projectId={id} data={workdir.data} loading={workdir.isLoading} />
+        </section>
+
+        <ScriptsSection projectId={id} />
+      </ProjectTabPanel>
     </div>
   );
+}
+
+function ProjectTabStrip({
+  active,
+  setActive,
+}: {
+  active: ProjectTab;
+  setActive: (tab: ProjectTab) => void;
+}) {
+  return (
+    <nav
+      className="hidden md:flex items-center gap-6 border-b border-[var(--color-line)]"
+      aria-label="project sections"
+    >
+      {PROJECT_TABS.map((tab) => {
+        const isActive = tab.id === active;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActive(tab.id)}
+            className={cn(
+              "relative h-10 mono text-[11.5px] uppercase tracking-[0.18em] transition-colors",
+              isActive
+                ? "text-[var(--color-fg)]"
+                : "text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]",
+            )}
+          >
+            {tab.label}
+            {isActive ? (
+              <span className="absolute -bottom-px left-0 right-0 h-px bg-[var(--color-accent)]" />
+            ) : null}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function ProjectTabPanel({
+  value,
+  active,
+  children,
+}: {
+  value: ProjectTab;
+  active: ProjectTab;
+  children: React.ReactNode;
+}) {
+  // On mobile (< md): always visible — sections stack as before.
+  // On desktop: only the active tab's content is visible.
+  return <div className={cn("space-y-4", value !== active && "md:hidden")}>{children}</div>;
 }
 
 function WorkdirPanel({
