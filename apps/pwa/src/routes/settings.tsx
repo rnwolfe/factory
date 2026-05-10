@@ -13,6 +13,7 @@ interface SettingsSnapshot {
   agentBudgetSeconds: number;
   githubToken: { has: boolean };
   factoryProjectId: string | null;
+  notifyOnRunComplete: boolean;
   overridden: Record<string, boolean>;
 }
 
@@ -731,6 +732,22 @@ function NotificationsSection() {
     },
   });
 
+  // Reuses the same query key the parent Settings component already polls, so
+  // react-query dedupes — no extra fetch.
+  const settings = useQuery({
+    queryKey: ["settings.get"],
+    queryFn: () => trpc.settings.get.query() as unknown as Promise<SettingsSnapshot>,
+  });
+  const notifyOnRunComplete = settings.data?.notifyOnRunComplete ?? false;
+  const toggleRunComplete = useMutation({
+    mutationFn: (next: boolean) =>
+      trpc.settings.set.mutate({
+        key: "notify-on-run-complete" as never,
+        value: next ? "true" : "false",
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings.get"] }),
+  });
+
   return (
     <Section title="notifications">
       <Row label="status">
@@ -803,6 +820,25 @@ function NotificationsSection() {
           {info ? (
             <p className="text-[10.5px] mono text-[var(--color-fg-2)] leading-relaxed">{info}</p>
           ) : null}
+        </div>
+      ) : null}
+
+      {status?.supported && status.secure ? (
+        <div className="border-t border-[var(--color-line)]">
+          <Row label="run-complete push">
+            <button
+              type="button"
+              onClick={() => toggleRunComplete.mutate(!notifyOnRunComplete)}
+              disabled={toggleRunComplete.isPending || settings.isLoading}
+              className={`chip ${notifyOnRunComplete ? "chip-greenlit" : ""}`}
+            >
+              {notifyOnRunComplete ? "on" : "off"}
+            </button>
+          </Row>
+          <p className="px-3 pb-2 pt-1 text-[10.5px] mono text-[var(--color-fg-3)] leading-relaxed">
+            push every time a run finishes. blocked, failed, and merge-failed runs always push
+            regardless of this setting.
+          </p>
         </div>
       ) : null}
 

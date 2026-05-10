@@ -25,6 +25,7 @@ export const SETTING_KEYS = [
   "agent-budget-seconds",
   "github-token",
   "factory-project-id",
+  "notify-on-run-complete",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -40,6 +41,7 @@ interface ConfigDefaults {
   agentBudgetSeconds: number;
   githubToken: string | null;
   factoryProjectId: string | null;
+  notifyOnRunComplete: boolean;
 }
 
 const defaultsByConfig = new WeakMap<FactoryConfig, ConfigDefaults>();
@@ -55,6 +57,7 @@ function captureDefaults(config: FactoryConfig): ConfigDefaults {
     agentBudgetSeconds: config.agentBudgetSeconds,
     githubToken: config.githubToken,
     factoryProjectId: config.factoryProjectId,
+    notifyOnRunComplete: config.notifyOnRunComplete,
   };
   defaultsByConfig.set(config, snap);
   return snap;
@@ -85,6 +88,7 @@ export function applySettingsFromDb(db: Db, config: FactoryConfig): void {
   config.agentBudgetSeconds = defaults.agentBudgetSeconds;
   config.githubToken = defaults.githubToken;
   config.factoryProjectId = defaults.factoryProjectId;
+  config.notifyOnRunComplete = defaults.notifyOnRunComplete;
   const map = readAllSettings(db);
   applySettingsMap(map, config);
 }
@@ -120,6 +124,10 @@ function applySettingsMap(map: Map<SettingKey, string>, config: FactoryConfig): 
   if (projectId !== undefined) {
     config.factoryProjectId = projectId === "" ? null : projectId;
   }
+  const notify = map.get("notify-on-run-complete");
+  if (notify !== undefined) {
+    config.notifyOnRunComplete = notify === "true";
+  }
 }
 
 /**
@@ -153,6 +161,7 @@ export interface SettingsView {
   agentBudgetSeconds: number;
   githubToken: string | null;
   factoryProjectId: string | null;
+  notifyOnRunComplete: boolean;
   /** Which keys have a DB row (true) vs. coming from yaml/env defaults (false). */
   overridden: Record<SettingKey, boolean>;
 }
@@ -175,6 +184,7 @@ export function snapshotSettings(db: Db, config: FactoryConfig): SettingsView {
     agentBudgetSeconds: config.agentBudgetSeconds,
     githubToken: config.githubToken,
     factoryProjectId: config.factoryProjectId,
+    notifyOnRunComplete: config.notifyOnRunComplete,
     overridden,
   };
 }

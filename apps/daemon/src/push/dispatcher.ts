@@ -26,15 +26,46 @@ export interface PushPayload {
  * opted out of those calls. Stop-the-line events (blocked_run,
  * merge_failure, run_failed) ignore autonomy and always push.
  */
-export async function payloadFor(event: DaemonEvent, db: Db): Promise<PushPayload | null> {
+export async function payloadFor(
+  event: DaemonEvent,
+  db: Db,
+  config: FactoryConfig,
+): Promise<PushPayload | null> {
   if (event.channel !== "inbox" && event.channel !== "events") return null;
 
-  // Stop-the-line: the agent gave up partway through. Always push.
-  if (event.channel === "events" && event.kind === "agent_exit" && event.exitCode !== 0) {
-    return null; // covered by run-status updates instead; avoid double-pushing
-  }
+  if (event.channel === "events") {
+    if (event.kind !== "agent_exit") return null;
+    // Failures push via decision_created (blocked_run, merge_failure, etc.).
+    if (event.exitCode !== 0) return null;
+    // Operator opt-in: auto-advance + 4-worker concurrency would otherwise
+    // produce one push per completed run. Off by default.
+    if (!config.notifyOnRunComplete) return null;
 
-  if (event.channel !== "inbox") return null;
+    const run = await db
+      .select({ projectId: schema.runs.projectId, summary: schema.runs.summary })
+      .from(schema.runs)
+      .where(eq(schema.runs.id, event.runId))
+      .get();
+    if (!run) return null;
+
+    const project = await db
+      .select({ name: schema.projects.name })
+      .from(schema.projects)
+      .where(eq(schema.projects.id, run.projectId))
+      .get();
+
+    const projectName = project?.name ?? "project";
+    const summary = run.summary?.trim();
+    return {
+      title: "run complete",
+      body:
+        summary && summary.length > 0
+          ? `${projectName} · ${summary.slice(0, 140)}`
+          : `${projectName} · run finished`,
+      url: `/projects/${run.projectId}/runs/${event.runId}`,
+      tag: `run:${event.runId}`,
+    };
+  }
 
   if (event.kind === "decision_created") {
     const decision = await db
@@ -157,7 +188,7 @@ export function startPushDispatcher(args: {
     if (!config.vapid.publicKey || !config.vapid.privateKey) return;
     let payload: PushPayload | null;
     try {
-      payload = await payloadFor(event, db);
+      payload = await payloadFor(event, db, config);
     } catch (err) {
       console.warn(
         `[push] payload build failed: ${err instanceof Error ? err.message : String(err)}`,
