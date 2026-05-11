@@ -572,4 +572,47 @@ export const decisionsRouter = router({
 
       return { commentId };
     }),
+
+  /**
+   * Pull an actioned decision back into the inbox. Allowed only for outcomes
+   * that produced no downstream artifacts: parked, trashed, or dismissed. An
+   * approved triage decision created a plan; an approved blocked_run resumed
+   * the run; decompose spawned follow-up sub-decisions. Reverting any of those
+   * would leave artifacts orphaned, so we refuse rather than silently drift.
+   */
+  revert: protectedProcedure
+    .input(z.object({ decisionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const decision = await ctx.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, input.decisionId))
+        .get();
+      if (!decision) throw new Error("decision not found");
+      if (decision.status === "pending") throw new Error("decision is already pending");
+
+      const reversible =
+        decision.status === "dismissed" ||
+        (decision.status === "actioned" &&
+          (decision.outcome.startsWith("parked") || decision.outcome.startsWith("trashed")));
+      if (!reversible) {
+        throw new Error(
+          `cannot restore a ${decision.outcome} decision — would leave downstream artifacts orphaned`,
+        );
+      }
+
+      await ctx.db
+        .update(schema.decisions)
+        .set({ status: "pending", actionedAt: null })
+        .where(eq(schema.decisions.id, input.decisionId));
+
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "decision_updated",
+        decisionId: input.decisionId,
+        projectId: decision.projectId ?? null,
+      });
+
+      return { ok: true };
+    }),
 });

@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { DecisionRow } from "../components/decision-card.tsx";
@@ -29,11 +30,31 @@ function matchesFilter(row: HistoryRow, filter: VerdictFilter): boolean {
 }
 
 export function History() {
+  const qc = useQueryClient();
   const [filter, setFilter] = useState<VerdictFilter>("all");
   const history = useQuery({
     queryKey: ["decisions.history"],
     queryFn: () => trpc.decisions.history.query({ limit: 200 }) as unknown as Promise<HistoryRow[]>,
     refetchInterval: 30_000,
+  });
+
+  const restore = useMutation({
+    mutationFn: (decisionId: string) => trpc.decisions.revert.mutate({ decisionId }),
+    onMutate: async (decisionId) => {
+      await qc.cancelQueries({ queryKey: ["decisions.history"] });
+      const prev = qc.getQueryData<HistoryRow[]>(["decisions.history"]);
+      qc.setQueryData<HistoryRow[]>(["decisions.history"], (rows) =>
+        (rows ?? []).filter((r) => r.id !== decisionId),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["decisions.history"], ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["decisions.history"] });
+      qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+    },
   });
 
   const all = history.data ?? [];
@@ -87,17 +108,33 @@ export function History() {
               : `no ${filter} decisions yet.`}
           </div>
         ) : (
-          filtered.map((row) => <HistoryListItem key={row.id} row={row} />)
+          filtered.map((row) => (
+            <HistoryListItem
+              key={row.id}
+              row={row}
+              onRestore={() => restore.mutate(row.id)}
+              restoring={restore.isPending && restore.variables === row.id}
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-function HistoryListItem({ row }: { row: HistoryRow }) {
+function HistoryListItem({
+  row,
+  onRestore,
+  restoring,
+}: {
+  row: HistoryRow;
+  onRestore: () => void;
+  restoring: boolean;
+}) {
   const ts = row.actionedAt ?? row.createdAt;
   const title =
     typeof row.payload?.title_suggestion === "string" ? row.payload.title_suggestion : row.outcome;
+  const revertible = isRevertible(row);
   return (
     <Link to={`/decisions/${row.id}`} className="block px-3 py-2.5 hover:bg-[var(--color-bg-2)]">
       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -105,13 +142,38 @@ function HistoryListItem({ row }: { row: HistoryRow }) {
           {row.status === "dismissed" ? "dismissed" : row.outcome}
         </span>
         <span className="chip text-[10.5px]">{kindLabel(row.kind)}</span>
-        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
-          {timeAgo(ts)} ago
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {revertible ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                // Don't follow the parent <Link>; this is its own action.
+                e.preventDefault();
+                e.stopPropagation();
+                if (!restoring) onRestore();
+              }}
+              disabled={restoring}
+              className="btn btn-ghost text-[11px] !h-7 !px-2 !gap-1.5"
+              aria-label="restore to inbox"
+            >
+              <RotateCcw size={11} />
+              {restoring ? "restoring…" : "restore"}
+            </button>
+          ) : null}
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{timeAgo(ts)} ago</span>
+        </div>
       </div>
       <div className="text-[13.5px] text-[var(--color-fg-1)] line-clamp-2">{title}</div>
     </Link>
   );
+}
+
+function isRevertible(row: HistoryRow): boolean {
+  if (row.status === "dismissed") return true;
+  if (row.status === "actioned") {
+    return row.outcome.startsWith("parked") || row.outcome.startsWith("trashed");
+  }
+  return false;
 }
 
 function verdictTone(outcome: string, status: HistoryRow["status"]): string {
