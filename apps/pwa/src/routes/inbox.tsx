@@ -218,6 +218,12 @@ export function Inbox() {
             >
               <FileText size={11} /> or import an existing spec
             </Link>
+            <Link
+              to="/history"
+              className="mono text-[11.5px] text-[var(--color-fg-3)] hover:text-[var(--color-accent)] mt-2"
+            >
+              view history →
+            </Link>
           </div>
         </div>
       </div>
