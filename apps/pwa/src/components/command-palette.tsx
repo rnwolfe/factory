@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Cog, Folder, Inbox, LineChart, PenLine, Search } from "lucide-react";
+import { Archive, ArrowRight, Cog, Folder, Inbox, LineChart, PenLine, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
@@ -25,6 +25,7 @@ const NAV_ITEMS: PaletteItem[] = [
   { kind: "nav", label: "Inbox", hint: "/", href: "/" },
   { kind: "nav", label: "Capture idea", hint: "/inbox/new", href: "/inbox/new" },
   { kind: "nav", label: "Projects", hint: "/projects", href: "/projects" },
+  { kind: "nav", label: "History", hint: "/history", href: "/history" },
   { kind: "nav", label: "Metrics", hint: "/metrics", href: "/metrics" },
   { kind: "nav", label: "Settings", hint: "/settings", href: "/settings" },
 ];
@@ -202,6 +203,8 @@ function ItemIcon({ kind, label }: { kind: ItemKind; label: string }) {
     return <PenLine size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Projects")
     return <Folder size={13} className="text-[var(--color-fg-3)] shrink-0" />;
+  if (label === "History")
+    return <Archive size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Metrics")
     return <LineChart size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Settings") return <Cog size={13} className="text-[var(--color-fg-3)] shrink-0" />;

@@ -11,6 +11,7 @@ import { AuditPane } from "./routes/audit-pane.tsx";
 import { DecisionDetail } from "./routes/decision-detail.tsx";
 import { Deepen } from "./routes/deepen.tsx";
 import { FeedbackDetail } from "./routes/feedback-detail.tsx";
+import { History } from "./routes/history.tsx";
 import { ImportProject } from "./routes/import-project.tsx";
 import { ImportSpec } from "./routes/import-spec.tsx";
 import { Inbox } from "./routes/inbox.tsx";
@@ -228,6 +229,14 @@ export function App() {
             element={
               <RouteBoundary label="worktrees">
                 <WorktreesAdmin />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <RouteBoundary label="history">
+                <History />
               </RouteBoundary>
             }
           />

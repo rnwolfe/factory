@@ -1,4 +1,4 @@
-import { Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
+import { Archive, Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 
@@ -13,6 +13,7 @@ const PRIMARY: NavItem[] = [
   { to: "/", label: "inbox", icon: InboxIcon, end: true },
   { to: "/inbox/new", label: "capture", icon: PenLine },
   { to: "/projects", label: "projects", icon: Layers },
+  { to: "/history", label: "history", icon: Archive },
 ];
 
 export function Sidebar({ inboxCount }: { inboxCount: number }) {
