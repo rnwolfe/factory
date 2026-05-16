@@ -13,6 +13,7 @@ import {
   recoverOrphanedInterventions,
   tmuxNameForIntervention,
 } from "./interventions/orchestrate.ts";
+import { migrateQualityConfigs } from "./projects/quality-config.ts";
 import { startPushDispatcher } from "./push/dispatcher.ts";
 import { appRouter } from "./router.ts";
 import { ScriptRegistry } from "./scripts/registry.ts";
@@ -160,6 +161,15 @@ export async function startDaemon(): Promise<DaemonHandle> {
     console.log(
       `[factoryd] orphaned ${orphanedDeferred} deferred task(s) on boot — operator must reconcile`,
     );
+  }
+
+  // Migrate repo-canonical quality config for projects bootstrapped before
+  // the Makefile quality interface. Idempotent — rewrites only quality.yaml
+  // files still byte-identical to a prior Factory default; never touches a
+  // customized config or an existing Makefile.
+  const qualityMigrated = await migrateQualityConfigs({ db, gitAuthor: config.gitAuthor });
+  if (qualityMigrated > 0) {
+    console.log(`[factoryd] migrated quality config for ${qualityMigrated} project(s)`);
   }
 
   // Web Push: relay attention-worthy events to enrolled browsers. The
