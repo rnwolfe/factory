@@ -117,26 +117,53 @@ export async function bootstrapProject(
     // .factory/.gitignore
     await writeFile(path.join(workdirPath, ".factory", ".gitignore"), "runs/\n", "utf8");
 
-    // .factory/quality.yaml — seeded with a conservative default set. The
-    // operator can edit or delete it; absence means "no quality checks for
-    // this project" (v0.1 behavior preserved). We seed unconditionally for
-    // new projects since every project bootstrap is Bun-based and at least
-    // a typecheck pass is universally useful.
+    // .factory/quality.yaml + Makefile — the project's quality interface.
+    // Quality checks delegate to `make` targets rather than hard-coding a
+    // package manager: bootstrap runs before any project code exists, so it
+    // cannot know the stack, and real projects are often polyglot (a TS web
+    // app plus a Python worker, say). The Makefile is the per-project adapter
+    // the agent fills in as it builds. The operator can edit or delete
+    // quality.yaml; absence means "no quality checks for this project."
     await writeFile(
       path.join(workdirPath, ".factory", "quality.yaml"),
-      `# Factory quality checks. Each command runs in the run's worktree
-# after the agent declares done and before the merge into main.
-# Failures are informational in v0.2 (do not block merge).
+      `# Factory quality checks. Each command runs in the run's worktree after
+# the agent declares done and before the merge into main. Failures are
+# informational (they do not block the merge).
+#
+# These delegate to the project Makefile so quality stays stack-agnostic —
+# wire the real commands into the Makefile targets, not here.
 checks:
   - name: typecheck
-    command: bun run typecheck
+    command: make typecheck
     timeoutSeconds: 300
   - name: lint
-    command: bun run check
+    command: make lint
     timeoutSeconds: 120
   - name: test
-    command: bun test
+    command: make test
     timeoutSeconds: 600
+`,
+      "utf8",
+    );
+
+    // Makefile — quality interface. No-op stub targets so a fresh project's
+    // quality checks pass until the agent wires in the real commands for
+    // whatever stack it builds (bun, pnpm, uv, cargo, go, or a mix).
+    await writeFile(
+      path.join(workdirPath, "Makefile"),
+      `# Factory quality interface: make typecheck, make lint, and make test
+# run as quality checks after every run (see .factory/quality.yaml).
+# Replace the stub recipes below with the real commands for this stack.
+.PHONY: typecheck lint test
+
+typecheck:
+\t@echo "make typecheck: no checks configured yet"
+
+lint:
+\t@echo "make lint: no checks configured yet"
+
+test:
+\t@echo "make test: no checks configured yet"
 `,
       "utf8",
     );
