@@ -8,6 +8,41 @@ const STALENESS_PATTERNS = [
   /Run `claude login` to authenticate/i,
 ];
 
+/** Matches the CLI's result text when the account has hit its usage cap. */
+const USAGE_LIMIT_RE = /hit your limit|usage limit|rate limit/i;
+
+/**
+ * Extract the cap reset time from a usage-limit message, e.g.
+ * "You've hit your limit · resets 12:10am (America/New_York)". Returns the
+ * next epoch-ms occurrence of that wall-clock time, or null if absent.
+ *
+ * The CLI reports the operator's local timezone, which is the daemon host's
+ * timezone too, so plain `Date` arithmetic resolves it correctly — the
+ * parenthetical IANA name is informational and deliberately ignored.
+ */
+export function parseUsageResetTime(message: string): number | null {
+  const m = /resets\s+(\d{1,2}):(\d{2})\s*(am|pm)/i.exec(message);
+  if (!m) return null;
+  const [, hStr, mStr, ap] = m;
+  if (!hStr || !mStr || !ap) return null;
+  let hour = Number(hStr);
+  const minute = Number(mStr);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  if (ap.toLowerCase() === "am") {
+    hour = hour === 12 ? 0 : hour;
+  } else {
+    hour = hour === 12 ? 12 : hour + 12;
+  }
+  const next = new Date();
+  next.setHours(hour, minute, 0, 0);
+  // Parsed at cap time, so the reset is in the future; roll to tomorrow only
+  // when HH:MM has already passed today.
+  if (next.getTime() <= Date.now()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next.getTime();
+}
+
 interface ClaudeUsage {
   input_tokens?: number;
   output_tokens?: number;
@@ -165,6 +200,15 @@ export const claudeCodeAgent: AgentSpec = {
       // assistant turn and only deliver text via the result envelope).
       if (typeof parsed.result === "string" && parsed.result.length > 0) {
         events.push({ kind: "text", text: parsed.result });
+        // A usage-cap exit is an external quota stop, not a failure — surface
+        // it as a distinct signal so the runner can resume rather than fail.
+        if (parsed.is_error === true && USAGE_LIMIT_RE.test(parsed.result)) {
+          events.push({
+            kind: "usage_limit",
+            resetsAt: parseUsageResetTime(parsed.result),
+            message: parsed.result.trim(),
+          });
+        }
       }
       events.push({ kind: "metrics", metrics: buildMetrics(parsed) });
       events.push({

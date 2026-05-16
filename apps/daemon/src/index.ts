@@ -24,6 +24,7 @@ import { makeStaticHandler } from "./static.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
 import { RunRegistry } from "./workers/registry.ts";
+import { startUsageCapResumer } from "./workers/usage-cap.ts";
 import { attachWsChannel, detachWsChannel, planWsUpgrade, type WsClientData } from "./ws/hub.ts";
 
 export type { AppRouter } from "./router.ts";
@@ -177,6 +178,9 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // dispatcher would hold a reference to `db` and `config` past stop().
   const stopPushDispatcher = startPushDispatcher({ config, db, events });
 
+  // Auto-resume runs halted by a usage cap once their reset time passes.
+  const stopUsageCapResumer = startUsageCapResumer({ config, db, events, runs, pool });
+
   const buildCtx = (req: Request): DaemonContext => ({
     config,
     db,
@@ -314,6 +318,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     runs.abortAll();
     scripts.killAll();
     stopPushDispatcher();
+    stopUsageCapResumer();
     await pool.drain();
     console.log("[factoryd] shutdown complete.");
   };
