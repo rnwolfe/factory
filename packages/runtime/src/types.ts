@@ -129,6 +129,12 @@ export interface RunSpec {
   gitAuthor?: { name: string; email: string };
   /** Claude model id forwarded to the agent's CLI. Null/undefined = CLI default. */
   model?: string | null;
+  /**
+   * Grace window (ms) after the agent's result envelope before the runtime
+   * force-closes a tmux session that won't exit on its own. Defaults to 30s;
+   * tests override it to a small value.
+   */
+  agentExitGraceMs?: number;
 }
 
 export interface RunResult {

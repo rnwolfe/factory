@@ -188,4 +188,54 @@ describe("runtime.spawn (host sandbox)", () => {
     expect(elapsed).toBeLessThan(5000);
     expect(result.exitCode).not.toBe(0);
   }, 15_000);
+
+  test("force-closes tmux when the agent lingers past its result envelope", async () => {
+    const project = await gitInitProject();
+    cleanup.push(project);
+    const events: RuntimeEvent[] = [];
+    const ac = new AbortController();
+
+    // Agent that emits its result envelope, then lingers — mimics a
+    // `claude --print` wedged on a leaked background child (a dev server,
+    // an un-disowned build) that keeps the process, and so the tmux
+    // session, alive indefinitely.
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      session_id: "wedge_session",
+    });
+    const wedgeAgent: AgentSpec = {
+      name: "wedge",
+      buildArgv() {
+        return { argv: ["sh", "-c", `printf '%s\\n' '${resultLine}'; sleep 120`] };
+      },
+      parseLine: makeStubAgent().parseLine,
+    };
+
+    const start = Date.now();
+    const result = await runtime.spawn({
+      runId: `w${Math.random().toString(36).slice(2, 8)}`,
+      projectPath: project,
+      task: { id: "wedge-task", prompt: "" },
+      agent: wedgeAgent,
+      sandbox: hostSandbox,
+      strategy: { type: "head" },
+      budgetSeconds: 0, // infinite — only the grace backstop can end this run
+      maxIterations: 1,
+      abort: ac.signal,
+      agentExitGraceMs: 1000,
+      onEvent: (e) => events.push(e),
+    });
+    const elapsed = Date.now() - start;
+
+    // The `sleep 120` would dominate without the grace backstop; finishing
+    // fast proves the forced teardown fired.
+    expect(elapsed).toBeLessThan(15_000);
+    expect(events.some((e) => e.kind === "agent_exit")).toBe(true);
+    expect(events.some((e) => e.kind === "raw" && e.line.includes("forcing teardown"))).toBe(true);
+    // A grace teardown is NOT an abort — the run keeps its clean exit code.
+    expect(result.exitCode).toBe(0);
+  }, 30_000);
 });
