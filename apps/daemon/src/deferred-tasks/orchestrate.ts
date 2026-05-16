@@ -196,7 +196,7 @@ async function onDeferredCompletion(
   try {
     await commitAllChanges(
       source.worktreePath,
-      `factory: deferred task ${deferredTaskId.slice(0, 8)} (auto)`,
+      `chore: auto-commit deferred task ${deferredTaskId.slice(0, 8)}`,
       config.gitAuthor,
     );
   } catch {

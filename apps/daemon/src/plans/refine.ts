@@ -82,7 +82,11 @@ export async function applyRefinementFreeze(
     ]
       .filter(Boolean)
       .join(", ");
-    await commitAllChanges(project.workdirPath, `refine: ${summary || taskId}`, config.gitAuthor);
+    await commitAllChanges(
+      project.workdirPath,
+      `chore: apply refinement — ${summary || taskId}`,
+      config.gitAuthor,
+    );
   }
 
   return { rewroteAcceptance, followupTaskIds };
