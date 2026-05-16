@@ -41,6 +41,12 @@ export type StreamEvent =
   | { kind: "commit"; sha: string; subject: string }
   | { kind: "idle_timeout"; ts: number }
   | { kind: "agent_exit"; exitCode: number; ts: number }
+  /**
+   * The agent stopped because the account hit its usage cap. `resetsAt` is
+   * the epoch-ms the cap is expected to lift (parsed from the CLI message),
+   * or null when the reset time could not be parsed.
+   */
+  | { kind: "usage_limit"; resetsAt: number | null; message: string }
   | { kind: "decision_required"; question: string; options?: string[] }
   | { kind: "metrics"; metrics: AgentMetrics }
   /**

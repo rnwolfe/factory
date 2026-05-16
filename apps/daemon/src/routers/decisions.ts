@@ -15,6 +15,13 @@ interface BlockedRunPayload {
   summary?: string;
   questions?: string[];
   branch?: string;
+  /**
+   * Set when the blocked_run decision was raised because the run hit a
+   * usage cap (rather than the agent blocking on a question). Approving it
+   * resumes the capped run's Claude session via `reuseFromRunId` instead of
+   * branching a fresh run off the branch tip.
+   */
+  usageCapped?: boolean;
 }
 
 interface MergeFailurePayload {
@@ -242,12 +249,22 @@ export const decisionsRouter = router({
             runs: ctx.runs,
             pool: ctx.pool,
           },
-          {
-            projectId: source.projectId,
-            taskId: source.taskId ?? undefined,
-            baseRef: source.branch,
-            operatorContext,
-          },
+          payload.usageCapped
+            ? {
+                // Usage-cap resume: reuse the capped run's worktree + Claude
+                // session so the agent continues from where the quota cut it
+                // off, rather than re-deriving context on a fresh run.
+                projectId: source.projectId,
+                taskId: source.taskId ?? undefined,
+                reuseFromRunId: payload.runId,
+                operatorContext,
+              }
+            : {
+                projectId: source.projectId,
+                taskId: source.taskId ?? undefined,
+                baseRef: source.branch,
+                operatorContext,
+              },
         );
         retryRunId = result.runId;
         projectId = source.projectId;

@@ -10,7 +10,7 @@ import {
   runtime,
 } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
-import { eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
@@ -264,6 +264,10 @@ export async function executeRun(
   const decisionsEnabled = autonomyMode === "collaborative";
 
   let lastSessionId: string | undefined;
+  // No initializer: an `= null` start would let control-flow analysis narrow
+  // this to `null` (the assignment below lives in the onEvent closure, which
+  // CFA does not see), breaking the type at the post-spawn use sites.
+  let usageLimit: { resetsAt: number | null; message: string } | undefined;
 
   // Reuse vs. fresh detection: a fresh run's branch is `factory/run-<runId>`
   // by convention. When the row's branch deviates, the run was submitted
@@ -336,6 +340,9 @@ export async function executeRun(
         events.publish({ channel: "events", projectId: project.id, ...e });
         void persistEvent(e);
         if (e.kind === "session") lastSessionId = e.id;
+        if (e.kind === "usage_limit") {
+          usageLimit = { resetsAt: e.resetsAt, message: e.message };
+        }
       },
       logSocketPath: path.join(project.workdirPath, ".factory", "runs", runId, "log.txt"),
       tmuxSessionName: `factory-${project.slug}-${runId}`.slice(0, 60),
@@ -371,7 +378,48 @@ export async function executeRun(
     // run something that outlives the turn, and silently dropping the
     // defer would lose that work entirely. We log this case for the
     // operator's awareness via the run summary below.
-    const finalStatus: RunStatus = defer ? "deferred" : runStatusFor(parsed, aborted);
+    // A usage-cap exit (the account hit its quota mid-run) is not a failure:
+    // the agent was cut off by an external limit, its work-so-far is valid,
+    // and its session is resumable. It outranks `defer`/parsed status, but
+    // not an operator abort — explicit intent wins.
+    const capped = !aborted && usageLimit != null;
+    const finalStatus: RunStatus = capped
+      ? "usage_capped"
+      : defer
+        ? "deferred"
+        : runStatusFor(parsed, aborted);
+
+    // Usage-cap resolution. Auto-resume at the parsed reset time when we have
+    // one and the cap hasn't already recurred for this task; otherwise fall
+    // back to a blocked_run decision so the operator resumes on their own
+    // schedule. `priorCaps` bounds the auto-resume chain to two automatic
+    // attempts before handing off.
+    let resumeAt: number | null = null;
+    let capFallbackDecision = false;
+    if (capped) {
+      const priorCaps =
+        row.taskId != null
+          ? (
+              await db
+                .select({ id: schema.runs.id })
+                .from(schema.runs)
+                .where(
+                  and(
+                    eq(schema.runs.projectId, project.id),
+                    eq(schema.runs.taskId, row.taskId),
+                    eq(schema.runs.status, "usage_capped"),
+                    gt(schema.runs.startedAt, Date.now() - 12 * 60 * 60 * 1000),
+                  ),
+                )
+                .all()
+            ).length
+          : 0;
+      if (usageLimit && usageLimit.resetsAt != null && priorCaps < 2) {
+        resumeAt = usageLimit.resetsAt;
+      } else {
+        capFallbackDecision = true;
+      }
+    }
 
     // If parsing returned null and the runtime spawn nonetheless emitted commits,
     // that's *some* signal of work done — but we deliberately keep this as
@@ -379,18 +427,24 @@ export async function executeRun(
     // the prompt, not as a silent pass.
     const acceptanceDowngraded =
       parsed?.status === "done" && finalStatus === "blocked" && parsed.acceptance.length > 0;
-    const baseSummary = defer
-      ? `Deferred: ${defer.summary}${
-          parsed
-            ? `\n\n_Note: agent emitted both factory-defer and factory-status (${parsed.status}); deferred work takes precedence._`
-            : ""
+    const baseSummary = capped
+      ? `${usageLimit?.message ?? "Hit the account usage limit."} ${
+          resumeAt != null
+            ? `Auto-resume scheduled for ${new Date(resumeAt).toLocaleString()}.`
+            : "Surfaced as a decision — approve to resume the session."
         }`
-      : parsed?.summary ||
-        (finalStatus === "completed"
-          ? "Run completed without an explicit summary."
-          : finalStatus === "aborted"
-            ? "Run was aborted by the operator."
-            : "Run ended without a status block — the agent may have stopped early.");
+      : defer
+        ? `Deferred: ${defer.summary}${
+            parsed
+              ? `\n\n_Note: agent emitted both factory-defer and factory-status (${parsed.status}); deferred work takes precedence._`
+              : ""
+          }`
+        : parsed?.summary ||
+          (finalStatus === "completed"
+            ? "Run completed without an explicit summary."
+            : finalStatus === "aborted"
+              ? "Run was aborted by the operator."
+              : "Run ended without a status block — the agent may have stopped early.");
     const summary = acceptanceDowngraded
       ? `${baseSummary}\n\n_Note: agent declared done but ${parsed?.acceptance.filter((a) => !a.met).length ?? 0} acceptance criterion(s) reported as unmet — downgraded to blocked._`
       : baseSummary;
@@ -407,6 +461,7 @@ export async function executeRun(
         branch: result.branch,
         iterationCount: result.iterationsCompleted,
         summary,
+        resumeAt,
         blockerQuestions: blockerQuestions.length > 0 ? JSON.stringify(blockerQuestions) : null,
         acceptanceResults:
           parsed?.acceptance && parsed.acceptance.length > 0
@@ -425,7 +480,7 @@ export async function executeRun(
     // merge into main brings the status update along with the agent's work.
     // Skipped for deferred runs: the task is logically still in flight, and
     // the continuation run will write the terminal status when it lands.
-    if (row.taskId && finalStatus !== "deferred") {
+    if (row.taskId && finalStatus !== "deferred" && finalStatus !== "usage_capped") {
       try {
         const updated = await updateTaskStatus(
           result.worktreePath,
@@ -617,6 +672,37 @@ export async function executeRun(
           summary,
           questions: blockerQuestions,
           branch: result.branch,
+        },
+        status: "pending",
+        createdAt: Date.now(),
+      });
+      events.publish({
+        channel: "inbox",
+        kind: "decision_created",
+        decisionId,
+        projectId: project.id,
+      });
+    }
+
+    // Usage-cap fallback: when we can't safely auto-resume (no parseable
+    // reset time, or the cap kept recurring), surface a blocked_run decision
+    // flagged `usageCapped` so the operator resumes on their own schedule.
+    // Approving it resumes the same session via reuseFromRunId — see the
+    // blocked_run handler in routers/decisions.ts.
+    if (capped && capFallbackDecision) {
+      const decisionId = createId();
+      await db.insert(schema.decisions).values({
+        id: decisionId,
+        kind: "blocked_run",
+        projectId: project.id,
+        outcome: "blocked",
+        payload: {
+          runId,
+          taskId: row.taskId ?? null,
+          summary,
+          questions: [],
+          branch: result.branch,
+          usageCapped: true,
         },
         status: "pending",
         createdAt: Date.now(),

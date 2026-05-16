@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { claudeCodeAgent } from "../../src/agents/claude-code.ts";
+import { claudeCodeAgent, parseUsageResetTime } from "../../src/agents/claude-code.ts";
 
 describe("claudeCodeAgent.buildArgv", () => {
   test("base invocation uses --print, stream-json, --verbose, --dangerously-skip-permissions", () => {
@@ -171,5 +171,74 @@ describe("claudeCodeAgent.detectStaleness", () => {
     expect(claudeCodeAgent.detectStaleness?.("hello world")).toBe(false);
     expect(claudeCodeAgent.detectStaleness?.('{"type":"text"}')).toBe(false);
     expect(claudeCodeAgent.detectStaleness?.("")).toBe(false);
+  });
+});
+
+describe("parseUsageResetTime", () => {
+  test("parses a 12-hour am reset into a future timestamp", () => {
+    const at = parseUsageResetTime("You've hit your limit · resets 12:10am (America/New_York)");
+    expect(at).not.toBeNull();
+    if (at == null) throw new Error("expected a timestamp");
+    expect(at).toBeGreaterThan(Date.now());
+    const d = new Date(at);
+    expect(d.getHours()).toBe(0);
+    expect(d.getMinutes()).toBe(10);
+  });
+
+  test("parses a 12-hour pm reset", () => {
+    const at = parseUsageResetTime("resets 3:30pm");
+    if (at == null) throw new Error("expected a timestamp");
+    const d = new Date(at);
+    expect(d.getHours()).toBe(15);
+    expect(d.getMinutes()).toBe(30);
+  });
+
+  test("maps 12pm to noon and 12am to midnight", () => {
+    const noon = parseUsageResetTime("resets 12:00pm");
+    const mid = parseUsageResetTime("resets 12:00am");
+    if (noon == null || mid == null) throw new Error("expected timestamps");
+    expect(new Date(noon).getHours()).toBe(12);
+    expect(new Date(mid).getHours()).toBe(0);
+  });
+
+  test("returns null when no reset time is present", () => {
+    expect(parseUsageResetTime("You've hit your limit")).toBeNull();
+    expect(parseUsageResetTime("nothing here")).toBeNull();
+    expect(parseUsageResetTime("resets soon")).toBeNull();
+  });
+});
+
+describe("claudeCodeAgent usage-cap detection", () => {
+  test("emits usage_limit on an is_error result that names the cap", () => {
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "error",
+      is_error: true,
+      result: "You've hit your limit · resets 12:10am (America/New_York)",
+      session_id: "sess_cap",
+    });
+    const events = claudeCodeAgent.parseLine(line);
+    const cap = events.find((e) => e.kind === "usage_limit");
+    expect(cap).toBeDefined();
+    if (cap && cap.kind === "usage_limit") {
+      expect(cap.message).toContain("hit your limit");
+      expect(cap.resetsAt).not.toBeNull();
+    }
+    // agent_exit still fires alongside it — the runner sees both.
+    expect(events.some((e) => e.kind === "agent_exit")).toBe(true);
+  });
+
+  test("no usage_limit on a successful result", () => {
+    const line = JSON.stringify({ type: "result", is_error: false, result: "all done" });
+    expect(claudeCodeAgent.parseLine(line).some((e) => e.kind === "usage_limit")).toBe(false);
+  });
+
+  test("no usage_limit on an unrelated error result", () => {
+    const line = JSON.stringify({
+      type: "result",
+      is_error: true,
+      result: "Something else went wrong",
+    });
+    expect(claudeCodeAgent.parseLine(line).some((e) => e.kind === "usage_limit")).toBe(false);
   });
 });

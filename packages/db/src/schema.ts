@@ -21,6 +21,7 @@ export const runStatusEnum = [
   "aborted",
   "blocked",
   "deferred",
+  "usage_capped",
 ] as const;
 export const taskStatusEnum = [
   "ready",
@@ -370,6 +371,13 @@ export const runs = sqliteTable("runs", {
    * with answers to the agent's questions, instead of repeating itself.
    */
   operatorContext: text("operator_context"),
+  /**
+   * When status='usage_capped', the epoch-ms at which the daemon should
+   * auto-resume this run (the parsed cap reset time). Null when the run is
+   * not capped, or when the reset time was unparseable / the cap recurred —
+   * those cases surface a `blocked_run` decision for the operator instead.
+   */
+  resumeAt: integer("resume_at"),
 });
 
 export const events = sqliteTable("events", {
