@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { RunResult, RunSpec, Runtime, StreamEvent } from "./types.ts";
+import type { RunResult, RunSpec, Runtime, SpawnHandle, StreamEvent } from "./types.ts";
 import {
   commitAllChanges,
   ensureWorktree,
@@ -11,6 +11,12 @@ import {
 } from "./worktree.ts";
 
 const DEFAULT_GIT_AUTHOR = { name: "Factory", email: "factory@localhost" };
+
+/**
+ * Grace window between the agent's result envelope (`agent_exit`) and a
+ * forced tmux teardown. See the backstop comment in `HostRuntime.spawn`.
+ */
+const AGENT_EXIT_GRACE_MS = 30_000;
 
 function deriveBranch(spec: RunSpec): string {
   if (spec.strategy.type === "branch") return spec.strategy.name;
@@ -68,6 +74,24 @@ class HostRuntime implements Runtime {
     let sessionId: string | undefined;
     let stalenessTripped = false;
 
+    // Agent-exit grace backstop. Once the agent's result envelope arrives,
+    // `claude --print` should exit and the tmux session should close on its
+    // own — the host sandbox's exit promise only resolves when the session
+    // disappears. If it hasn't after AGENT_EXIT_GRACE_MS, claude is wedged on
+    // a child it spawned that holds its stdio open (a leaked dev server, an
+    // un-`disown`ed background build), and the run would otherwise hang at
+    // `running` indefinitely. We force the session closed so it can finalize.
+    //
+    // This is deliberately NOT the eager 500ms kill removed in 8c39e45: that
+    // fired unconditionally and pre-empted work the harness had legitimately
+    // backgrounded. This arms only on `agent_exit` and fires only if the
+    // session is STILL alive long past a normal shutdown — i.e. only on a
+    // genuine wedge. By then the agent has emitted its terminal verdict, so
+    // nothing a surviving child does can change the run's outcome.
+    let handle: SpawnHandle | undefined;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    const graceMs = spec.agentExitGraceMs ?? AGENT_EXIT_GRACE_MS;
+
     const onLine = (line: string) => {
       // Always emit the raw line so consumers can stream pane output to xterm.
       spec.onEvent({ kind: "raw", line, runId: spec.runId, iteration });
@@ -79,19 +103,17 @@ class HostRuntime implements Runtime {
         if (e.kind === "session") sessionId = e.id;
         if (e.kind === "agent_exit") {
           agentExitCode = e.exitCode;
-          // We deliberately do NOT force-kill tmux here. Factory used to
-          // schedule an eager `kill-session` 500ms after agent_exit, which
-          // pre-empted anything the harness had backgrounded — `nohup`'d
-          // builds, `setsid`'d watchers, etc. — by sending SIGHUP to the
-          // whole session. The original concern (`remain-on-exit on`
-          // hangs the session-existence poll) is already addressed by the
-          // explicit `set-option -t <session> remain-on-exit off` we run
-          // when starting the session (see tmux.ts), so the pane closes
-          // naturally when claude --print's `sh` exits.
-          //
-          // Trust the harness. The agent owns what survives its turn:
-          // detached children survive pty closure, attached ones don't,
-          // and Factory shouldn't second-guess either way.
+          if (!graceTimer) {
+            graceTimer = setTimeout(() => {
+              spec.onEvent({
+                kind: "raw",
+                line: `[runtime] agent exited but tmux session still alive after ${graceMs / 1000}s — forcing teardown`,
+                runId: spec.runId,
+                iteration,
+              });
+              void handle?.kill();
+            }, graceMs);
+          }
         }
         spec.onEvent({ ...e, runId: spec.runId, iteration });
       }
@@ -108,7 +130,7 @@ class HostRuntime implements Runtime {
 
     let sandboxExit = { exitCode: 0 };
     try {
-      const handle = await spec.sandbox.spawn({
+      handle = await spec.sandbox.spawn({
         worktreePath: wt.worktreePath,
         argv,
         stdin,
@@ -121,6 +143,7 @@ class HostRuntime implements Runtime {
       sandboxExit = await handle.exit;
     } finally {
       if (budgetTimer) clearTimeout(budgetTimer);
+      if (graceTimer) clearTimeout(graceTimer);
     }
 
     const aborted = compositeAbort.aborted;
