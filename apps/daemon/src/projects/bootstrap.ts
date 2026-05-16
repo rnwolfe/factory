@@ -8,6 +8,7 @@ import { spawn as bunSpawn } from "bun";
 import YAML from "yaml";
 import type { FactoryConfig } from "../config.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
+import { DEFAULT_MAKEFILE, DEFAULT_QUALITY_YAML } from "./quality-config.ts";
 import { createTask, renderAcceptanceBlock } from "./tasks.ts";
 
 export interface BootstrapInput {
@@ -122,51 +123,15 @@ export async function bootstrapProject(
     // package manager: bootstrap runs before any project code exists, so it
     // cannot know the stack, and real projects are often polyglot (a TS web
     // app plus a Python worker, say). The Makefile is the per-project adapter
-    // the agent fills in as it builds. The operator can edit or delete
-    // quality.yaml; absence means "no quality checks for this project."
+    // the agent fills in as it builds. Templates + the migration for projects
+    // bootstrapped before this interface live in quality-config.ts. The
+    // operator can edit or delete quality.yaml; absence means "no checks."
     await writeFile(
       path.join(workdirPath, ".factory", "quality.yaml"),
-      `# Factory quality checks. Each command runs in the run's worktree after
-# the agent declares done and before the merge into main. Failures are
-# informational (they do not block the merge).
-#
-# These delegate to the project Makefile so quality stays stack-agnostic —
-# wire the real commands into the Makefile targets, not here.
-checks:
-  - name: typecheck
-    command: make typecheck
-    timeoutSeconds: 300
-  - name: lint
-    command: make lint
-    timeoutSeconds: 120
-  - name: test
-    command: make test
-    timeoutSeconds: 600
-`,
+      DEFAULT_QUALITY_YAML,
       "utf8",
     );
-
-    // Makefile — quality interface. No-op stub targets so a fresh project's
-    // quality checks pass until the agent wires in the real commands for
-    // whatever stack it builds (bun, pnpm, uv, cargo, go, or a mix).
-    await writeFile(
-      path.join(workdirPath, "Makefile"),
-      `# Factory quality interface: make typecheck, make lint, and make test
-# run as quality checks after every run (see .factory/quality.yaml).
-# Replace the stub recipes below with the real commands for this stack.
-.PHONY: typecheck lint test
-
-typecheck:
-\t@echo "make typecheck: no checks configured yet"
-
-lint:
-\t@echo "make lint: no checks configured yet"
-
-test:
-\t@echo "make test: no checks configured yet"
-`,
-      "utf8",
-    );
+    await writeFile(path.join(workdirPath, "Makefile"), DEFAULT_MAKEFILE, "utf8");
 
     // root .gitignore
     await writeFile(
