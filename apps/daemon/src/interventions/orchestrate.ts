@@ -427,7 +427,7 @@ async function finalizeBlockedRunResume(
   try {
     const committed = await commitAllChanges(
       intervention.worktreePath,
-      `factory: operator intervention on ${intervention.id.slice(0, 8)}`,
+      `chore: operator intervention on ${intervention.id.slice(0, 8)}`,
       config.gitAuthor,
     );
     interventionCommitInfo = committed
@@ -556,7 +556,7 @@ async function finalizeMergeFailureResume(
   const merge = await mergeIntoMain({
     projectPath: project.workdirPath,
     branch: payload.branch,
-    message: `factory: merge ${taskLabel} · run ${runShort} (after intervention)`,
+    message: `chore: merge ${taskLabel} · run ${runShort} (after intervention)`,
     author: config.gitAuthor,
   });
 

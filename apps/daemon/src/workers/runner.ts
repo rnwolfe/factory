@@ -110,6 +110,36 @@ function taskStatusFor(runStatus: RunStatus): "ready" | "in_progress" | "done" |
   }
 }
 
+/**
+ * Compose the merge commit that lands a completed run on the project's main.
+ * The agent's own commits already carry the diff; this merge commit is the
+ * record `git log main` shows. Conventional-commit subject built from the
+ * task title, the run summary as the body, and machine-greppable `Factory-*`
+ * trailers — so the merge node is a real summary of what the run did, not a
+ * bare "merge run <id>" state transition.
+ */
+function buildMergeMessage(opts: {
+  taskId: string;
+  taskTitle: string | null;
+  runId: string;
+  summary: string;
+  finalStatus: RunStatus;
+}): string {
+  const { taskId, taskTitle, runId, summary, finalStatus } = opts;
+  const subject = taskTitle
+    ? `chore(${taskId}): ${taskTitle.slice(0, 64)}`
+    : `chore(${taskId}): land run ${runId.slice(0, 8)}`;
+  return [
+    subject,
+    "",
+    summary.trim(),
+    "",
+    `Factory-Run: ${runId}`,
+    `Factory-Task: ${taskId}`,
+    `Factory-Status: ${finalStatus}`,
+  ].join("\n");
+}
+
 export interface ExecuteRunOpts {
   /**
    * When true, invoke claude with `--resume <sessionId>` and a continuation
@@ -171,9 +201,9 @@ export async function executeRun(
     }
   };
 
-  const taskBody = row.taskId
-    ? ((await readTaskFile(project.workdirPath, row.taskId))?.body ?? "")
-    : "";
+  const taskFile = row.taskId ? await readTaskFile(project.workdirPath, row.taskId) : null;
+  const taskBody = taskFile?.body ?? "";
+  const taskTitle = taskFile?.frontmatter.title ?? null;
   const baseTaskBody =
     taskBody ||
     `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`;
@@ -405,7 +435,7 @@ export async function executeRun(
         if (updated) {
           await commitAllChanges(
             result.worktreePath,
-            `factory: ${row.taskId} status -> ${updated.frontmatter.status}`,
+            `chore: ${row.taskId} status -> ${updated.frontmatter.status}`,
             config.gitAuthor,
           );
         }
@@ -526,7 +556,7 @@ export async function executeRun(
       const merge = await mergeIntoMain({
         projectPath: project.workdirPath,
         branch: result.branch,
-        message: `factory: merge ${taskId} · run ${runId.slice(0, 8)}`,
+        message: buildMergeMessage({ taskId, taskTitle, runId, summary, finalStatus }),
         author: config.gitAuthor,
       });
       if (merge.ok) {

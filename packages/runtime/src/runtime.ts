@@ -144,7 +144,7 @@ class HostRuntime implements Runtime {
       try {
         const auto = await commitAllChanges(
           wt.worktreePath,
-          `factory: ${spec.task.id} · run ${spec.runId.slice(0, 8)} (auto)`,
+          `chore: auto-commit residual changes · ${spec.task.id} run ${spec.runId.slice(0, 8)}`,
           spec.gitAuthor ?? DEFAULT_GIT_AUTHOR,
         );
         if (auto) {

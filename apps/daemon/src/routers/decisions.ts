@@ -191,7 +191,7 @@ export const decisionsRouter = router({
         const merge = await mergeIntoMain({
           projectPath: project.workdirPath,
           branch: payload.branch,
-          message: `factory: merge ${taskLabel} · run ${payload.runId.slice(0, 8)} (retry)`,
+          message: `chore: merge ${taskLabel} · run ${payload.runId.slice(0, 8)} (retry)`,
           author: ctx.config.gitAuthor,
         });
         if (!merge.ok) {

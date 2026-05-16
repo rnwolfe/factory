@@ -297,7 +297,7 @@ export async function endSession(
   const merge = await mergeIntoMain({
     projectPath: project.workdirPath,
     branch: row.branchName,
-    message: `factory: merge ad-hoc session ${sessionId.slice(0, 8)}`,
+    message: `chore: merge ad-hoc session ${sessionId.slice(0, 8)}`,
     author: config.gitAuthor,
   });
   if (merge.ok) {
