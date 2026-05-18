@@ -4,6 +4,56 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.8.0 — 2026-05-17
+
+The desktop release. Heimdall grows a real desktop UI alongside the
+phone-first PWA — a responsive Shell with a sidebar, an inbox
+split-view, project-detail tabs, a ⌘K command palette, and a top bar
+with a project switcher — without regressing the 390px mobile layout.
+The operator-visible surfaces also pick up the new name: "factory" →
+"Heimdall".
+
+The other half is reliability. Runs that hit the account usage cap now
+resume automatically when the limit resets — same worktree, same Claude
+session — instead of failing and being redone from scratch. A run can
+no longer hang forever when the agent leaves a process holding
+`claude --print` open. And quality checks delegate to a project
+Makefile, so a polyglot project's gate isn't pinned to a bun toolchain
+it never used.
+
+### Added
+- **Desktop UI.** A responsive Shell with a desktop sidebar, inbox
+  split-view, project-detail tabs, a desktop top bar (project switcher
+  + breadcrumb + ⌘K trigger), and a ⌘K command palette. The phone
+  layout is unchanged; desktop is purely additive (ADR-005).
+- **Usage-cap resume.** A run halted by the account usage limit is
+  marked `usage_capped` (not `failed`); the daemon parses the reset
+  time and auto-resumes the run — reusing its worktree and Claude
+  session — once the cap lifts. When the reset time can't be parsed or
+  the cap recurs, a `blocked_run` decision surfaces so the operator
+  resumes on their own schedule.
+- **Run-completion push.** Opt-in push notifications when a run
+  finishes successfully, plus app shortcuts in the manifest and a
+  Badging API count for the inbox.
+- **History view.** A `/history` route surfaces actioned decisions
+  (parked, trashed, dismissed), with a restore action to bring one
+  back.
+
+### Changed
+- Operator-visible PWA surfaces renamed from "factory" to "Heimdall".
+- Width discipline and button compaction across PWA screens so the
+  desktop layout reads as designed rather than a stretched phone app.
+
+### Fixed
+- A run no longer hangs indefinitely when the agent leaves a child
+  process holding `claude --print` open: the runtime force-closes the
+  tmux session a grace period after `agent_exit`.
+- Quality checks delegate to a project `Makefile` (`make typecheck` /
+  `lint` / `test`) instead of a hard-coded bun toolchain, and a
+  migration repoints projects bootstrapped before the change.
+- Factory-generated commits (auto-commit, task status, merge, …) now
+  use valid conventional-commit prefixes.
+
 ## v0.7.0 — 2026-05-10
 
 The intervene-and-defer release. Two new primitives that bridge the
