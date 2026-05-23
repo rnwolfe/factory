@@ -4,6 +4,25 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.2 — 2026-05-23
+
+`factory upgrade` no longer leaves the checkout on detached HEAD when
+the operator was on a named branch. Channels are still sha pointers
+internally, but the common single-host setup overlays the upgrade
+checkout on a Factory project workdir, where a detached HEAD makes
+`mergeIntoMain` refuse to merge run branches. Every upgrade silently
+broke the next merge until the operator re-attached manually.
+
+### Fixed
+- **`factory upgrade` preserves the operator's branch.** When the
+  checkout is on a named branch (commonly `main`) and the target sha
+  is a fast-forward, the branch advances to the sha and HEAD stays
+  attached. When the branch has local commits beyond the target, the
+  upgrade falls back to detached HEAD — the local commits stay
+  reachable from the branch ref. Operators whose dev clone doubles as
+  a project workdir no longer need to `git checkout main` after each
+  upgrade.
+
 ## v0.9.1 — 2026-05-23
 
 Hot-fix on v0.9.0. The run-detail page hung on runs with many
