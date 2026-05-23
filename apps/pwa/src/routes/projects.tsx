@@ -12,6 +12,7 @@ export function Projects() {
   const list = useQuery({
     queryKey: ["projects.list"],
     queryFn: () => trpc.projects.list.query(),
+    refetchInterval: 10_000,
   });
 
   if (list.isLoading) return <ProjectsSkeleton />;
@@ -83,7 +84,7 @@ export function Projects() {
                       {p.license ? ` · ${p.license}` : ""}
                     </div>
                   </div>
-                  <span className={`chip chip-${p.tag === "active" ? "accent" : ""}`}>{p.tag}</span>
+                  <ActivityChip running={p.runningRunCount ?? 0} queued={p.queuedRunCount ?? 0} />
                 </div>
               </Link>
             ))}
@@ -92,6 +93,28 @@ export function Projects() {
       ))}
     </div>
   );
+}
+
+function ActivityChip({ running, queued }: { running: number; queued: number }) {
+  // Runtime activity, not the operator-set workflow tag (which is already the
+  // section header — repeating it on each row is what the operator flagged as
+  // not meaningful). Running outranks queued; we only show one chip per row
+  // to keep the right edge readable on a 390px viewport.
+  if (running > 0) {
+    return (
+      <span className="chip chip-accent" title={`${running} running, ${queued} queued`}>
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] mr-1 animate-pulse"
+          aria-hidden="true"
+        />
+        running{running > 1 ? ` ${running}` : ""}
+      </span>
+    );
+  }
+  if (queued > 0) {
+    return <span className="chip">queued{queued > 1 ? ` ${queued}` : ""}</span>;
+  }
+  return <span className="mono text-[10.5px] text-[var(--color-fg-3)]">idle</span>;
 }
 
 function ProjectsSkeleton() {
