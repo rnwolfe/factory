@@ -4,6 +4,23 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.1 — 2026-05-23
+
+Hot-fix on v0.9.0. The run-detail page hung on runs with many
+agent-text events. The cause was an agent-authored, unreviewed change
+that landed via a merge_failure intervention before v0.9.0: it swapped
+the text renderer's `<pre>` for `<MarkdownBlock>`, reversing a
+deliberate prior fix. The deleted comment was explicit about the
+problem ("hundreds of agent-text events adds up to seconds of
+synchronous parsing on initial paint, which can lock the main thread")
+and memoization doesn't save the initial paint.
+
+### Fixed
+- **Run-detail page no longer hangs on long runs.** Reverted the
+  run-event-row text renderer back to plain `<pre>`. The pane-level
+  `[raw]` toggle still drops the operator into the xterm stream for
+  byte-perfect debug.
+
 ## v0.9.0 — 2026-05-23
 
 A reliability release for stuck runs. Two failure modes that previously
