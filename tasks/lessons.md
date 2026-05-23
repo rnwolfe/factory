@@ -81,3 +81,29 @@ falls back to detached (preserves local commits on the branch ref).
 that the directory may serve multiple purposes. "It's just our
 checkout" is a lie when the operator's setup overlays it on something
 else.
+
+## Self-updating bootstrap loops need a manual install at least once
+
+`factory upgrade` rebuilds `apps/cli/dist/factory` mid-run so CLI
+fixes ship to the operator's `~/.local/bin/factory` symlink on the
+next invocation. The catch: the running upgrade IS the old binary, so
+this step only exists if the operator's installed CLI was built from
+a sha that already includes the step. Otherwise the fix is dormant
+indefinitely — every upgrade copies new src/ into the checkout but
+never recompiles the binary the symlink actually targets.
+
+Real example from this session: I shipped v0.9.2 with the upgrade-
+preserves-branch fix. Two consecutive `factory upgrade` calls both
+silently kept the old behavior. The cause: the operator's installed
+binary was from May 9 23:08, two minutes before `c459ea6 fix(cli):
+factory upgrade rebuilds the CLI dist` landed at 23:10. The upgrade
+flow's self-update step never got a chance to install itself.
+Bootstrap required: `bun run cli:install`. After that, future
+upgrades self-sustain.
+
+**Rule:** when shipping a fix to a tool that's responsible for
+delivering its own future fixes, check that the running version
+already contains the delivery mechanism. If not, the operator needs
+a one-time manual install — surface this explicitly in the release
+notes / upgrade output. Don't assume "they'll get it on next
+upgrade" — the upgrade itself may be the dormant code.
