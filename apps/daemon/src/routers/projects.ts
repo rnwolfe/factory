@@ -2,7 +2,7 @@ import { schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createRepo, GithubError, pushToNewRemote } from "../projects/github.ts";
 import {
@@ -180,7 +180,37 @@ export const projectsRouter = router({
       const rows = await (where ? q.where(where) : q)
         .orderBy(desc(schema.projects.lastActivityAt))
         .all();
-      return rows;
+
+      // Per-row runtime activity: how many runs are queued/running for each
+      // project. One aggregate query rather than N round-trips. Without this
+      // the list shows only the operator-set workflow tag, which doesn't
+      // tell the operator whether anything is actually happening right now.
+      const activity = await ctx.db
+        .select({
+          projectId: schema.runs.projectId,
+          running: sql<number>`SUM(CASE WHEN ${schema.runs.status} = 'running' THEN 1 ELSE 0 END)`,
+          queued: sql<number>`SUM(CASE WHEN ${schema.runs.status} = 'queued' THEN 1 ELSE 0 END)`,
+        })
+        .from(schema.runs)
+        .where(inArray(schema.runs.status, ["running", "queued"]))
+        .groupBy(schema.runs.projectId)
+        .all();
+      const activityByProject = new Map<string, { running: number; queued: number }>();
+      for (const a of activity) {
+        activityByProject.set(a.projectId, {
+          running: Number(a.running ?? 0),
+          queued: Number(a.queued ?? 0),
+        });
+      }
+
+      return rows.map((r) => {
+        const a = activityByProject.get(r.id);
+        return {
+          ...r,
+          runningRunCount: a?.running ?? 0,
+          queuedRunCount: a?.queued ?? 0,
+        };
+      });
     }),
 
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
