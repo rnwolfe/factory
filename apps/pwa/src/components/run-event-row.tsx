@@ -18,7 +18,6 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { MarkdownBlock } from "./markdown-block.tsx";
 export interface RunEvent {
   kind: string;
   iteration?: number;
@@ -79,16 +78,14 @@ function stripAnsi(s: string): string {
 export function RunEventRow({ event }: { event: RunEvent }) {
   switch (event.kind) {
     case "text": {
-      // Render as markdown so agent prose (headings, lists, fenced code,
-      // inline code) reads like the original Claude reply instead of a
-      // wall of `pre` text. The pane-level [raw] toggle still drops the
-      // operator into the unrendered xterm stream for byte-perfect debug;
-      // MarkdownBlock caps source length internally and MemoRunEventRow
-      // ensures each event parses once, bounding the per-paint cost.
+      // Plain pre — markdown rendering on hundreds of agent-text events
+      // adds up to seconds of synchronous parsing on initial paint, which
+      // can lock the main thread. The raw xterm view ([raw] toggle above)
+      // still preserves the full stream including any color/formatting.
       const text = event.text ?? "";
       return (
         <div className="run-event run-event-text">
-          <MarkdownBlock source={text} />
+          <pre className="run-event-text-pre">{text}</pre>
         </div>
       );
     }
