@@ -4,6 +4,47 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.0 — 2026-05-23
+
+A reliability release for stuck runs. Two failure modes that previously
+stranded the operator now route through the inbox cleanly.
+
+The usage-cap detector missed the CLI's real message — it matched "hit
+your limit" but the CLI was emitting "hit your **session** limit", so
+real caps slipped through as generic failures with no auto-resume. The
+reset-time parser also rejected the round-hour form ("resets 1am") that
+the CLI uses on hourly resets. Both are widened, so the same cap that
+previously had to be manually recovered now auto-resumes.
+
+The bigger gap: runs that ended without the factory-status footer were
+marked `failed` and surfaced nowhere — no inbox card, no retry button,
+no operator affordance. The agent's auto-committed work sat on a
+stranded branch until you went looking for it. Failed runs now create a
+`blocked_run` decision the same way blocked runs do, flagged
+`payload.failed = true`. Approving it submits a retry on the source
+run's branch tip so the partial work rides forward.
+
+### Added
+- **Failed runs surface as decisions.** A `failed` terminal status
+  (e.g. the CLI exited without writing the factory-status footer) now
+  files a `blocked_run` decision with `payload.failed = true`, instead
+  of stranding silently. Approve to retry — the new run branches from
+  the source run's tip and picks up any auto-committed partial work.
+  The inbox card and decision detail switch to a "failed run / retry"
+  framing when the flag is set.
+
+### Fixed
+- **Usage-cap detection misses the CLI's real wording.** Widened
+  `USAGE_LIMIT_RE` to match `hit your <word> limit` so phrasings like
+  "hit your session limit" or "hit your weekly limit" trip the cap
+  path instead of the generic-failure path. Without this, capped runs
+  silently strand as `failed` with no auto-resume.
+- **Round-hour cap reset times no longer skip auto-resume.**
+  `parseUsageResetTime` accepts `resets 1am` (no `:MM`) in addition to
+  `resets 12:10am`. Round-hour resets were previously unparseable,
+  forcing a manual decision instead of auto-resuming at the reset
+  time.
+
 ## v0.8.0 — 2026-05-17
 
 The desktop release. Heimdall grows a real desktop UI alongside the
