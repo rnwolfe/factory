@@ -168,18 +168,56 @@ export const runsRouter = router({
         .get();
       if (!project) return null;
 
-      // Use the merge-base of main and the run branch as the diff base, NOT
-      // the current main HEAD. After a successful run auto-merges into main
-      // (`mergeIntoMain` with `--no-ff`), main contains the run's commits via
-      // a merge commit — so `main..run.branch` would be empty even though the
-      // run made real changes. The merge-base is the original fork point and
-      // stays stable across the merge: `merge-base..run.branch` is exactly
-      // the set of commits the run contributed, before-and-after merge.
+      // Resolve the diff base. Preference order:
       //
-      // Fallback to current main HEAD if merge-base isn't computable (e.g.
-      // the branch was deleted or never had a common ancestor with main).
-      const mb = await runGit(["merge-base", "main", run.branch], project.workdirPath);
-      let baseRef: string | null = mb.exitCode === 0 ? mb.stdout.trim() : null;
+      // 1. `run.baseRef` — the sha captured at run creation in submit.ts.
+      //    Exact fork point, stable across any later history rewrites or
+      //    merges. This is the only path that works correctly for runs
+      //    successfully merged into main via `--no-ff`.
+      //
+      // 2. Parent of the run's oldest commit (from the events log) — for
+      //    historical runs created before baseRef was captured. The events
+      //    table persists every commit the run made, so we can reconstruct
+      //    the fork point as <oldest-commit>^.
+      //
+      // 3. `git merge-base main <branch>` — final fallback. Works for runs
+      //    whose branches were never merged into main. Returns the branch
+      //    tip after a `--no-ff` merge (and then `branch-tip..branch` is
+      //    empty), which is the original bug — but it still beats nothing
+      //    for the pre-baseRef historical case where no commits were made.
+      //
+      // 4. `git rev-parse main` — last-resort default.
+      let baseRef: string | null = run.baseRef ?? null;
+
+      if (!baseRef) {
+        const oldest = await ctx.db
+          .select({ payload: schema.events.payload })
+          .from(schema.events)
+          .where(and(eq(schema.events.runId, run.id), eq(schema.events.kind, "commit")))
+          .orderBy(schema.events.ts)
+          .limit(1)
+          .get();
+        if (oldest) {
+          try {
+            const raw = typeof oldest.payload === "string" ? oldest.payload : "";
+            const parsed = (raw ? JSON.parse(raw) : {}) as { sha?: string };
+            if (parsed.sha) {
+              const parent = await runGit(
+                ["rev-parse", "--verify", `${parsed.sha}^`],
+                project.workdirPath,
+              );
+              if (parent.exitCode === 0) baseRef = parent.stdout.trim();
+            }
+          } catch {
+            // malformed payload; fall through
+          }
+        }
+      }
+
+      if (!baseRef) {
+        const mb = await runGit(["merge-base", "main", run.branch], project.workdirPath);
+        baseRef = mb.exitCode === 0 ? mb.stdout.trim() : null;
+      }
       if (!baseRef) {
         const head = await runGit(["rev-parse", "main"], project.workdirPath);
         baseRef = head.exitCode === 0 ? head.stdout.trim() : null;

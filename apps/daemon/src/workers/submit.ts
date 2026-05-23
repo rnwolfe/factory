@@ -1,12 +1,32 @@
 import type { Db } from "@factory/db";
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
+import { spawn as bunSpawn } from "bun";
 import { and, desc, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import type { WorkerPool } from "./pool.ts";
 import type { RunRegistry } from "./registry.ts";
 import { executeRun } from "./runner.ts";
+
+/**
+ * Resolve a ref name (branch, tag, "HEAD", or sha) to its sha in `cwd`.
+ * Returns null when the ref doesn't exist — callers decide whether to
+ * surface the failure or fall through to a default. Used at run creation
+ * to freeze the run's base sha; without this, `runs.baseRef` would
+ * either be null (fresh runs) or a branch name that drifts after submit.
+ */
+async function resolveSha(ref: string, cwd: string): Promise<string | null> {
+  const proc = bunSpawn({
+    cmd: ["git", "rev-parse", "--verify", ref],
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+  return exitCode === 0 ? stdout.trim() : null;
+}
 
 export interface SubmitRunDeps {
   config: FactoryConfig;
@@ -143,6 +163,24 @@ export async function submitRun(
   const sessionIdForRow =
     resumeSessionId && resumeSessionId.length > 0 ? resumeSessionId : inheritedSessionId;
 
+  // Freeze the run's base sha at submit time. The runs.diff endpoint
+  // relies on this to scope its diff to "what this run added"; without
+  // it, the diff has to infer the base via `git merge-base main <branch>`,
+  // which silently returns the branch tip after a `--no-ff` merge into
+  // main (the merge makes the branch reachable from main, so the merge-
+  // base shifts forward) and the operator sees an empty diff on the
+  // run-detail page for any successfully-merged run.
+  //
+  // We resolve `input.baseRef ?? "main"` against the project workdir at
+  // submit time (not at runtime), so the sha is deterministic and stays
+  // valid even after main moves forward. Reuse-from-run paths skip this
+  // (the worktree already exists and the source run's baseRef carries
+  // forward via the diff endpoint's fallback chain).
+  let baseRefSha: string | null = null;
+  if (!input.reuseFromRunId) {
+    baseRefSha = await resolveSha(input.baseRef ?? "main", project.workdirPath);
+  }
+
   await db.insert(schema.runs).values({
     id: runId,
     projectId: project.id,
@@ -153,9 +191,7 @@ export async function submitRun(
     worktreePath,
     startedAt: now,
     budgetSeconds: input.budgetSeconds ?? config.defaultRunBudgetSeconds,
-    // baseRef is meaningless when reusing — the worktree is already on
-    // the target branch; the runner switches strategy accordingly.
-    baseRef: input.reuseFromRunId ? null : (input.baseRef ?? null),
+    baseRef: baseRefSha,
     taskPlanId,
     operatorContext: operatorContext && operatorContext.length > 0 ? operatorContext : null,
     sessionId: sessionIdForRow ?? null,
