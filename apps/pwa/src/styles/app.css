@@ -378,15 +378,6 @@ body {
   background: var(--color-bg);
 }
 .run-event-text .md-block { color: var(--color-fg); }
-.run-event-text-pre {
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  color: var(--color-fg);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-}
 
 .run-event-tool { background: var(--color-bg-1); }
 .run-event-tool-icon { flex-shrink: 0; color: var(--color-accent); margin-top: 2px; }
