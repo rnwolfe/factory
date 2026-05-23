@@ -8,25 +8,32 @@ const STALENESS_PATTERNS = [
   /Run `claude login` to authenticate/i,
 ];
 
-/** Matches the CLI's result text when the account has hit its usage cap. */
-const USAGE_LIMIT_RE = /hit your limit|usage limit|rate limit/i;
+/**
+ * Matches the CLI's result text when the account has hit its usage cap.
+ * The qualifier is optional because the CLI uses both "hit your limit" and
+ * "hit your <session|usage|weekly|…> limit" depending on which cap tripped —
+ * missing the qualifier strands the run as `failed` with no auto-resume.
+ */
+const USAGE_LIMIT_RE = /hit your(?: \w+)? limit|usage limit|rate limit/i;
 
 /**
  * Extract the cap reset time from a usage-limit message, e.g.
- * "You've hit your limit · resets 12:10am (America/New_York)". Returns the
- * next epoch-ms occurrence of that wall-clock time, or null if absent.
+ * "You've hit your limit · resets 12:10am (America/New_York)" or the
+ * minutes-less form "resets 1am" the CLI emits on round-hour resets.
+ * Returns the next epoch-ms occurrence of that wall-clock time, or null
+ * if absent.
  *
  * The CLI reports the operator's local timezone, which is the daemon host's
  * timezone too, so plain `Date` arithmetic resolves it correctly — the
  * parenthetical IANA name is informational and deliberately ignored.
  */
 export function parseUsageResetTime(message: string): number | null {
-  const m = /resets\s+(\d{1,2}):(\d{2})\s*(am|pm)/i.exec(message);
+  const m = /resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(message);
   if (!m) return null;
   const [, hStr, mStr, ap] = m;
-  if (!hStr || !mStr || !ap) return null;
+  if (!hStr || !ap) return null;
   let hour = Number(hStr);
-  const minute = Number(mStr);
+  const minute = mStr ? Number(mStr) : 0;
   if (hour < 1 || hour > 12 || minute > 59) return null;
   if (ap.toLowerCase() === "am") {
     hour = hour === 12 ? 0 : hour;

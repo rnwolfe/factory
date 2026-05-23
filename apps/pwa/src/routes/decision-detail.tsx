@@ -61,6 +61,10 @@ interface DecisionPayload {
   summary?: string;
   questions?: string[];
   branch?: string;
+  // blocked_run variants: same kind, three causes. Default (neither set)
+  // means the agent self-blocked with questions.
+  usageCapped?: boolean;
+  failed?: boolean;
   // merge_failure-only
   reason?: string;
   message?: string;
@@ -265,7 +269,11 @@ export function DecisionDetail() {
             {isTriage
               ? "triage"
               : isBlockedRun
-                ? "blocked run"
+                ? payload.failed
+                  ? "failed run"
+                  : payload.usageCapped
+                    ? "usage cap"
+                    : "blocked run"
                 : isMergeFailure
                   ? "merge failure"
                   : isAgentDecision
@@ -578,7 +586,9 @@ export function DecisionDetail() {
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={
                   isBlockedRun
-                    ? "answer the agent's questions or add context — your reply rides forward when you retry…"
+                    ? payload.failed
+                      ? "add context for the retry — what went wrong, what should the agent do differently?"
+                      : "answer the agent's questions or add context — your reply rides forward when you retry…"
                     : "reply to the agent — answer questions, push back, add context…"
                 }
                 rows={3}

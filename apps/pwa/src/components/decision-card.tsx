@@ -31,6 +31,10 @@ export interface DecisionRow {
     summary?: string;
     questions?: string[];
     branch?: string;
+    // blocked_run variants — distinguish the three causes that all route
+    // through this decision kind. Default (neither set) = agent self-blocked.
+    usageCapped?: boolean;
+    failed?: boolean;
     // merge_failure-only
     reason?: string;
     message?: string;
@@ -66,13 +70,16 @@ function verdictTone(outcome: string) {
   return "";
 }
 
-function kindLabel(kind: DecisionRow["kind"]): string {
+function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]): string {
   switch (kind) {
     case "triage":
       return "triage";
     case "tag_change":
       return "tag";
     case "blocked_run":
+      // Same kind, three causes: framing follows the cause.
+      if (payload?.failed) return "failed run";
+      if (payload?.usageCapped) return "usage cap";
       return "blocked run";
     case "merge_failure":
       return "merge failure";
@@ -158,9 +165,9 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
 
   const blockedHeadline = isBlockedRun
     ? (decision.payload.summary ??
-      `run ${decision.payload.runId?.slice(0, 8) ?? ""} blocked${
-        decision.payload.taskId ? ` on ${decision.payload.taskId}` : ""
-      }`)
+      `run ${decision.payload.runId?.slice(0, 8) ?? ""} ${
+        decision.payload.failed ? "failed" : "blocked"
+      }${decision.payload.taskId ? ` on ${decision.payload.taskId}` : ""}`)
     : null;
 
   const mergeFailHeadline = isMergeFailure
@@ -219,7 +226,7 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
         <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className={cn("chip", verdictTone(decision.outcome))}>{decision.outcome}</span>
-            <span className="chip">{kindLabel(decision.kind)}</span>
+            <span className="chip">{kindLabel(decision.kind, decision.payload)}</span>
             <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
               · {timeAgo(decision.createdAt)} ago
             </span>

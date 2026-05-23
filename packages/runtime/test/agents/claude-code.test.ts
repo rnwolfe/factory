@@ -206,6 +206,17 @@ describe("parseUsageResetTime", () => {
     expect(parseUsageResetTime("nothing here")).toBeNull();
     expect(parseUsageResetTime("resets soon")).toBeNull();
   });
+
+  test("parses the round-hour form the CLI uses on some caps", () => {
+    // Observed in prod: "You've hit your session limit · resets 1am
+    // (America/New_York)" — no :MM. Without minutes-optional parsing the
+    // run silently strands as failed instead of auto-resuming.
+    const at = parseUsageResetTime("You've hit your session limit · resets 1am (America/New_York)");
+    if (at == null) throw new Error("expected a timestamp");
+    const d = new Date(at);
+    expect(d.getHours()).toBe(1);
+    expect(d.getMinutes()).toBe(0);
+  });
 });
 
 describe("claudeCodeAgent usage-cap detection", () => {
@@ -240,5 +251,26 @@ describe("claudeCodeAgent usage-cap detection", () => {
       result: "Something else went wrong",
     });
     expect(claudeCodeAgent.parseLine(line).some((e) => e.kind === "usage_limit")).toBe(false);
+  });
+
+  test("emits usage_limit on the 'hit your session limit' phrasing", () => {
+    // Regression guard for a real prod case where the CLI said "hit your
+    // session limit" and the original regex (which only matched "hit your
+    // limit") missed it — the run silently stranded as `failed` with no
+    // auto-resume. See packages/runtime/src/agents/claude-code.ts USAGE_LIMIT_RE.
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "error",
+      is_error: true,
+      result: "You've hit your session limit · resets 1am (America/New_York)",
+      session_id: "sess_cap",
+    });
+    const events = claudeCodeAgent.parseLine(line);
+    const cap = events.find((e) => e.kind === "usage_limit");
+    expect(cap).toBeDefined();
+    if (cap && cap.kind === "usage_limit") {
+      expect(cap.message).toContain("session limit");
+      expect(cap.resetsAt).not.toBeNull();
+    }
   });
 });

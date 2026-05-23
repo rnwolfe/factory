@@ -22,6 +22,13 @@ interface BlockedRunPayload {
    * branching a fresh run off the branch tip.
    */
   usageCapped?: boolean;
+  /**
+   * Set when the source run terminated as `failed` (rather than the agent
+   * self-declaring `blocked`). Same retry mechanics — approve still branches
+   * a new worktree from the source run's tip — but the operator-facing copy
+   * frames it as "run failed, retry" instead of "agent blocked, answer".
+   */
+  failed?: boolean;
 }
 
 interface MergeFailurePayload {

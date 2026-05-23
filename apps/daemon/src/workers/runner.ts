@@ -653,13 +653,17 @@ export async function executeRun(
       }
     }
 
-    // Surface blocked runs to the decisions inbox. Without this the operator
-    // has to navigate into the project to discover that a run stalled —
-    // exactly the hidden-state failure the inbox-as-only-attention-sink
-    // contract is supposed to prevent. Approving the resulting decision
-    // triggers a retry from the source run's branch tip; dismissing leaves
-    // the run blocked.
-    if (finalStatus === "blocked") {
+    // Surface stalled runs (blocked or failed) to the decisions inbox.
+    // Without this the operator has to navigate into the project to discover
+    // that a run died — exactly the hidden-state failure the inbox-as-only-
+    // attention-sink contract is supposed to prevent. Approving the resulting
+    // decision triggers a retry from the source run's branch tip (picking up
+    // any auto-committed partial work); dismissing leaves it stranded.
+    //
+    // `usage_capped` has its own resolution path above (auto-resume or
+    // `capFallbackDecision`), and `deferred`/`aborted`/`completed` don't need
+    // operator attention — so we only surface the two stuck terminal states.
+    if (finalStatus === "blocked" || finalStatus === "failed") {
       const decisionId = createId();
       await db.insert(schema.decisions).values({
         id: decisionId,
@@ -672,6 +676,11 @@ export async function executeRun(
           summary,
           questions: blockerQuestions,
           branch: result.branch,
+          // Distinguish a failed run (no factory-status footer, agent died
+          // mid-thought, etc.) from a blocked run (agent self-declared
+          // blocked with questions). Same retry mechanics; different framing
+          // in the inbox card and decision detail.
+          ...(finalStatus === "failed" ? { failed: true } : {}),
         },
         status: "pending",
         createdAt: Date.now(),
