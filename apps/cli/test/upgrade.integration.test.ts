@@ -201,6 +201,68 @@ describe("factory upgrade", () => {
     expect(args).toContain("bun run db:migrate");
   });
 
+  test("when on main, upgrade fast-forwards main instead of detaching", async () => {
+    // Operator's checkout starts on the main branch (the common setup);
+    // a Factory project whose workdir IS the checkout depends on HEAD
+    // staying attached so `mergeIntoMain` can land run branches.
+    await git(["checkout", "-q", "main"], checkout);
+    // Reset main to v1.0.0 so the upgrade has somewhere to advance to.
+    await git(["reset", "-q", "--hard", "v1.0.0"], checkout);
+
+    const code = await runUpgrade({
+      channel: undefined,
+      checkout,
+      dryRun: false,
+      force: false,
+      skipRestart: true,
+      help: false,
+    });
+    expect(code).toBe(0);
+
+    // HEAD is on main (not detached) and main now points at v2.0.0.
+    const sym = (
+      await run(["git", "symbolic-ref", "--short", "HEAD"], { cwd: checkout })
+    ).stdout.trim();
+    expect(sym).toBe("main");
+    const head = (await run(["git", "rev-parse", "HEAD"], { cwd: checkout })).stdout.trim();
+    const v2 = (await run(["git", "rev-parse", "v2.0.0"], { cwd: checkout })).stdout.trim();
+    expect(head).toBe(v2);
+  });
+
+  test("non-FF branch falls back to detached, preserving local commits", async () => {
+    // Operator was on main with a local commit that diverges from origin —
+    // the upgrade can't fast-forward, so it should detach onto the target
+    // sha (so the tree matches the release) while leaving the local
+    // branch ref where it was (so no work is lost).
+    await git(["checkout", "-q", "main"], checkout);
+    await git(["reset", "-q", "--hard", "v1.0.0"], checkout);
+    await commit(checkout, "local-only.txt", "local work", "wip: local-only commit");
+    const localMainBefore = (
+      await run(["git", "rev-parse", "main"], { cwd: checkout })
+    ).stdout.trim();
+
+    const code = await runUpgrade({
+      channel: undefined,
+      checkout,
+      dryRun: false,
+      force: false,
+      skipRestart: true,
+      help: false,
+    });
+    expect(code).toBe(0);
+
+    // HEAD detached at v2.0.0; main ref untouched (operator's commit safe).
+    const sym = await run(["git", "symbolic-ref", "--short", "-q", "HEAD"], { cwd: checkout });
+    expect(sym.exitCode).not.toBe(0); // detached → symbolic-ref fails
+    const head = (await run(["git", "rev-parse", "HEAD"], { cwd: checkout })).stdout.trim();
+    const v2 = (await run(["git", "rev-parse", "v2.0.0"], { cwd: checkout })).stdout.trim();
+    expect(head).toBe(v2);
+    const localMainAfter = (
+      await run(["git", "rev-parse", "main"], { cwd: checkout })
+    ).stdout.trim();
+    expect(localMainAfter).toBe(localMainBefore);
+  });
+
   test("migrate failure leaves checkout on new sha + records ok=false", async () => {
     // Replace the bun stub with one that fails on db:migrate.
     process.env.FACTORY_CLI_BUN = writeFakeBin(
