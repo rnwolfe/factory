@@ -4,6 +4,30 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.3 — 2026-05-23
+
+Run-detail "changed files" panel is no longer empty after a run merges
+into main. The diff endpoint inferred its base via `git merge-base
+main <branch>`, which silently returns the branch tip after a `--no-ff`
+merge — making the diff `<branch-tip>..<branch-tip>` (empty). The
+operator saw files live during the run but got "no changes recorded"
+on any cold-load of a completed-and-merged run.
+
+### Added
+- **Runs capture their base sha at submit time.** `submit.ts` now
+  resolves `input.baseRef ?? "main"` against the project workdir at
+  run creation and stores the result in `runs.base_ref`. Deterministic,
+  stable across later merges or rebases.
+
+### Fixed
+- **Diff endpoint returns real files for merged runs.** `runs.diff`
+  prefers the run's recorded `base_ref` (sha) when present. For
+  historical runs created without one, it derives the base by walking
+  the events table to find the run's oldest commit and using its
+  parent (`<oldest-sha>^`). The original `git merge-base` path remains
+  as a final fallback for runs with neither a recorded base nor any
+  recorded commits.
+
 ## v0.9.2 — 2026-05-23
 
 `factory upgrade` no longer leaves the checkout on detached HEAD when
