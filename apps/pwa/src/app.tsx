@@ -285,6 +285,12 @@ function useCommandPaletteHotkey(enabled: boolean) {
     if (!enabled) return;
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        // Cede the chord to a focused xterm pane — neovim uses Ctrl+K
+        // (digraph entry, window-up navigation) and emacs-readline binds it
+        // to kill-line. Any PWA-level chord registered on document must
+        // gate on this check or it will steal keystrokes the operator is
+        // typing into their terminal session.
+        if (isFocusInXtermPane()) return;
         e.preventDefault();
         usePalette.getState().toggle();
       }
@@ -292,4 +298,12 @@ function useCommandPaletteHotkey(enabled: boolean) {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [enabled]);
+}
+
+function isFocusInXtermPane(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  // xterm.js mounts a `.xterm` root and focuses an inner `.xterm-helper-textarea`
+  // for input; `.closest()` matches either.
+  return el.closest(".xterm") !== null;
 }
