@@ -4,6 +4,22 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.4 — 2026-05-24
+
+Auto-advance now respects the operator's starting point. Previously,
+starting task-009 and finishing it would auto-advance to task-001
+(the first ready task in the list), silently undoing the operator's
+"skip the early ones" intent. Now it picks the next ready task AFTER
+the one that finished, and stops if nothing later is ready — the
+operator can pick an earlier task manually when they want to go back.
+
+### Fixed
+- **Auto-advance respects task order.** Picks the next ready task with
+  an id after the one we just finished, never wrapping back to earlier
+  tasks. Falls back to the first ready task only when there's no
+  recorded prior task id (ad-hoc submissions). When nothing later is
+  ready, auto-advance stops instead of jumping to an earlier task.
+
 ## v0.9.3 — 2026-05-23
 
 Run-detail "changed files" panel is no longer empty after a run merges
