@@ -4,6 +4,25 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.10.4 — 2026-05-24
+
+Hot-fix on v0.10.3.
+
+### Fixed
+- **Interactive shell sessions accept typing again.** v0.10.3 set
+  `macOptionIsMeta: true` on the live + session xterm panes to make
+  Option-key chords reach neovim as Esc+key, but it broke basic
+  typing input in interactive sessions. Reverted on both panes until
+  we can reproduce + understand the interaction. The Cmd/Ctrl+K
+  focus-gate from v0.10.3 (separate change, only affects the command
+  palette chord) stays — it's clearly scoped and the right behavior.
+  `<M-…>` neovim maps remain non-functional until this is properly
+  resolved.
+- **Metrics page typechecks.** Defensive optional-chaining on
+  `series[si]` access in the stacked-bar render (TS strict-mode
+  caught the unguarded index access after the v0.10.3 metrics
+  range-chart change).
+
 ## v0.10.3 — 2026-05-24
 
 Reliability + observability fixes around task-status propagation,
