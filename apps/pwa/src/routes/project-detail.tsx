@@ -47,6 +47,16 @@ const PROJECT_TABS: ReadonlyArray<{ id: ProjectTab; label: string }> = [
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
 
+// Tasks split into two groups on the project page: "live" work the operator
+// wants to see, and historical (done/dropped) folded behind a toggle so the
+// list doesn't grow into a wall as projects accumulate completed work.
+const ARCHIVED_TASK_STATUSES = new Set(["done", "dropped"]);
+
+// Cap the runs list at this length on first paint; an explicit "show all"
+// reveals the rest. The server already caps at 100, so the absolute max
+// is bounded; this is purely a paint/readability cut.
+const RUNS_DEFAULT_VISIBLE = 15;
+
 function githubHtmlUrlFromClone(cloneUrl: string): string {
   // GitHub HTTPS clone URLs are `https://github.com/<owner>/<name>.git`.
   return cloneUrl.replace(/\.git$/, "");
@@ -68,6 +78,8 @@ export function ProjectDetail() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [showPublish, setShowPublish] = useState(false);
+  const [showArchivedTasks, setShowArchivedTasks] = useState(false);
+  const [showAllRuns, setShowAllRuns] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get("tab") ?? "tasks") as ProjectTab;
   const setActiveTab = (tab: ProjectTab) => {
@@ -210,6 +222,11 @@ export function ProjectDetail() {
   }
   const headerActiveRun = activeRuns[0] ?? null;
   const nextStartableTask = tasks.find((t) => t.status === "ready" && !activeRunByTask.has(t.id));
+
+  const activeTasks = tasks.filter((t) => !ARCHIVED_TASK_STATUSES.has(t.status));
+  const archivedTasks = tasks.filter((t) => ARCHIVED_TASK_STATUSES.has(t.status));
+  const visibleRuns = showAllRuns ? allRuns : allRuns.slice(0, RUNS_DEFAULT_VISIBLE);
+  const hiddenRunCount = allRuns.length - visibleRuns.length;
 
   return (
     <div className="space-y-4">
@@ -371,60 +388,55 @@ export function ProjectDetail() {
 
       <ProjectTabPanel value="tasks" active={activeTab}>
         <section>
-          <SectionHeader title="tasks" count={tasks.length} />
+          <SectionHeader title="tasks" count={activeTasks.length} />
           <div className="surface divide-y divide-[var(--color-line)]">
             {tasks.length === 0 ? (
               <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
                 no tasks yet — first run will create them.
               </div>
+            ) : activeTasks.length === 0 ? (
+              <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
+                no active tasks — all {archivedTasks.length} done or dropped.
+              </div>
             ) : (
-              tasks.map((t) => {
-                const activeRun = activeRunByTask.get(t.id) ?? null;
-                const canStart = !activeRun && t.status !== "done" && t.status !== "in_progress";
-                return (
-                  <div key={t.id} className="flex items-stretch">
-                    <Link
-                      to={`/projects/${id}/tasks/${t.id}`}
-                      className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]"
-                    >
-                      <span className={`chip status-${t.status}`}>{t.status}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[14px] truncate">{t.title}</div>
-                        <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
-                          {t.id} · {String(t.estimate ?? "—")}
-                        </div>
-                      </div>
-                      <ChevronRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
-                    </Link>
-                    <div className="flex items-center px-2 border-l border-[var(--color-line)]">
-                      {activeRun ? (
-                        <Link
-                          to={`/projects/${id}/runs/${activeRun.id}`}
-                          className="btn btn-ghost text-[11px] !h-8 !px-2"
-                          aria-label="view active run"
-                          title={`view active run ${activeRun.id.slice(0, 8)}`}
-                        >
-                          <Eye size={12} />
-                        </Link>
-                      ) : canStart ? (
-                        <button
-                          type="button"
-                          onClick={() => start.mutate({ taskId: t.id })}
-                          disabled={start.isPending}
-                          className="btn btn-ghost text-[11px] !h-8 !px-2"
-                          aria-label="run this task"
-                        >
-                          <Play size={12} />
-                        </button>
-                      ) : (
-                        <span className="w-8" aria-hidden="true" />
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+              activeTasks.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  projectId={id}
+                  task={t}
+                  activeRun={activeRunByTask.get(t.id) ?? null}
+                  onStart={() => start.mutate({ taskId: t.id })}
+                  startDisabled={start.isPending}
+                />
+              ))
             )}
           </div>
+
+          {archivedTasks.length > 0 ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setShowArchivedTasks((v) => !v)}
+                className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)] px-1"
+              >
+                {showArchivedTasks ? "hide" : "show"} {archivedTasks.length} done/dropped
+              </button>
+              {showArchivedTasks ? (
+                <div className="surface divide-y divide-[var(--color-line)] mt-2">
+                  {archivedTasks.map((t) => (
+                    <TaskRow
+                      key={t.id}
+                      projectId={id}
+                      task={t}
+                      activeRun={null}
+                      onStart={() => start.mutate({ taskId: t.id })}
+                      startDisabled={start.isPending}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         {projectPlans.data && projectPlans.data.length > 0 ? (
@@ -467,15 +479,15 @@ export function ProjectDetail() {
 
       <ProjectTabPanel value="runs" active={activeTab}>
         <section>
-          <SectionHeader title="runs" count={runs.data?.length ?? 0} />
+          <SectionHeader title="runs" count={allRuns.length} />
           <div className="surface divide-y divide-[var(--color-line)]">
             {runs.isLoading ? (
               <div className="px-3 py-4">
                 <div className="skel h-4 w-2/3 mb-1" />
                 <div className="skel h-3 w-1/3" />
               </div>
-            ) : runs.data && runs.data.length > 0 ? (
-              runs.data.map((r) => {
+            ) : visibleRuns.length > 0 ? (
+              visibleRuns.map((r) => {
                 const isActive = ACTIVE_RUN_STATUSES.has(r.status);
                 const m = runMetrics.data?.[r.id];
                 const costLabel =
@@ -517,6 +529,15 @@ export function ProjectDetail() {
               <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">no runs yet.</div>
             )}
           </div>
+          {hiddenRunCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllRuns(true)}
+              className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)] px-1 mt-2"
+            >
+              show {hiddenRunCount} more
+            </button>
+          ) : null}
         </section>
 
         <SessionsList projectId={id} />
@@ -769,6 +790,63 @@ function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+}
+
+function TaskRow({
+  projectId,
+  task,
+  activeRun,
+  onStart,
+  startDisabled,
+}: {
+  projectId: string;
+  task: { id: string; status: string; title: string; estimate: string | null };
+  activeRun: RunRow | null;
+  onStart: () => void;
+  startDisabled: boolean;
+}) {
+  const canStart = !activeRun && task.status !== "done" && task.status !== "in_progress";
+  return (
+    <div className="flex items-stretch">
+      <Link
+        to={`/projects/${projectId}/tasks/${task.id}`}
+        className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]"
+      >
+        <span className={`chip status-${task.status}`}>{task.status}</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] truncate">{task.title}</div>
+          <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+            {task.id} · {String(task.estimate ?? "—")}
+          </div>
+        </div>
+        <ChevronRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
+      </Link>
+      <div className="flex items-center px-2 border-l border-[var(--color-line)]">
+        {activeRun ? (
+          <Link
+            to={`/projects/${projectId}/runs/${activeRun.id}`}
+            className="btn btn-ghost text-[11px] !h-8 !px-2"
+            aria-label="view active run"
+            title={`view active run ${activeRun.id.slice(0, 8)}`}
+          >
+            <Eye size={12} />
+          </Link>
+        ) : canStart ? (
+          <button
+            type="button"
+            onClick={onStart}
+            disabled={startDisabled}
+            className="btn btn-ghost text-[11px] !h-8 !px-2"
+            aria-label="run this task"
+          >
+            <Play size={12} />
+          </button>
+        ) : (
+          <span className="w-8" aria-hidden="true" />
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SectionHeader({ title, count }: { title: string; count: number }) {
