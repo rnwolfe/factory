@@ -1,11 +1,11 @@
 ---
 id: task-002
 title: Build mobile-first /metrics route with cost-over-time charts
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-05-23T03:56:21.460Z
-updated: 2026-05-23T03:56:21.460Z
+updated: 2026-05-24T16:45:38.995Z
 labels:
   - feature-plan-task
 ---
@@ -20,4 +20,5 @@ labels:
 ## Notes
 
 Emitted by feature plan j92lvw5y: ""
+
 
