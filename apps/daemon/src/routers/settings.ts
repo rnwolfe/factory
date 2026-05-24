@@ -30,9 +30,7 @@ export const settingsRouter = router({
       notifyOnRunComplete: snap.notifyOnRunComplete,
       ops: {
         landingRoute: snap.ops.landingRoute,
-        caps: snap.ops.caps,
-        // Redacted like githubToken — presence-only.
-        anthropicApiKey: { has: snap.ops.anthropicApiKey !== null },
+        defaultModel: snap.ops.defaultModel,
       },
       overridden: snap.overridden,
     };
@@ -95,25 +93,10 @@ export const settingsRouter = router({
           message: "landing-route: 'inbox' or 'ops'",
         });
       }
-      if (input.key === "usage-cap-session-tokens" || input.key === "usage-cap-weekly-tokens") {
-        if (input.value !== "") {
-          const n = Number.parseInt(input.value, 10);
-          if (!Number.isFinite(n) || n <= 0) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `${input.key}: positive integer or empty to clear`,
-            });
-          }
-        }
-      }
-      if (input.key === "usage-cap-daily-usd" && input.value !== "") {
-        const n = Number.parseFloat(input.value);
-        if (!Number.isFinite(n) || n <= 0) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "usage-cap-daily-usd: positive number or empty to clear",
-          });
-        }
+      // default-model is opaque (CLI accepts any model id); just trim
+      // accidental whitespace and let an empty string clear the override.
+      if (input.key === "default-model") {
+        input.value = input.value.trim();
       }
       setSetting(ctx.db, ctx.config, input.key, input.value);
       return { ok: true };

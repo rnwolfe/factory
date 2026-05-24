@@ -1,7 +1,6 @@
 import { type Db, schema } from "@factory/db";
 import { and, desc, eq, gte, inArray, ne } from "drizzle-orm";
 
-import { snapshotSettings } from "../settings/store.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 /**
@@ -23,13 +22,36 @@ import { protectedProcedure, router } from "../trpc.ts";
 
 const ACTIVE_RUN_STATUSES = ["queued", "running"] as const;
 const RECENT_HORIZON_MS = 24 * 60 * 60 * 1000;
-const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const RECENT_LIMIT = 25;
 
+/**
+ * Calendar-aligned window starts in the host's local time. We track usage
+ * against billing periods (Anthropic resets the Agent SDK credit monthly),
+ * not rolling burn rates — that's better-matched to "have I blown my
+ * monthly budget" framing than rolling 24h / 7d / 30d windows.
+ */
 function startOfTodayLocal(): number {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function startOfWeekLocal(): number {
+  // Monday as the week start (ISO convention; matches how most operators
+  // think about "this week"). Sunday-as-start can be added later as a
+  // setting if anyone disagrees.
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  d.setDate(d.getDate() - daysSinceMonday);
+  return d.getTime();
+}
+
+function startOfMonthLocal(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(1);
   return d.getTime();
 }
 
@@ -56,11 +78,6 @@ async function aggregateUsage(db: Db, sinceMs: number): Promise<UsageBucket> {
     bucket.totalCostUsd += r.totalCostUsd ?? 0;
   }
   return bucket;
-}
-
-function pctOfCap(used: number, cap: number | null): number | null {
-  if (cap == null || cap <= 0) return null;
-  return Math.min(100, (used / cap) * 100);
 }
 
 export const opsRouter = router({
@@ -126,15 +143,14 @@ export const opsRouter = router({
       .orderBy(desc(schema.sessions.startedAt))
       .all();
 
-    // 4. Usage aggregation across rolling windows + today.
-    const todayStart = startOfTodayLocal();
-    const today = await aggregateUsage(ctx.db, todayStart);
-    const rolling5h = await aggregateUsage(ctx.db, now - FIVE_HOURS_MS);
-    const rolling7d = await aggregateUsage(ctx.db, now - SEVEN_DAYS_MS);
-
-    // 5. Caps from operator settings → % per meter when a cap is set.
-    const settings = snapshotSettings(ctx.db, ctx.config);
-    const caps = settings.ops.caps;
+    // 4. Usage aggregation across calendar-aligned windows. Today resets at
+    // local midnight, week at local Monday 00:00, month at local 1st 00:00.
+    // The month window in particular matches Anthropic's Agent SDK credit
+    // reset cycle (post-2026-06-15) — useful for "have I blown my monthly
+    // budget" framing.
+    const today = await aggregateUsage(ctx.db, startOfTodayLocal());
+    const thisWeek = await aggregateUsage(ctx.db, startOfWeekLocal());
+    const thisMonth = await aggregateUsage(ctx.db, startOfMonthLocal());
 
     return {
       ts: now,
@@ -146,25 +162,9 @@ export const opsRouter = router({
       recent,
       sessions,
       usage: {
-        today: {
-          ...today,
-          pctOfDailyUsdCap: pctOfCap(today.totalCostUsd, caps.dailyUsd),
-        },
-        rolling5h: {
-          ...rolling5h,
-          pctOfSessionTokensCap: pctOfCap(
-            rolling5h.inputTokens + rolling5h.outputTokens,
-            caps.sessionTokens,
-          ),
-        },
-        rolling7d: {
-          ...rolling7d,
-          pctOfWeeklyTokensCap: pctOfCap(
-            rolling7d.inputTokens + rolling7d.outputTokens,
-            caps.weeklyTokens,
-          ),
-        },
-        caps,
+        today,
+        thisWeek,
+        thisMonth,
       },
     };
   }),

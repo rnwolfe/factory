@@ -20,6 +20,12 @@ export interface TaskFrontmatter {
   parent?: string;
   labels?: string[];
   estimate?: "small" | "medium" | "large";
+  /**
+   * Per-task Claude model override. When set, this beats the project model
+   * default during submit. Use it to pin a heavy task to Opus or a busywork
+   * task to Haiku without changing the project-wide default.
+   */
+  model?: string;
   [k: string]: unknown;
 }
 
@@ -115,6 +121,33 @@ export async function updateTaskStatus(
   return updated;
 }
 
+/**
+ * Set or clear the per-task model override. Empty string clears the field
+ * entirely (falls back to project default at submit time); a non-empty
+ * value pins the task to that model id.
+ */
+export async function updateTaskModel(
+  projectPath: string,
+  taskId: string,
+  model: string,
+): Promise<TaskFile | null> {
+  const t = await readTaskFile(projectPath, taskId);
+  if (!t) return null;
+  const trimmed = model.trim();
+  const nextFrontmatter: TaskFrontmatter = {
+    ...t.frontmatter,
+    updated: new Date().toISOString(),
+  };
+  if (trimmed.length > 0) {
+    nextFrontmatter.model = trimmed;
+  } else {
+    delete nextFrontmatter.model;
+  }
+  const updated: TaskFile = { ...t, frontmatter: nextFrontmatter };
+  await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+  return updated;
+}
+
 export async function updateTaskBody(
   projectPath: string,
   taskId: string,
@@ -143,6 +176,8 @@ export interface CreateTaskInput {
   estimate?: TaskFrontmatter["estimate"];
   labels?: string[];
   parent?: string;
+  /** Per-task model override. Falls through to project/system default when omitted. */
+  model?: string;
 }
 
 /**
@@ -174,6 +209,7 @@ export async function createTask(projectPath: string, input: CreateTaskInput): P
   };
   if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
   if (input.parent) frontmatter.parent = input.parent;
+  if (input.model && input.model.trim().length > 0) frontmatter.model = input.model.trim();
   const file: TaskFile = { id, filePath, frontmatter, body: input.body };
   await writeFile(filePath, renderTaskMarkdown(file), "utf8");
   return file;

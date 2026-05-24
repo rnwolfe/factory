@@ -288,7 +288,11 @@ export async function executeRun(
       projectPath: project.workdirPath,
       worktreePath: row.worktreePath,
       gitAuthor: config.gitAuthor,
-      model: project.model,
+      // The effective model was resolved at submit time per the
+      // task → project → system-default inheritance chain. Falling back
+      // to project.model here is a safety net for legacy rows that
+      // predate the runs.model column.
+      model: row.model ?? project.model,
       task: { id: row.taskId ?? "ad-hoc", prompt },
       agent: claudeCodeAgent,
       sandbox: hostSandbox,

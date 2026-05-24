@@ -26,12 +26,12 @@ export const SETTING_KEYS = [
   "github-token",
   "factory-project-id",
   "notify-on-run-complete",
-  // ops dashboard settings — display-side, not wired through FactoryConfig.
+  // Ops dashboard + model defaults — display-side, not wired through FactoryConfig.
   "landing-route", // "inbox" | "ops"
-  "usage-cap-session-tokens", // integer; null disables % display for this meter
-  "usage-cap-weekly-tokens", // integer
-  "usage-cap-daily-usd", // float
-  "anthropic-api-key", // stub: planned for future org-usage polling
+  // System-level default Claude model id (e.g. "claude-sonnet-4-6"). Empty/null
+  // falls through to the CLI's own default. Sits at the bottom of the
+  // inheritance chain: task model → project model → this → CLI default.
+  "default-model",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -164,13 +164,11 @@ export type LandingRoute = "inbox" | "ops";
 
 export interface OpsSettings {
   landingRoute: LandingRoute;
-  caps: {
-    sessionTokens: number | null;
-    weeklyTokens: number | null;
-    dailyUsd: number | null;
-  };
-  /** Stored verbatim for future org-usage polling. Redacted at the router boundary. */
-  anthropicApiKey: string | null;
+  /**
+   * System-level default Claude model id. Null = use the CLI's own default.
+   * Bottom of the inheritance chain: task.model → project.model → this → null.
+   */
+  defaultModel: string | null;
 }
 
 export interface SettingsView {
@@ -211,36 +209,13 @@ export function snapshotSettings(db: Db, config: FactoryConfig): SettingsView {
   };
 }
 
-/**
- * Parse the ops-dashboard slice of the settings map. Tolerant of malformed
- * values: a bad integer for a cap leaves it null (= "don't show %" rather
- * than throw on a setting page that the operator might still need to fix).
- */
+/** Parse the ops-dashboard slice of the settings map. */
 export function readOpsSettings(map: Map<SettingKey, string>): OpsSettings {
   const landingRaw = map.get("landing-route");
   const landingRoute: LandingRoute = landingRaw === "ops" ? "ops" : "inbox";
-
-  const parseIntCap = (key: SettingKey): number | null => {
-    const raw = map.get(key);
-    if (raw === undefined || raw === "") return null;
-    const n = Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  };
-  const parseFloatCap = (key: SettingKey): number | null => {
-    const raw = map.get(key);
-    if (raw === undefined || raw === "") return null;
-    const n = Number.parseFloat(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  };
-
-  const apiKey = map.get("anthropic-api-key");
+  const defaultModelRaw = map.get("default-model");
   return {
     landingRoute,
-    caps: {
-      sessionTokens: parseIntCap("usage-cap-session-tokens"),
-      weeklyTokens: parseIntCap("usage-cap-weekly-tokens"),
-      dailyUsd: parseFloatCap("usage-cap-daily-usd"),
-    },
-    anthropicApiKey: apiKey && apiKey.length > 0 ? apiKey : null,
+    defaultModel: defaultModelRaw && defaultModelRaw.length > 0 ? defaultModelRaw : null,
   };
 }

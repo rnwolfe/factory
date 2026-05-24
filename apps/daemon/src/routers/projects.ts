@@ -30,6 +30,7 @@ import {
   readTaskFile,
   renderAcceptanceBlock,
   updateTaskBody,
+  updateTaskModel,
   updateTaskStatus,
 } from "../projects/tasks.ts";
 import { snapshotWorkdir } from "../projects/workdir.ts";
@@ -120,6 +121,33 @@ const tasksRouter = router({
       );
       return { frontmatter: updated.frontmatter, body: updated.body };
     }),
+  updateModel: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        taskId: z.string(),
+        // Empty string clears the per-task override (falls back to project
+        // default at submit time). Any non-empty value pins the task to
+        // that model id verbatim.
+        model: z.string().max(120),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const updated = await updateTaskModel(project.workdirPath, input.taskId, input.model);
+      if (!updated) throw new Error("task not found");
+      await commitAllChanges(
+        project.workdirPath,
+        `chore: ${input.taskId} model -> ${input.model || "default"}`,
+        ctx.config.gitAuthor,
+      );
+      return updated.frontmatter;
+    }),
   /**
    * Create a task directly (no plan freeze required). Used by audit-finding
    * promotion (bug path), the PWA "+ task" button, and any other ad-hoc
@@ -136,6 +164,7 @@ const tasksRouter = router({
         parent: z.string().max(40).optional(),
         estimate: TaskEstimateEnum.optional(),
         priority: TaskPriorityEnum.optional(),
+        model: z.string().max(120).optional(),
         acceptance: z.array(z.string().max(500)).max(50).optional(),
       }),
     )
@@ -156,6 +185,7 @@ const tasksRouter = router({
         parent: input.parent,
         estimate: input.estimate,
         priority: input.priority,
+        model: input.model,
       });
       await commitAllChanges(
         project.workdirPath,

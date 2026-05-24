@@ -378,6 +378,14 @@ export const runs = sqliteTable("runs", {
    * those cases surface a `blocked_run` decision for the operator instead.
    */
   resumeAt: integer("resume_at"),
+  /**
+   * Effective Claude model id for this run, resolved at submit time per the
+   * inheritance chain: task frontmatter → project default → system default
+   * (`default-model` setting) → null (CLI picks). Stored so resume/retry
+   * paths and the diff/metrics views can show what the run was actually
+   * invoked with, independent of any later changes to the upstream values.
+   */
+  model: text("model"),
 });
 
 export const events = sqliteTable("events", {

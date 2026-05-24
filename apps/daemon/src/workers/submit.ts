@@ -5,6 +5,8 @@ import { spawn as bunSpawn } from "bun";
 import { and, desc, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import { readTaskFile } from "../projects/tasks.ts";
+import { readAllSettings, readOpsSettings } from "../settings/store.ts";
 import type { WorkerPool } from "./pool.ts";
 import type { RunRegistry } from "./registry.ts";
 import { executeRun } from "./runner.ts";
@@ -181,6 +183,23 @@ export async function submitRun(
     baseRefSha = await resolveSha(input.baseRef ?? "main", project.workdirPath);
   }
 
+  // Resolve effective Claude model id, top-down:
+  //   task.frontmatter.model  →  project.model  →  settings.default-model  →  null
+  // Stored on the run row so resume/retry paths and metrics views see what
+  // the run was actually invoked with, independent of any later changes to
+  // the upstream values. Null means "let the CLI pick its own default."
+  let effectiveModel: string | null = null;
+  if (input.taskId) {
+    const taskFile = await readTaskFile(project.workdirPath, input.taskId);
+    const raw = taskFile?.frontmatter.model;
+    if (typeof raw === "string" && raw.trim().length > 0) effectiveModel = raw.trim();
+  }
+  if (!effectiveModel && project.model) effectiveModel = project.model;
+  if (!effectiveModel) {
+    const ops = readOpsSettings(readAllSettings(db));
+    if (ops.defaultModel) effectiveModel = ops.defaultModel;
+  }
+
   await db.insert(schema.runs).values({
     id: runId,
     projectId: project.id,
@@ -195,6 +214,7 @@ export async function submitRun(
     taskPlanId,
     operatorContext: operatorContext && operatorContext.length > 0 ? operatorContext : null,
     sessionId: sessionIdForRow ?? null,
+    model: effectiveModel,
   });
 
   // Resume mode: explicit sessionId set, OR inherited via reuseFromRunId
