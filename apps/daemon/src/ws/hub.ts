@@ -24,7 +24,14 @@ export type EventsScope =
   | { kind: "audit"; id: string }
   | { kind: "plan"; id: string }
   | { kind: "decision"; id: string }
-  | { kind: "feedback"; id: string };
+  | { kind: "feedback"; id: string }
+  /**
+   * Global ops dashboard subscription — matches any run-activity event
+   * (anything on `/ws/events` with a runId). Used by the top-bar ticker
+   * and `/ops` route to invalidate the ops snapshot as runs come and go.
+   * No `id` field because there's nothing to scope to.
+   */
+  | { kind: "ops"; id: "" };
 
 export interface WsClientData {
   channel: WsChannel;
@@ -39,6 +46,8 @@ export interface WsClientData {
 
 export function parseScope(raw: string | null): EventsScope | null {
   if (!raw) return null;
+  // The global ops scope has no id — accept both "ops" and "ops:" forms.
+  if (raw === "ops" || raw === "ops:") return { kind: "ops", id: "" };
   const idx = raw.indexOf(":");
   if (idx < 1) return null;
   const kind = raw.slice(0, idx);
@@ -234,6 +243,16 @@ export function attachWsChannel(ws: ServerWebSocket<WsClientData>, ctx: DaemonCo
       if (e.channel !== "inbox") return false;
       const evFeedbackId = (e as { feedbackId?: string }).feedbackId;
       return evFeedbackId === scope.id;
+    }
+    if (scope.kind === "ops") {
+      // Global subscription: anything on the events channel that involves
+      // a run is operationally relevant — start/end/metrics/commit all
+      // shift the dashboard's view. Decision events on the inbox channel
+      // also matter (a failed run creates a blocked_run decision), but
+      // the client already invalidates on `/ws/inbox` separately.
+      if (e.channel !== "events") return false;
+      const evRunId = (e as { runId?: string }).runId;
+      return typeof evRunId === "string" && evRunId.length > 0;
     }
     if (scope.kind === "project") {
       const direct = eventProjectId(e);

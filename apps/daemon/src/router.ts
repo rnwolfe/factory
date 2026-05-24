@@ -7,6 +7,7 @@ import { ideasRouter } from "./routers/ideas.ts";
 import { interventionsRouter } from "./routers/interventions.ts";
 import { metricsRouter } from "./routers/metrics.ts";
 import { notificationsRouter } from "./routers/notifications.ts";
+import { opsRouter } from "./routers/ops.ts";
 import { plansRouter } from "./routers/plans.ts";
 import { projectsRouter } from "./routers/projects.ts";
 import { promptsRouter } from "./routers/prompts.ts";
@@ -34,6 +35,7 @@ export const appRouter = router({
   audits: auditsRouter,
   metrics: metricsRouter,
   notifications: notificationsRouter,
+  ops: opsRouter,
   repo: repoRouter,
   scripts: scriptsRouter,
   sessions: sessionsRouter,

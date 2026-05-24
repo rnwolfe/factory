@@ -28,6 +28,12 @@ export const settingsRouter = router({
       githubToken: { has: snap.githubToken !== null && snap.githubToken.length > 0 },
       factoryProjectId: snap.factoryProjectId,
       notifyOnRunComplete: snap.notifyOnRunComplete,
+      ops: {
+        landingRoute: snap.ops.landingRoute,
+        caps: snap.ops.caps,
+        // Redacted like githubToken — presence-only.
+        anthropicApiKey: { has: snap.ops.anthropicApiKey !== null },
+      },
       overridden: snap.overridden,
     };
   }),
@@ -82,6 +88,32 @@ export const settingsRouter = router({
           code: "BAD_REQUEST",
           message: "notify-on-run-complete: 'true' or 'false'",
         });
+      }
+      if (input.key === "landing-route" && input.value !== "inbox" && input.value !== "ops") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "landing-route: 'inbox' or 'ops'",
+        });
+      }
+      if (input.key === "usage-cap-session-tokens" || input.key === "usage-cap-weekly-tokens") {
+        if (input.value !== "") {
+          const n = Number.parseInt(input.value, 10);
+          if (!Number.isFinite(n) || n <= 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `${input.key}: positive integer or empty to clear`,
+            });
+          }
+        }
+      }
+      if (input.key === "usage-cap-daily-usd" && input.value !== "") {
+        const n = Number.parseFloat(input.value);
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "usage-cap-daily-usd: positive number or empty to clear",
+          });
+        }
       }
       setSetting(ctx.db, ctx.config, input.key, input.value);
       return { ok: true };

@@ -26,6 +26,12 @@ export const SETTING_KEYS = [
   "github-token",
   "factory-project-id",
   "notify-on-run-complete",
+  // ops dashboard settings — display-side, not wired through FactoryConfig.
+  "landing-route", // "inbox" | "ops"
+  "usage-cap-session-tokens", // integer; null disables % display for this meter
+  "usage-cap-weekly-tokens", // integer
+  "usage-cap-daily-usd", // float
+  "anthropic-api-key", // stub: planned for future org-usage polling
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -154,6 +160,19 @@ export function clearSetting(db: Db, config: FactoryConfig, key: SettingKey): vo
   applySettingsFromDb(db, config);
 }
 
+export type LandingRoute = "inbox" | "ops";
+
+export interface OpsSettings {
+  landingRoute: LandingRoute;
+  caps: {
+    sessionTokens: number | null;
+    weeklyTokens: number | null;
+    dailyUsd: number | null;
+  };
+  /** Stored verbatim for future org-usage polling. Redacted at the router boundary. */
+  anthropicApiKey: string | null;
+}
+
 export interface SettingsView {
   gitAuthor: { name: string; email: string };
   maxConcurrentRuns: number;
@@ -162,6 +181,8 @@ export interface SettingsView {
   githubToken: string | null;
   factoryProjectId: string | null;
   notifyOnRunComplete: boolean;
+  /** Ops dashboard settings — live in the DB-settings layer only (no yaml backstop). */
+  ops: OpsSettings;
   /** Which keys have a DB row (true) vs. coming from yaml/env defaults (false). */
   overridden: Record<SettingKey, boolean>;
 }
@@ -185,6 +206,41 @@ export function snapshotSettings(db: Db, config: FactoryConfig): SettingsView {
     githubToken: config.githubToken,
     factoryProjectId: config.factoryProjectId,
     notifyOnRunComplete: config.notifyOnRunComplete,
+    ops: readOpsSettings(map),
     overridden,
+  };
+}
+
+/**
+ * Parse the ops-dashboard slice of the settings map. Tolerant of malformed
+ * values: a bad integer for a cap leaves it null (= "don't show %" rather
+ * than throw on a setting page that the operator might still need to fix).
+ */
+export function readOpsSettings(map: Map<SettingKey, string>): OpsSettings {
+  const landingRaw = map.get("landing-route");
+  const landingRoute: LandingRoute = landingRaw === "ops" ? "ops" : "inbox";
+
+  const parseIntCap = (key: SettingKey): number | null => {
+    const raw = map.get(key);
+    if (raw === undefined || raw === "") return null;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const parseFloatCap = (key: SettingKey): number | null => {
+    const raw = map.get(key);
+    if (raw === undefined || raw === "") return null;
+    const n = Number.parseFloat(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  const apiKey = map.get("anthropic-api-key");
+  return {
+    landingRoute,
+    caps: {
+      sessionTokens: parseIntCap("usage-cap-session-tokens"),
+      weeklyTokens: parseIntCap("usage-cap-weekly-tokens"),
+      dailyUsd: parseFloatCap("usage-cap-daily-usd"),
+    },
+    anthropicApiKey: apiKey && apiKey.length > 0 ? apiKey : null,
   };
 }
