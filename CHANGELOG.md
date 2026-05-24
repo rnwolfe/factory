@@ -4,6 +4,28 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.7 — 2026-05-24
+
+`factory prune` for one-shot worktree-backlog cleanup. Pairs with the
+v0.9.6 auto-cleanup that prevents new accumulation: prune handles the
+historical pile the operator already has.
+
+### Added
+- **`factory prune` CLI command.** Lists candidate worktrees for
+  terminal-status runs and removes them with `--apply`. Dry-run by
+  default. Default targets only `completed` runs (already merged into
+  main, safest); `--include-failed` broadens to
+  failed/blocked/aborted/usage_capped/deferred. `--project=<slug>`
+  scopes to one project; `--age=<days>` filters by run end time.
+  Branch refs are preserved either way — `git log <branch>` still
+  works for inspection, and the blocked-run retry path still
+  fast-forwards from the branch tip.
+
+  Running/queued runs are never touched — the SQL filter excludes
+  them. Best-effort: falls back to `rm -rf` + `git worktree prune`
+  when `git worktree remove` refuses (e.g., dirty worktree, manual
+  rm broke the registry).
+
 ## v0.9.6 — 2026-05-24
 
 Worktrees no longer accumulate forever. The runtime's prior cleanup
