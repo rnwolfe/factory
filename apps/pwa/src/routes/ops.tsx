@@ -54,14 +54,9 @@ interface OpsSnapshot {
   recent: OpsRecent[];
   sessions: OpsSession[];
   usage: {
-    today: OpsUsageBucket & { pctOfDailyUsdCap: number | null };
-    rolling5h: OpsUsageBucket & { pctOfSessionTokensCap: number | null };
-    rolling7d: OpsUsageBucket & { pctOfWeeklyTokensCap: number | null };
-    caps: {
-      sessionTokens: number | null;
-      weeklyTokens: number | null;
-      dailyUsd: number | null;
-    };
+    today: OpsUsageBucket;
+    thisWeek: OpsUsageBucket;
+    thisMonth: OpsUsageBucket;
   };
 }
 
@@ -136,55 +131,22 @@ export function Ops() {
           <h1 className="display text-[20px] leading-none">ops</h1>
         </div>
         <p className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mt-2">
-          live state · today's usage · recent activity
+          live state · spend · recent activity
         </p>
       </header>
 
-      {/* Usage meters */}
+      {/* Usage windows: today / this week / this month, calendar-aligned. */}
       <section>
         <SectionHeader title="usage" />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <UsageCard label="today" bucket={usage.today} hint="since local midnight" />
+          <UsageCard label="this week" bucket={usage.thisWeek} hint="since monday 00:00" />
           <UsageCard
-            label="today"
-            value={fmtCost(usage.today.totalCostUsd)}
-            sub={`↑${fmtTokens(usage.today.inputTokens)} ↓${fmtTokens(usage.today.outputTokens)}`}
-            pct={usage.today.pctOfDailyUsdCap}
-            cap={usage.caps.dailyUsd != null ? `cap $${usage.caps.dailyUsd.toFixed(2)}/day` : null}
-          />
-          <UsageCard
-            label="rolling 5h"
-            value={fmtTokens(usage.rolling5h.inputTokens + usage.rolling5h.outputTokens)}
-            sub={`↑${fmtTokens(usage.rolling5h.inputTokens)} ↓${fmtTokens(usage.rolling5h.outputTokens)} · ${fmtCost(usage.rolling5h.totalCostUsd)}`}
-            pct={usage.rolling5h.pctOfSessionTokensCap}
-            cap={
-              usage.caps.sessionTokens != null
-                ? `cap ${fmtTokens(usage.caps.sessionTokens)} tok/5h`
-                : null
-            }
-          />
-          <UsageCard
-            label="rolling 7d"
-            value={fmtTokens(usage.rolling7d.inputTokens + usage.rolling7d.outputTokens)}
-            sub={`↑${fmtTokens(usage.rolling7d.inputTokens)} ↓${fmtTokens(usage.rolling7d.outputTokens)} · ${fmtCost(usage.rolling7d.totalCostUsd)}`}
-            pct={usage.rolling7d.pctOfWeeklyTokensCap}
-            cap={
-              usage.caps.weeklyTokens != null
-                ? `cap ${fmtTokens(usage.caps.weeklyTokens)} tok/wk`
-                : null
-            }
+            label="this month"
+            bucket={usage.thisMonth}
+            hint="since the 1st · resets with billing"
           />
         </div>
-        {usage.caps.sessionTokens == null &&
-        usage.caps.weeklyTokens == null &&
-        usage.caps.dailyUsd == null ? (
-          <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-2 px-1">
-            no caps configured —{" "}
-            <Link to="/settings" className="text-[var(--color-accent)] underline">
-              set them in settings
-            </Link>{" "}
-            to see % meters.
-          </p>
-        ) : null}
       </section>
 
       {/* Running runs */}
@@ -334,41 +296,23 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 
 function UsageCard({
   label,
-  value,
-  sub,
-  pct,
-  cap,
+  bucket,
+  hint,
 }: {
   label: string;
-  value: string;
-  sub: string;
-  pct: number | null;
-  cap: string | null;
+  bucket: OpsUsageBucket;
+  hint: string;
 }) {
   return (
     <div className="surface p-3">
       <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
         {label}
       </div>
-      <div className="display text-[22px] mt-1 tabular-nums">
-        {pct != null ? `${Math.round(pct)}%` : value}
+      <div className="display text-[22px] mt-1 tabular-nums">{fmtCost(bucket.totalCostUsd)}</div>
+      <div className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)] mt-1.5">
+        ↑{fmtTokens(bucket.inputTokens)} ↓{fmtTokens(bucket.outputTokens)}
       </div>
-      {pct != null ? (
-        <>
-          <div className="mt-2 h-1.5 bg-[var(--color-bg-2)] rounded-sm overflow-hidden">
-            <div
-              className="h-full bg-[var(--color-accent)]"
-              style={{ width: `${Math.min(100, pct)}%` }}
-            />
-          </div>
-          <div className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)] mt-1.5">
-            {value} · {sub}
-          </div>
-        </>
-      ) : (
-        <div className="mono text-[10.5px] tabular-nums text-[var(--color-fg-3)] mt-1">{sub}</div>
-      )}
-      {cap ? <div className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">{cap}</div> : null}
+      <div className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">{hint}</div>
     </div>
   );
 }

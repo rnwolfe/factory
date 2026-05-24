@@ -4,28 +4,19 @@ import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 import { useScopedChannel } from "../lib/use-channel.ts";
 
+interface UsageBucket {
+  inputTokens: number;
+  outputTokens: number;
+  totalCostUsd: number;
+}
+
 interface OpsSnapshot {
   running: Array<unknown>;
   queued: Array<unknown>;
   usage: {
-    today: {
-      inputTokens: number;
-      outputTokens: number;
-      totalCostUsd: number;
-      pctOfDailyUsdCap: number | null;
-    };
-    rolling5h: {
-      inputTokens: number;
-      outputTokens: number;
-      totalCostUsd: number;
-      pctOfSessionTokensCap: number | null;
-    };
-    rolling7d: {
-      inputTokens: number;
-      outputTokens: number;
-      totalCostUsd: number;
-      pctOfWeeklyTokensCap: number | null;
-    };
+    today: UsageBucket;
+    thisWeek: UsageBucket;
+    thisMonth: UsageBucket;
   };
 }
 
@@ -38,14 +29,14 @@ function fmtTokens(n: number): string {
 function fmtCost(n: number): string {
   if (n === 0) return "$0";
   if (n < 0.01) return "<$0.01";
-  if (n < 1) return `$${n.toFixed(2)}`;
-  return `$${n.toFixed(2)}`;
+  if (n < 10) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(0)}`;
 }
 
 /**
  * Compact operational-awareness strip rendered in the app shell — running
- * count, today's tokens + cost, and rolling cap %s when caps are
- * configured. Click navigates to /ops for the full picture.
+ * count plus today's tokens + cost. Click navigates to /ops for the full
+ * breakdown across today, this week, and this month windows.
  *
  * Subscribes to the global ops scope on `/ws/events`, so run lifecycle
  * events invalidate the snapshot live. A 30s refetchInterval is the
@@ -62,11 +53,7 @@ export function DashboardTicker() {
 
   if (!snap.data) return null;
   const { running, queued, usage } = snap.data;
-  const inT = usage.today.inputTokens;
-  const outT = usage.today.outputTokens;
-  const cost = usage.today.totalCostUsd;
-  const sessionPct = usage.rolling5h.pctOfSessionTokensCap;
-  const weeklyPct = usage.rolling7d.pctOfWeeklyTokensCap;
+  const { inputTokens: inT, outputTokens: outT, totalCostUsd: cost } = usage.today;
 
   const runningLabel =
     running.length > 0 ? (
@@ -86,25 +73,18 @@ export function DashboardTicker() {
       {runningLabel}
       {queued.length > 0 ? <span>+{queued.length}q</span> : null}
       <span className="text-[var(--color-line)]">·</span>
+      <span>{fmtCost(cost)} today</span>
+      <span className="text-[var(--color-line)]">·</span>
       <span>
         ↑{fmtTokens(inT)} ↓{fmtTokens(outT)}
       </span>
-      <span className="text-[var(--color-line)]">·</span>
-      <span>{fmtCost(cost)}</span>
-      {sessionPct != null || weeklyPct != null ? (
-        <>
-          <span className="text-[var(--color-line)]">·</span>
-          {sessionPct != null ? <span>{Math.round(sessionPct)}% 5h</span> : null}
-          {weeklyPct != null ? <span>{Math.round(weeklyPct)}% wk</span> : null}
-        </>
-      ) : null}
     </Link>
   );
 }
 
 /**
  * Mobile variant — single line under the header, taps through to /ops.
- * Compact-to-fit; drops meters when no caps configured.
+ * Drops the in/out tokens to fit narrower screens; shows today's $ only.
  */
 export function DashboardTickerMobile() {
   const snap = useQuery({
@@ -117,8 +97,6 @@ export function DashboardTickerMobile() {
 
   if (!snap.data) return null;
   const { running, queued, usage } = snap.data;
-  const cost = usage.today.totalCostUsd;
-  const sessionPct = usage.rolling5h.pctOfSessionTokensCap;
 
   return (
     <Link
@@ -135,10 +113,7 @@ export function DashboardTickerMobile() {
         )}
         {queued.length > 0 ? <span>+{queued.length}q</span> : null}
       </span>
-      <span className="flex items-center gap-2">
-        <span>{fmtCost(cost)}</span>
-        {sessionPct != null ? <span>{Math.round(sessionPct)}% 5h</span> : null}
-      </span>
+      <span>{fmtCost(usage.today.totalCostUsd)} today</span>
     </Link>
   );
 }

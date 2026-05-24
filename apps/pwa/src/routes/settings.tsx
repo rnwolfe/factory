@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Loader2, Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ModelPicker } from "../components/model-picker.tsx";
 import { useAuth } from "../lib/auth.ts";
 import * as notifications from "../lib/notifications.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -16,12 +17,7 @@ interface SettingsSnapshot {
   notifyOnRunComplete: boolean;
   ops: {
     landingRoute: "inbox" | "ops";
-    caps: {
-      sessionTokens: number | null;
-      weeklyTokens: number | null;
-      dailyUsd: number | null;
-    };
-    anthropicApiKey: { has: boolean };
+    defaultModel: string | null;
   };
   overridden: Record<string, boolean>;
 }
@@ -928,6 +924,13 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
       qc.invalidateQueries({ queryKey: ["settings.get"] });
     },
   });
+  const setDefaultModel = useMutation({
+    mutationFn: (modelId: string | null) =>
+      trpc.settings.set.mutate({ key: "default-model" as never, value: modelId ?? "" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+    },
+  });
   return (
     <>
       <div className="px-3 py-2 border-b border-[var(--color-line)]">
@@ -952,37 +955,22 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
         </div>
       </div>
 
-      <EditableRow
-        label="cap · 5h tokens"
-        value={snap.ops.caps.sessionTokens != null ? String(snap.ops.caps.sessionTokens) : ""}
-        settingKey="usage-cap-session-tokens"
-        overridden={snap.overridden["usage-cap-session-tokens"] ?? false}
-        hint="empty disables the 5h % meter"
-        type="number"
-      />
-      <EditableRow
-        label="cap · weekly tokens"
-        value={snap.ops.caps.weeklyTokens != null ? String(snap.ops.caps.weeklyTokens) : ""}
-        settingKey="usage-cap-weekly-tokens"
-        overridden={snap.overridden["usage-cap-weekly-tokens"] ?? false}
-        hint="empty disables the weekly % meter"
-        type="number"
-      />
-      <EditableRow
-        label="cap · daily USD"
-        value={snap.ops.caps.dailyUsd != null ? String(snap.ops.caps.dailyUsd) : ""}
-        settingKey="usage-cap-daily-usd"
-        overridden={snap.overridden["usage-cap-daily-usd"] ?? false}
-        hint="empty disables the daily $ meter"
-        type="number"
-      />
-      <EditableRow
-        label="anthropic api key"
-        value={snap.ops.anthropicApiKey.has ? "•••• stored" : ""}
-        settingKey="anthropic-api-key"
-        overridden={snap.overridden["anthropic-api-key"] ?? false}
-        hint="stored for future org-usage polling; not yet used"
-      />
+      <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-[13px] text-[var(--color-fg-1)]">default model</span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            system default · projects + tasks override
+          </span>
+        </div>
+        <ModelPicker
+          value={snap.ops.defaultModel}
+          onChange={(id) => setDefaultModel.mutate(id)}
+          disabled={setDefaultModel.isPending}
+        />
+        <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
+          inheritance: task.model → project.model → this → CLI default
+        </p>
+      </div>
     </>
   );
 }

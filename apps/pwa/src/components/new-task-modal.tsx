@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
+import { ModelPicker } from "./model-picker.tsx";
 
 interface Props {
   projectId: string;
@@ -31,6 +32,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
   const [kind, setKind] = useState<Kind>("feature");
   const [priority, setPriority] = useState<Priority>("med");
   const [body, setBody] = useState("");
+  const [model, setModel] = useState<string | null>(null);
   const [runNow, setRunNow] = useState(false);
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -43,6 +45,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
         labels: [kind],
         priority,
         body: body.trim() || undefined,
+        model: model ?? undefined,
       });
       const taskId = created.task.frontmatter.id;
       if (runNow) {
@@ -172,6 +175,17 @@ export function NewTaskModal({ projectId, onClose }: Props) {
               className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)] resize-y"
               disabled={create.isPending}
             />
+          </div>
+
+          <div>
+            <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] block mb-1">
+              model{" "}
+              <span className="normal-case text-[var(--color-fg-3)]">(optional override)</span>
+            </span>
+            <ModelPicker value={model} onChange={setModel} disabled={create.isPending} />
+            <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
+              empty = inherit project default
+            </p>
           </div>
 
           <label className="flex items-center gap-2 cursor-pointer select-none">

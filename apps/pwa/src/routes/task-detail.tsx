@@ -3,6 +3,7 @@ import { ArrowLeft, ListTree, Pencil, Play, Snowflake, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { MarkdownView } from "../components/markdown-view.tsx";
+import { ModelPicker } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { trpc } from "../lib/trpc.ts";
 
@@ -96,6 +97,14 @@ export function TaskDetail() {
   const updateBody = useMutation({
     mutationFn: (body: string) =>
       trpc.projects.tasks.updateBody.mutate({ projectId: id, taskId, body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
+    },
+  });
+
+  const updateModel = useMutation({
+    mutationFn: (modelId: string | null) =>
+      trpc.projects.tasks.updateModel.mutate({ projectId: id, taskId, model: modelId ?? "" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
     },
@@ -255,6 +264,32 @@ export function TaskDetail() {
             {(startTaskPlan.error as Error).message}
           </div>
         ) : null}
+      </section>
+
+      <section>
+        <div className="flex items-center gap-2 px-1 mb-1.5">
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            model
+          </span>
+          <div className="hairline flex-1" />
+        </div>
+        <div className="surface p-3">
+          <ModelPicker
+            value={typeof fm.model === "string" ? fm.model : null}
+            onChange={(id) => updateModel.mutate(id)}
+            disabled={updateModel.isPending}
+          />
+          <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-2">
+            {fm.model
+              ? `pinned to ${String(fm.model)} for this task`
+              : "inherits from project default (which inherits from system default)"}
+          </p>
+          {updateModel.isError ? (
+            <p className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+              {(updateModel.error as Error).message}
+            </p>
+          ) : null}
+        </div>
       </section>
 
       <section>
