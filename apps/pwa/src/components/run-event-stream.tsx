@@ -77,6 +77,14 @@ function RunEventStreamInner({ runId }: { runId: string }) {
       trpc.runs.events.query({ runId }, { signal }) as unknown as Promise<PersistedEventRow[]>,
     enabled: runId.length > 0 && !seeded,
     staleTime: Number.POSITIVE_INFINITY,
+    // gcTime:0 — evict this entry from the React-Query cache as soon as the
+    // component unmounts. Without this, an empty response cached on a first
+    // visit (run just started, 0 events in DB) persists for the default 5-min
+    // window. On the next navigation here, the stale [] is served synchronously,
+    // the seed effect sets seeded=true with an empty buffer, and the query is
+    // then disabled — so the run's actual persisted events never appear. Clearing
+    // on unmount guarantees every page navigation triggers a fresh fetch.
+    gcTime: 0,
     // Limit the implicit React-Query retry on stuck/failed network so we
     // don't pile up multi-megabyte requests on a slow connection.
     retry: 1,
