@@ -4,6 +4,52 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.10.0 — 2026-05-24
+
+The operational-awareness release. After weeks of living with the
+decisions-only inbox, the operator wanted a separate surface for "what
+is happening right now" — running agents, current Claude usage, recent
+activity per project — without competing with the inbox for attention.
+
+Two new surfaces, both opt-in:
+
+- A compact ticker in the app shell shows `N running · ↑in ↓out · $today`
+  plus rolling cap %s when caps are configured. Always visible, never
+  badges/animates aggressively; tap-through to `/ops` for the full
+  picture.
+- A dedicated `/ops` route renders usage cards (today / rolling 5h /
+  rolling 7d), running runs, queued runs, active intervene sessions,
+  and the last 24h of terminal activity.
+
+The inbox-as-attention-sink contract is preserved: the ticker is
+ambient (no badges that demand action), `/ops` is opt-in (operator
+visits when they want), and the inbox stays at `/` by default. An
+operator who prefers `/ops` as their home can set it from the new
+"dashboard" section of settings.
+
+### Added
+- **`ops.snapshot` tRPC query** aggregates live runs, queued runs,
+  recent terminal activity (24h), active sessions, and three rolling
+  usage windows (today / 5h / 7d) from `claude_metrics`. Single
+  endpoint so the dashboard sees a consistent view.
+- **New `ops` WS scope** on `/ws/events` matches run-activity events,
+  so the ticker and `/ops` page invalidate live as runs come and go.
+- **Dashboard ticker** in the app shell (compact on desktop, single-
+  line below the header on mobile). WS-driven; 30s polling backstop.
+- **`/ops` route** with usage meter cards (% when caps configured;
+  absolute otherwise), running/queued/sessions/recent run lists.
+- **Landing route setting** lets the operator pick `/inbox` or `/ops`
+  as the page that opens at `/`. Inbox stays the default.
+- **Three usage caps** in settings (`usage-cap-session-tokens`,
+  `usage-cap-weekly-tokens`, `usage-cap-daily-usd`). When set, the
+  ticker and `/ops` show % meters; empty disables that meter.
+- **Anthropic API key field** in settings — stored verbatim, redacted
+  at the router boundary. Stub for future org-usage polling; not yet
+  used by any path. Claude subscription (Pro/Max) usage and API-keyed
+  org usage are separate billing surfaces — wiring up the key for
+  subscription users won't necessarily improve % accuracy. Operators
+  on subscription should rely on cap-based % from our own metrics.
+
 ## v0.9.8 — 2026-05-24
 
 Adhoc task capture per project. The idea → triage → plan pipeline is
