@@ -4,6 +4,22 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.5 — 2026-05-24
+
+Project page declutters. Tasks list no longer grows into a wall of
+done/dropped rows as projects mature; runs list no longer scrolls
+forever as runs accumulate. Two collapses, both opt-in to expand.
+
+### Changed
+- **Tasks split into active vs archived.** The tasks tab shows only
+  live work (ready/in_progress/blocked/review) by default; done and
+  dropped tasks fold behind a `show N done/dropped` toggle below.
+  Section count reflects active tasks only — the matched mental model
+  for "what's left to do."
+- **Runs tab caps at 15 visible.** A `show N more` button reveals the
+  rest (server still caps at 100). The most recent runs are almost
+  always what the operator wants; the rest is history.
+
 ## v0.9.4 — 2026-05-24
 
 Auto-advance now respects the operator's starting point. Previously,
