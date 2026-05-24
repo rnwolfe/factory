@@ -14,6 +14,15 @@ interface SettingsSnapshot {
   githubToken: { has: boolean };
   factoryProjectId: string | null;
   notifyOnRunComplete: boolean;
+  ops: {
+    landingRoute: "inbox" | "ops";
+    caps: {
+      sessionTokens: number | null;
+      weeklyTokens: number | null;
+      dailyUsd: number | null;
+    };
+    anthropicApiKey: { has: boolean };
+  };
   overridden: Record<string, boolean>;
 }
 
@@ -127,6 +136,16 @@ export function Settings() {
               projects={projects.data ?? []}
             />
           </>
+        )}
+      </Section>
+
+      <Section title="dashboard">
+        {settings.isLoading || !settings.data ? (
+          <div className="px-3 py-3">
+            <div className="skel h-3 w-2/3 mb-1.5" />
+          </div>
+        ) : (
+          <DashboardSettingsRows snap={settings.data} />
         )}
       </Section>
 
@@ -898,4 +917,72 @@ function fmtRelative(ts: number): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   return `${d}d ago`;
+}
+
+function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
+  const qc = useQueryClient();
+  const setLanding = useMutation({
+    mutationFn: (value: "inbox" | "ops") =>
+      trpc.settings.set.mutate({ key: "landing-route" as never, value }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+    },
+  });
+  return (
+    <>
+      <div className="px-3 py-2 border-b border-[var(--color-line)]">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-[13px] text-[var(--color-fg-1)]">landing page</span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            opens when you tap Heimdall
+          </span>
+        </div>
+        <div className="flex gap-1">
+          {(["inbox", "ops"] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setLanding.mutate(opt)}
+              disabled={setLanding.isPending}
+              className={`chip ${snap.ops.landingRoute === opt ? "chip-accent" : ""}`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <EditableRow
+        label="cap · 5h tokens"
+        value={snap.ops.caps.sessionTokens != null ? String(snap.ops.caps.sessionTokens) : ""}
+        settingKey="usage-cap-session-tokens"
+        overridden={snap.overridden["usage-cap-session-tokens"] ?? false}
+        hint="empty disables the 5h % meter"
+        type="number"
+      />
+      <EditableRow
+        label="cap · weekly tokens"
+        value={snap.ops.caps.weeklyTokens != null ? String(snap.ops.caps.weeklyTokens) : ""}
+        settingKey="usage-cap-weekly-tokens"
+        overridden={snap.overridden["usage-cap-weekly-tokens"] ?? false}
+        hint="empty disables the weekly % meter"
+        type="number"
+      />
+      <EditableRow
+        label="cap · daily USD"
+        value={snap.ops.caps.dailyUsd != null ? String(snap.ops.caps.dailyUsd) : ""}
+        settingKey="usage-cap-daily-usd"
+        overridden={snap.overridden["usage-cap-daily-usd"] ?? false}
+        hint="empty disables the daily $ meter"
+        type="number"
+      />
+      <EditableRow
+        label="anthropic api key"
+        value={snap.ops.anthropicApiKey.has ? "•••• stored" : ""}
+        settingKey="anthropic-api-key"
+        overridden={snap.overridden["anthropic-api-key"] ?? false}
+        hint="stored for future org-usage polling; not yet used"
+      />
+    </>
+  );
 }

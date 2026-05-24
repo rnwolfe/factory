@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { useInboxCount } from "../lib/use-inbox-count.ts";
+import { DashboardTickerMobile } from "./dashboard-ticker.tsx";
 import { DesktopTopBar } from "./desktop-top-bar.tsx";
 import { FeedbackFab } from "./feedback-fab.tsx";
 import { Sidebar } from "./sidebar.tsx";
@@ -46,6 +47,7 @@ export function Shell({ children }: { children: ReactNode }) {
               v{__FACTORY_VERSION__}
             </span>
           </div>
+          <DashboardTickerMobile />
         </header>
 
         <main className="flex-1 px-3 pt-3 pb-[calc(72px+env(safe-area-inset-bottom))] md:px-6 md:pt-5 md:pb-6 md:max-w-[1400px] md:w-full md:mx-auto">

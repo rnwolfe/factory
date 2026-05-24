@@ -5,6 +5,7 @@ import { Link, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
 import { usePalette } from "../lib/use-palette.ts";
+import { DashboardTicker } from "./dashboard-ticker.tsx";
 
 interface ProjectRow {
   id: string;
@@ -19,6 +20,7 @@ export function DesktopTopBar() {
       <span className="text-[var(--color-line)]">·</span>
       <Breadcrumb />
       <div className="ml-auto flex items-center gap-2">
+        <DashboardTicker />
         <CommandPaletteTrigger />
       </div>
     </header>

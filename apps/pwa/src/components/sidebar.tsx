@@ -1,4 +1,4 @@
-import { Archive, Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
+import { Activity, Archive, Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 
@@ -11,6 +11,7 @@ interface NavItem {
 
 const PRIMARY: NavItem[] = [
   { to: "/", label: "inbox", icon: InboxIcon, end: true },
+  { to: "/ops", label: "ops", icon: Activity },
   { to: "/inbox/new", label: "capture", icon: PenLine },
   { to: "/projects", label: "projects", icon: Layers },
   { to: "/history", label: "history", icon: Archive },

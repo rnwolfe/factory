@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { AuthGate } from "./components/auth-gate.tsx";
 import { CommandPalette } from "./components/command-palette.tsx";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
+import { LandingRouter } from "./components/landing-router.tsx";
 import { Shell } from "./components/shell.tsx";
 import { useAuth } from "./lib/auth.ts";
 import { useAppBadge } from "./lib/use-app-badge.ts";
@@ -18,6 +19,7 @@ import { Inbox } from "./routes/inbox.tsx";
 import { LivePane } from "./routes/live-pane.tsx";
 import { Metrics } from "./routes/metrics.tsx";
 import { NewIdea } from "./routes/new-idea.tsx";
+import { Ops } from "./routes/ops.tsx";
 import { PlanDetail } from "./routes/plan-detail.tsx";
 import { ProjectDetail } from "./routes/project-detail.tsx";
 import { Projects } from "./routes/projects.tsx";
@@ -59,8 +61,24 @@ export function App() {
           <Route
             path="/"
             element={
+              <RouteBoundary label="landing">
+                <LandingRouter />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/inbox"
+            element={
               <RouteBoundary label="inbox">
                 <Inbox />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/ops"
+            element={
+              <RouteBoundary label="ops">
+                <Ops />
               </RouteBoundary>
             }
           />

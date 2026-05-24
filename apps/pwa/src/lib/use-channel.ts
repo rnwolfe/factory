@@ -8,7 +8,9 @@ export type ChannelScope =
   | { kind: "audit"; id: string }
   | { kind: "plan"; id: string }
   | { kind: "decision"; id: string }
-  | { kind: "feedback"; id: string };
+  | { kind: "feedback"; id: string }
+  /** Global ops dashboard subscription — id is the empty string. */
+  | { kind: "ops"; id: "" };
 
 export type ConnectionState = "connecting" | "open" | "closed";
 
