@@ -1,5 +1,6 @@
 import { type ClaudeMetricsOwnerKind, schema } from "@factory/db";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../trpc.ts";
 
@@ -42,6 +43,52 @@ function aggregateExpressions() {
     cacheReadTokens: sql<number>`COALESCE(SUM(${schema.claudeMetrics.cacheReadTokens}), 0)`,
     durationMs: sql<number>`COALESCE(SUM(${schema.claudeMetrics.durationMs}), 0)`,
     invocations: sql<number>`COUNT(*)`,
+  };
+}
+
+const DAY_MS = 86_400_000;
+
+function utcDayIso(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Inclusive list of UTC days touched by [startMs, endMs). The first bucket
+ * is the UTC day containing startMs; the last is the UTC day before endMs.
+ * Used to zero-fill the response so charts render contiguous timelines.
+ */
+function enumerateUtcDays(startMs: number, endMs: number): string[] {
+  const firstDay = Math.floor(startMs / DAY_MS) * DAY_MS;
+  const days: string[] = [];
+  for (let t = firstDay; t < endMs; t += DAY_MS) {
+    days.push(utcDayIso(t));
+  }
+  return days;
+}
+
+interface DailyBucket {
+  day: string;
+  totalCostUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  durationMs: number;
+  invocations: number;
+  runCount: number;
+}
+
+function zeroBucket(day: string): DailyBucket {
+  return {
+    day,
+    totalCostUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    durationMs: 0,
+    invocations: 0,
+    runCount: 0,
   };
 }
 
@@ -208,5 +255,142 @@ export const metricsRouter = router({
         map[ownerId] = rest;
       }
       return map;
+    }),
+
+  /**
+   * Daily totals across `claude_metrics` for charting. Each bucket is a UTC
+   * calendar day (YYYY-MM-DD) of cost / tokens / invocations / distinct runs;
+   * the response is zero-filled across [start, end) so the timeline is
+   * contiguous even on days with no recorded activity.
+   *
+   * - `start` / `end` are ISO timestamps. The half-open interval matches the
+   *   range scan against `claude_metrics_created_idx` (or, when projectId is
+   *   set, the composite `claude_metrics_project_created_idx`).
+   * - `projectId` restricts to one project. `groupBy='project'` partitions
+   *   by project_id; `groupBy='model'` partitions by the primary model
+   *   captured on each metrics row (null model_ids ride through as null).
+   * - `runCount` is COUNT DISTINCT owner_id where owner_kind='run' — i.e.
+   *   the number of distinct runs that recorded at least one invocation in
+   *   the bucket. Other owner kinds (audits, plan iterations, triage) flow
+   *   into the cost/token sums but not into runCount.
+   */
+  daily: protectedProcedure
+    .input(
+      z.object({
+        start: z.string().datetime(),
+        end: z.string().datetime(),
+        projectId: z.string().optional(),
+        groupBy: z.enum(["project", "model", "none"]).default("none"),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const startMs = new Date(input.start).getTime();
+      const endMs = new Date(input.end).getTime();
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "invalid ISO timestamp" });
+      }
+      if (endMs <= startMs) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "end must be after start" });
+      }
+
+      const days = enumerateUtcDays(startMs, endMs);
+
+      const daySql = sql<string>`strftime('%Y-%m-%d', ${schema.claudeMetrics.createdAt} / 1000, 'unixepoch')`;
+      const runCountSql = sql<number>`COUNT(DISTINCT CASE WHEN ${schema.claudeMetrics.ownerKind} = 'run' THEN ${schema.claudeMetrics.ownerId} END)`;
+
+      const conds = [
+        gte(schema.claudeMetrics.createdAt, startMs),
+        lt(schema.claudeMetrics.createdAt, endMs),
+      ];
+      if (input.projectId) {
+        conds.push(eq(schema.claudeMetrics.projectId, input.projectId));
+      }
+      const where = and(...conds);
+
+      const baseSelect = {
+        day: daySql.as("day"),
+        ...aggregateExpressions(),
+        runCount: runCountSql,
+      };
+
+      type GroupedRow = AggregateRow & {
+        day: string;
+        runCount: number;
+        seriesKey: string | null;
+      };
+
+      let rows: GroupedRow[];
+      if (input.groupBy === "project") {
+        const r = await ctx.db
+          .select({ ...baseSelect, seriesKey: schema.claudeMetrics.projectId })
+          .from(schema.claudeMetrics)
+          .where(where)
+          .groupBy(daySql, schema.claudeMetrics.projectId)
+          .all();
+        rows = r as GroupedRow[];
+      } else if (input.groupBy === "model") {
+        const r = await ctx.db
+          .select({ ...baseSelect, seriesKey: schema.claudeMetrics.model })
+          .from(schema.claudeMetrics)
+          .where(where)
+          .groupBy(daySql, schema.claudeMetrics.model)
+          .all();
+        rows = r as GroupedRow[];
+      } else {
+        const r = await ctx.db
+          .select(baseSelect)
+          .from(schema.claudeMetrics)
+          .where(where)
+          .groupBy(daySql)
+          .all();
+        rows = r.map((row) => ({ ...row, seriesKey: null }));
+      }
+
+      const grouped = new Map<string | null, Map<string, GroupedRow>>();
+      for (const row of rows) {
+        let inner = grouped.get(row.seriesKey);
+        if (!inner) {
+          inner = new Map();
+          grouped.set(row.seriesKey, inner);
+        }
+        inner.set(row.day, row);
+      }
+
+      const seriesKeys: Array<string | null> =
+        input.groupBy === "none"
+          ? [null]
+          : Array.from(grouped.keys()).sort((a, b) => {
+              if (a === null) return b === null ? 0 : 1;
+              if (b === null) return -1;
+              return a.localeCompare(b);
+            });
+
+      const series = seriesKeys.map((key) => {
+        const inner = grouped.get(key);
+        const buckets: DailyBucket[] = days.map((day) => {
+          const row = inner?.get(day);
+          if (!row) return zeroBucket(day);
+          return {
+            day,
+            totalCostUsd: Number(row.totalCostUsd ?? 0),
+            inputTokens: Number(row.inputTokens ?? 0),
+            outputTokens: Number(row.outputTokens ?? 0),
+            cacheCreationTokens: Number(row.cacheCreationTokens ?? 0),
+            cacheReadTokens: Number(row.cacheReadTokens ?? 0),
+            durationMs: Number(row.durationMs ?? 0),
+            invocations: Number(row.invocations ?? 0),
+            runCount: Number(row.runCount ?? 0),
+          };
+        });
+        return { key, buckets };
+      });
+
+      return {
+        start: input.start,
+        end: input.end,
+        groupBy: input.groupBy,
+        days,
+        series,
+      };
     }),
 });
