@@ -167,3 +167,35 @@ content is durable + non-obvious.
 **Rule:** add lessons proactively when shipping changes that turned
 on hard-to-rediscover context. Skip the meta-question; just write
 the entry inline with the related commit.
+
+## Prod is read-only for diagnostics. Debug in dev.
+
+When investigating a bug that's reproducible in the operator's
+environment, the temptation is to ship a quick `console.log` to prod
+to see what's happening. **Don't.** Shipping a diagnostic-only build
+to prod requires a `factory upgrade`, which restarts the daemon,
+which kills every running session and in-flight run. The cost of
+that restart — lost shell sessions, aborted runs, operator context
+disrupted — is almost always worse than the time saved by skipping
+the dev-side replication.
+
+**Rule:** the dev daemon (`factory-dev.service`, port 4080 + vite on
+4081) is the right place for diagnostic logging. Bun --watch
+auto-reloads dev on source changes, so adding a `console.log` is
+zero-cost. Reproduce the bug against dev, find the root cause, ship
+ONE clean fix to prod. Prod sees a single upgrade, not two (one for
+diagnostics + one for the fix).
+
+Concretely:
+- `journalctl --user -u factory-dev -f` for dev daemon logs.
+- Both dev + prod read from `/home/rnwolfe/dev/factory`, so source
+  edits made for dev debug are visible to prod's NEXT upgrade —
+  remember to revert diagnostic logs before bundling with the fix.
+- Read-only investigation against prod (sqlite queries, tmux probes,
+  `git log`, journal inspection) is fine and often necessary —
+  that's information gathering, not mutation.
+- Real example, 2026-05-24: I shipped v0.10.5 to prod with
+  diagnostic `console.log` lines because I was lazy about
+  replicating the typing-input bug on dev. The factory upgrade
+  restart killed the operator's in-flight shell session. The user
+  correctly called this out as a violation of the principle.
