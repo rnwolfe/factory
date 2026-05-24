@@ -4,6 +4,41 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.10.3 — 2026-05-24
+
+Reliability + observability fixes around task-status propagation,
+plus a small terminal-UX cut.
+
+### Added
+- **Shared `workers/post-merge.ts` helper** centralizes auto-advance
+  + defensive task-status reconcile across three call sites
+  (runner happy path, `decisions.ts` merge_failure approve,
+  `interventions/orchestrate.ts` finalizeMergeFailureResume). Helper
+  is idempotent and guards against double-fire auto-advance when
+  another run on the same project is already queued/running. Tested
+  via `merge-failure-approve.integration.test.ts`.
+- **Keyboard chords cede to focused xterm panes** so terminal-app key
+  sequences (vim, less, etc.) pass through the live-pane without the
+  PWA hijacking them.
+
+### Fixed
+- **factory project task-status was silently stuck at `ready`.** The
+  factory project's `.gitignore` blanket-ignored `.factory/`, so the
+  runner's pre-merge `chore: task-NNN status -> done` commit picked
+  up zero files and silently no-op'd. Replaced the blanket with
+  `.factory/runs/` (the inner `.factory/.gitignore` already covered
+  this), making `work/`, `audits/`, `meta.yaml`, and `notes/`
+  trackable. Back-filled the 7 historically-stuck task statuses
+  (001, 006, 007, 008, 009, 010, 015). Going forward the post-merge
+  helper's reconcile actually lands.
+- **Empty task-status commit now logs a warning.** Both callsites
+  (runner pre-merge + post-merge.ts reconcile) check
+  `commitAllChanges`' return value and log a clear warning naming
+  the task, workdir, and likely cause (gitignored `.factory/work/`).
+  Surfaces in `journalctl --user -u factory` so the next instance
+  of the gitignore trap is visible on first occurrence instead of
+  accumulating silently-wrong statuses.
+
 ## v0.10.2 — 2026-05-24
 
 Small follow-up to v0.10.1's per-task model picker: the override is
