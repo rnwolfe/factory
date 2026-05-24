@@ -4,6 +4,39 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.10.6 — 2026-05-24
+
+Session-pane fixes. Three real bugs that all trace back to the same
+oversight in commit f363bbe (May 23) — that commit added the binary-
+vs-text WebSocket frame split + resize forwarding to `live-pane.tsx`
+but forgot to mirror the same updates to `session-pane.tsx`.
+
+### Fixed
+- **Interactive shell sessions accept typing.** session-pane was
+  sending keystrokes as `ws.send(string)` → text frames; the
+  daemon's pane handler treats text frames as JSON control envelopes
+  and silently drops on parse failure, so every keystroke was
+  discarded. Encode to bytes via `TextEncoder` like live-pane does.
+- **Session pane resizes tmux to match xterm grid.** session-pane
+  was fitting xterm to the visible container but never forwarding
+  the new dims; tmux stayed at its 80x24 spawn default, the inner
+  shell saw a phantom grid, status lines clipped, large swaths of
+  dead space appeared in the pane. session-pane now wires
+  `term.onResize → sendResize` with a resync on WS open and an
+  `orientationchange` listener (iOS rotation parity).
+- **xterm cell-grid alignment + glyph rendering.** Box-drawing
+  characters were duplicating / mis-aligning because
+  `lineHeight: 1.25` broke xterm's cell-row math. Dropped to `1.0`.
+  Widened the font stack to prefer Nerd Font Mono variants
+  (`Hack`, `MesloLGM`, `FiraCode`, `JetBrainsMono`) first so
+  terminal-program icons render when the operator has a Nerd Font
+  installed on the client. Geist Mono remains the no-Nerd-Font
+  fallback.
+
+### Removed
+- Diagnostic `[pane]` console.log lines added in v0.10.5 (an
+  internal debug-only release). Bug found, instrumentation reverted.
+
 ## v0.10.4 — 2026-05-24
 
 Hot-fix on v0.10.3.
