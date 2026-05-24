@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
+import { wireXtermPaste } from "../lib/xterm-paste.ts";
 import { wireXtermTouchScroll } from "../lib/xterm-touch.ts";
 
 interface SessionRow {
@@ -121,6 +122,7 @@ export function SessionPane() {
     // also gates focus to actual taps so the keyboard doesn't pop on
     // every swipe.
     const detachTouch = wireXtermTouchScroll(term, container);
+    const detachPaste = wireXtermPaste(term, container);
 
     const onResize = () => {
       try {
@@ -137,6 +139,7 @@ export function SessionPane() {
       ro.disconnect();
       container.removeEventListener("mousedown", onMouseDown);
       detachTouch();
+      detachPaste();
       dataDisposer.dispose();
       term.dispose();
       termRef.current = null;

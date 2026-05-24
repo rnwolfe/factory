@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
+import { wireXtermPaste } from "../lib/xterm-paste.ts";
 import { wireXtermTouchScroll } from "../lib/xterm-touch.ts";
 
 interface RunningScript {
@@ -67,6 +68,7 @@ export function ScriptPane() {
     fitRef.current = fit;
 
     const detachTouch = wireXtermTouchScroll(term, container);
+    const detachPaste = wireXtermPaste(term, container);
 
     const onResize = () => {
       try {
@@ -83,6 +85,7 @@ export function ScriptPane() {
       window.removeEventListener("resize", onResize);
       ro.disconnect();
       detachTouch();
+      detachPaste();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
