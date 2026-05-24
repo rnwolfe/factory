@@ -4,6 +4,24 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.8 — 2026-05-24
+
+Adhoc task capture per project. The idea → triage → plan pipeline is
+correct for "should we do this?" but pure friction when the operator
+already knows. The "+ task" button on each project page is the fast
+path: describe the bug/feature, optionally run it immediately, done.
+
+### Added
+- **"+ task" button on project page.** Header gains a `+ task` action
+  next to `feature plan`/`deepen`/`code`. Opens a modal with title,
+  kind chips (bug/feature/refactor/docs/other), priority chips, and
+  an optional body. A "run immediately after creating" toggle goes
+  one further: the task is created and a run is submitted in the
+  same gesture, with the operator dropped onto the run-detail page.
+  Routes through the existing `projects.tasks.create` endpoint, so
+  storage is single-pointed and behavior matches every other
+  task-creation path (bootstrap, refinement-freeze, audit-promote).
+
 ## v0.9.7 — 2026-05-24
 
 `factory prune` for one-shot worktree-backlog cleanup. Pairs with the
