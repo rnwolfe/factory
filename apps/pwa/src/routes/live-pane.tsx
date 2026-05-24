@@ -10,6 +10,7 @@ import { RunEventStream } from "../components/run-event-stream.tsx";
 import { getToken } from "../lib/auth.ts";
 import { useRunChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
+import { wireXtermPaste } from "../lib/xterm-paste.ts";
 import { wireXtermTouchScroll } from "../lib/xterm-touch.ts";
 
 interface RunDiff {
@@ -150,6 +151,7 @@ export function LivePane() {
     fitRef.current = fit;
 
     const detachTouch = wireXtermTouchScroll(term, container);
+    const detachPaste = wireXtermPaste(term, container);
 
     // Push current grid dims to the daemon so tmux resize-windows the pane
     // and the inner program (claude, neovim, etc.) gets SIGWINCH with the
@@ -193,6 +195,7 @@ export function LivePane() {
       resizeDisposer.dispose();
       sendResizeRef.current = null;
       detachTouch();
+      detachPaste();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
