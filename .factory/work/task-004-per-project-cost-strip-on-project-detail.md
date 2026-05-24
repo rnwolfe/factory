@@ -1,11 +1,11 @@
 ---
 id: task-004
 title: Per-project cost strip on project detail
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-05-23T03:56:21.471Z
-updated: 2026-05-23T03:56:21.471Z
+updated: 2026-05-24T20:15:22.327Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan j92lvw5y: ""
+
 
