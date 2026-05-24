@@ -4,6 +4,32 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.9.6 — 2026-05-24
+
+Worktrees no longer accumulate forever. The runtime's prior cleanup
+only triggered on `commits.length === 0` — any run with even one
+commit kept its worktree on disk. After weeks of use the worktrees
+dir becomes the largest thing in `~/.factory` (2GB+ is common).
+
+### Added
+- **Auto-cleanup worktree on successful merge.** When a run merges
+  into main cleanly, the runtime removes the worktree directory.
+  The branch ref is preserved — `git log <branch>` still works for
+  inspection — and any failed/blocked run's worktree is untouched so
+  the operator can still investigate. Best-effort: a failed cleanup
+  logs a warning but doesn't fail the run.
+
+### Migration note
+Existing backlog of worktrees from earlier completed runs isn't
+auto-cleaned (we don't have a reliable signal of which were merged
+under the old code path). To reclaim the disk:
+```
+# List, then `git worktree remove` per project, or:
+rm -rf ~/.factory/worktrees/<slug>/<old-runId>
+git -C ~/.factory/projects/<slug> worktree prune
+```
+A `factory prune` CLI command is on the roadmap for one-shot cleanup.
+
 ## v0.9.5 — 2026-05-24
 
 Project page declutters. Tasks list no longer grows into a wall of
