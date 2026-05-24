@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, TrendingUp } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { type ReactNode, useMemo } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { chipLabel, fmtCost, fmtTokens, type MetricsAggregate } from "../lib/metrics-format.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -36,7 +36,7 @@ interface DailyResponse {
 }
 
 type RangePeriod = "7d" | "30d" | "90d";
-type GroupByMode = "project" | "model";
+type GroupByMode = "project" | "model" | "total";
 
 // ---- Constants ----
 
@@ -378,9 +378,27 @@ function RowBody({
 
 // ---- Main export ----
 
+function toApiGroupBy(g: GroupByMode): "project" | "model" | "none" {
+  return g === "total" ? "none" : g;
+}
+
 export function Metrics() {
-  const [range, setRange] = useState<RangePeriod>("30d");
-  const [groupBy, setGroupBy] = useState<GroupByMode>("project");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const range = (searchParams.get("range") ?? "30d") as RangePeriod;
+  const groupBy = (searchParams.get("groupBy") ?? "project") as GroupByMode;
+
+  const setRange = (next: RangePeriod) => {
+    const p = new URLSearchParams(searchParams);
+    p.set("range", next);
+    setSearchParams(p, { replace: true });
+  };
+
+  const setGroupBy = (next: GroupByMode) => {
+    const p = new URLSearchParams(searchParams);
+    p.set("groupBy", next);
+    setSearchParams(p, { replace: true });
+  };
 
   const chartQ = useQuery({
     queryKey: ["metrics.daily.chart", range, groupBy],
@@ -389,7 +407,7 @@ export function Metrics() {
       return trpc.metrics.daily.query({
         start: startIso,
         end: endIso,
-        groupBy,
+        groupBy: toApiGroupBy(groupBy),
       }) as unknown as Promise<DailyResponse>;
     },
     refetchInterval: 60_000,
@@ -491,7 +509,7 @@ export function Metrics() {
               </div>
               <div className="w-px h-3 bg-[var(--color-line)]" />
               <div className="flex gap-1">
-                {(["project", "model"] as const).map((g) => (
+                {(["project", "model", "total"] as const).map((g) => (
                   <PillButton
                     key={g}
                     label={g}
