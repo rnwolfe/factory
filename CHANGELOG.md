@@ -4,6 +4,49 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.10.1 — 2026-05-24
+
+Cost-discipline release ahead of Anthropic's 2026-06-15 Agent SDK
+billing change. `claude --print` (Factory's path) moves to a separate
+$/credit pool then — Max 5x gets $100/mo, Max 20x gets $200/mo, billed
+at API list prices above the credit. Stretching that credit means
+running cheaper models where they're enough; this release makes that
+practical.
+
+### Added
+- **Per-task model override.** Task frontmatter (`model:`) pins a task
+  to a specific Claude model id. Surfaced via a ModelPicker on the
+  task-detail page and in the "+ task" modal. The `+ task` route on
+  the project page now accepts a model override at creation.
+- **System-level default model setting (`default-model`).** New row in
+  settings → dashboard. Falls into the inheritance chain at the
+  bottom: `task.model → project.model → settings.default-model → CLI
+  default`. Empty = CLI picks. Settings UI uses the same ModelPicker.
+- **`runs.model` column** captures the effective model at submit time
+  per the inheritance chain. Stable across later upstream changes —
+  resume/retry/metrics views can always show what the run was actually
+  invoked with.
+- **Ticker + `/ops` rewrite around dollars + tokens.** Three
+  calendar-aligned windows: today (since local midnight), this week
+  (since Monday 00:00), this month (since the 1st). Each shows cost
+  and ↑input/↓output tokens. The monthly window matches Anthropic's
+  Agent SDK credit reset cycle.
+
+### Removed
+- **Usage cap settings (session/weekly/daily) and the API key field.**
+  Shipped in v0.10.0 but unused: the % meters they fed are gone; the
+  API key was a stub for org-usage polling that turns out to be
+  measuring the wrong thing after 2026-06-15. Setting keys removed
+  cleanly; existing prod rows (if any) are inert.
+
+### Migration note
+v0.10.1 includes migration `0023_run_model` adding `runs.model`. The
+SQL file was hand-written (drizzle-kit needs a TTY which isn't
+available from the agent's session) — the migration applies cleanly,
+but `meta/0023_snapshot.json` is missing. Regenerate snapshots when
+you next add a schema column by running `bun run db:generate` from a
+terminal; drizzle-kit will rebuild the snapshot chain.
+
 ## v0.10.0 — 2026-05-24
 
 The operational-awareness release. After weeks of living with the
