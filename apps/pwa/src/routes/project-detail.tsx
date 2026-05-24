@@ -215,7 +215,13 @@ export function ProjectDetail() {
       model: string | null;
       githubRemote: string | null;
     };
-    tasks: Array<{ id: string; status: string; title: string; estimate: string | null }>;
+    tasks: Array<{
+      id: string;
+      status: string;
+      title: string;
+      estimate: string | null;
+      model?: string | null;
+    }>;
   };
   const allRuns = runs.data ?? [];
   const activeRuns = allRuns.filter((r) => ACTIVE_RUN_STATUSES.has(r.status));
@@ -812,12 +818,19 @@ function TaskRow({
   startDisabled,
 }: {
   projectId: string;
-  task: { id: string; status: string; title: string; estimate: string | null };
+  task: {
+    id: string;
+    status: string;
+    title: string;
+    estimate: string | null;
+    model?: string | null;
+  };
   activeRun: RunRow | null;
   onStart: () => void;
   startDisabled: boolean;
 }) {
   const canStart = !activeRun && task.status !== "done" && task.status !== "in_progress";
+  const modelShort = shortModelLabel(task.model);
   return (
     <div className="flex items-stretch">
       <Link
@@ -831,6 +844,11 @@ function TaskRow({
             {task.id} · {String(task.estimate ?? "—")}
           </div>
         </div>
+        {modelShort ? (
+          <span className="chip mono text-[10.5px] shrink-0" title={`pinned to ${task.model}`}>
+            {modelShort}
+          </span>
+        ) : null}
         <ChevronRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
       </Link>
       <div className="flex items-center px-2 border-l border-[var(--color-line)]">
@@ -859,6 +877,22 @@ function TaskRow({
       </div>
     </div>
   );
+}
+
+/**
+ * Compact chip label for a model id. Returns null when the task inherits
+ * (no override set on this task) — UI shows nothing rather than "default"
+ * to keep the row uncluttered for the common inherits-from-project case.
+ */
+function shortModelLabel(model: string | null | undefined): string | null {
+  if (!model) return null;
+  if (model.includes("opus")) return "opus";
+  if (model.includes("sonnet")) return "sonnet";
+  if (model.includes("haiku")) return "haiku";
+  // Unknown / custom model id: show the trailing segment as a fallback so
+  // operators using a non-default model id can still see what's pinned.
+  const tail = model.split(/[/-]/).pop() ?? model;
+  return tail.slice(0, 10);
 }
 
 function SectionHeader({ title, count }: { title: string; count: number }) {
