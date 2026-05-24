@@ -1,7 +1,15 @@
 node_modules/
 dist/
 build/
-.factory/
+# Project-scoped Factory artifacts live under .factory/ — work/ (tasks),
+# audits/, meta.yaml, notes/ are operator-canonical and tracked; only
+# runs/ (per-run logs) is Factory-internal. The inner .factory/.gitignore
+# already ignores runs/; we just need the outer not to blanket-ignore the
+# whole directory. (Earlier `.factory/` was assumed to be daemon-data;
+# that's actually at $FACTORY_HOME, outside the repo. The blanket ignore
+# silently swallowed the runner's `chore: task-NNN status -> done` commit
+# on every factory-on-factory run — the commit was empty.)
+.factory/runs/
 worktrees/
 data.db
 data.db-journal
