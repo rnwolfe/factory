@@ -88,10 +88,12 @@ export function SessionPane() {
       scrollback: 5000,
       convertEol: true,
       allowProposedApi: true,
-      // See live-pane.tsx for the full keyboard-interception contract;
-      // sessions are the other interactive surface where neovim's `<M-…>`
-      // maps need Esc+key, not Unicode glyphs.
-      macOptionIsMeta: true,
+      // macOptionIsMeta was set here in v0.10.3 to make Option-key chords
+      // reach neovim as Esc+key, but it broke basic typing input in
+      // interactive shell sessions. Reverted in v0.10.4 until we can
+      // reproduce + understand the interaction. Option chords go back to
+      // OS-IME (Unicode glyphs) for now; <M-…> maps remain non-functional
+      // until this is properly resolved.
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

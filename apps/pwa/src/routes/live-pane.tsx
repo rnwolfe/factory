@@ -163,10 +163,12 @@ export function LivePane() {
       scrollback: 5000,
       convertEol: true,
       allowProposedApi: true,
-      // Send Esc+key (the VT meta-prefix neovim expects) for Option/Alt
-      // chords on Mac. Without this the OS IME consumes Option into
-      // Unicode glyphs and `<M-…>` maps silently no-op.
-      macOptionIsMeta: true,
+      // macOptionIsMeta was set here in v0.10.3 to make Option-key chords
+      // reach neovim as Esc+key, but it broke basic typing input in the
+      // interactive session pane. Reverted in v0.10.4 until we can
+      // reproduce + understand the interaction. Option chords go back to
+      // OS-IME (Unicode glyphs) for now; <M-…> maps remain non-functional
+      // until this is properly resolved.
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

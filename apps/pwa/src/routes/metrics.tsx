@@ -183,7 +183,7 @@ function SpendChart({ days, series }: { days: string[]; series: DailySeries[] })
         const segs: Array<{ si: number; barH: number; barY: number }> = [];
         let yOff = 0;
         for (let si = 0; si < series.length; si++) {
-          const val = series[si].buckets[di]?.totalCostUsd ?? 0;
+          const val = series[si]?.buckets[di]?.totalCostUsd ?? 0;
           if (val <= 0) continue;
           const barH = (val / maxTotal) * CHART_H;
           segs.push({ si, barH, barY: PAD.t + CHART_H - yOff - barH });
@@ -193,7 +193,7 @@ function SpendChart({ days, series }: { days: string[]; series: DailySeries[] })
           <g key={day}>
             {segs.map(({ si, barH, barY }) => (
               <rect
-                key={series[si].key ?? "_null"}
+                key={series[si]?.key ?? "_null"}
                 x={x}
                 y={barY}
                 width={barW}
