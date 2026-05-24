@@ -107,3 +107,63 @@ already contains the delivery mechanism. If not, the operator needs
 a one-time manual install — surface this explicitly in the release
 notes / upgrade output. Don't assume "they'll get it on next
 upgrade" — the upgrade itself may be the dormant code.
+
+## Don't wire Anthropic subscription usage polling into Factory
+
+The OAuth token in `~/.claude/.credentials.json` (`claudeAiOauth`)
+contains the operator's Claude.ai subscription credentials, including
+`subscriptionType` and `rateLimitTier`. Third-party tools like
+`ccusage` use endpoints such as `/api/oauth/account/settings` and
+`/api/claude_code/policy_limits` to render live "% of 5h cap" UIs.
+The temptation is to do the same in Factory's ticker.
+
+**Don't.** Three independent reasons:
+
+1. **Anthropic's docs scope the OAuth token to "inference only."**
+   Account/usage endpoints are explicitly outside the documented
+   scope. Multiple third-party writeups characterize use by non-
+   Claude-Code consumers as a Consumer-TOS edge case. We're not
+   `claude.ai` and we're not `claude` — Factory is an automation
+   layer that uses `claude --print` (which IS allowed), but if we
+   reach past the CLI to hit Anthropic's account APIs ourselves,
+   we're a different consumer.
+
+2. **Endpoints are undocumented and unstable.** `ccusage` and similar
+   trackers exist *because* this works, and they break + chase the
+   changes regularly. Factory doesn't want that maintenance burden.
+
+3. **Starting 2026-06-15 the metric becomes the wrong one entirely.**
+   `claude --print` (Factory's only path to Claude) and Agent SDK
+   usage move to a *separate* monthly Agent SDK credit, decoupled
+   from the 5-hour / weekly subscription windows the ticker would
+   be measuring. Even if polling worked perfectly, we'd be showing
+   `0%` against a cap that doesn't include our spend. There's no
+   public API for the Agent SDK credit balance — Anthropic's own
+   support article confirms it.
+
+**What we ship instead (v0.10.1+):** `claude_metrics`-derived dollars
++ tokens, calendar-aligned (today / this week / this month). The
+monthly window matches Anthropic's Agent SDK credit reset cycle, so
+operators can eyeball "have I blown my $100 (Max 5x) / $200 (Max 20x)
+SDK credit this month." Operator-configured caps (if anyone needs
+hard limits later) belong on our own metrics, not subscription %s.
+
+**Rule:** Factory tracks what Factory spends. Subscription-side
+metrics belong on Anthropic's own dashboards (and `ccusage` if the
+operator wants live %). If a future ask is "show subscription cap %
+in Factory," push back: it's the wrong primitive, it has TOS risk,
+and after 2026-06-15 it measures the wrong thing.
+
+## Don't ask the operator about adding lessons — just add them
+
+When a session surfaces a non-obvious fact (an Anthropic policy
+shift, a TOS interpretation, a load-bearing comment that future-
+Claude would re-derive painfully), write the lesson directly. Don't
+ask "want me to add a lesson?" — the operator told me explicitly
+2026-05-24 that the asking is friction; the choice of whether to
+preserve session learnings is mine to make based on whether the
+content is durable + non-obvious.
+
+**Rule:** add lessons proactively when shipping changes that turned
+on hard-to-rediscover context. Skip the meta-question; just write
+the entry inline with the related commit.
