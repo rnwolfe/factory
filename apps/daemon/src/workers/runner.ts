@@ -15,7 +15,7 @@ import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
-import { listTasks, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
+import { listTasks, pickNextReadyTask, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
 import {
   type AutonomyMode,
@@ -729,9 +729,17 @@ export async function executeRun(
     // runner.ts). Held when the merge into main failed — the next task
     // would start from a main that's missing this run's work, so any
     // dependency between tasks would silently break.
+    //
+    // Respects the operator's starting point: pick the next ready task
+    // AFTER the one we just finished, never wrap back to an earlier task.
+    // If the operator started at task-009, they intended to skip 001-008;
+    // auto-advancing back to 001 after 009 finishes silently undoes that
+    // intent and reorders the queue. When nothing ready remains after the
+    // current task, auto-advance stops — the operator can manually start
+    // an earlier task if they want to go back.
     if (finalStatus === "completed" && project.autoAdvance && !mergeFailureNote) {
       const tasks = await listTasks(project.workdirPath);
-      const next = tasks.find((t) => t.frontmatter.status === "ready");
+      const next = pickNextReadyTask(tasks, row.taskId);
       if (next) {
         const { submitRun } = await import("./submit.ts");
         await submitRun(

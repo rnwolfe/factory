@@ -69,6 +69,33 @@ export async function readTaskFile(projectPath: string, taskId: string): Promise
   return all.find((t) => t.id === taskId) ?? null;
 }
 
+/**
+ * Pick the next ready task after the one we just finished.
+ *
+ * Tasks are sorted by id (numeric collation). When `justFinishedId` is
+ * given, we only consider tasks AFTER it — auto-advance must not wrap
+ * back to earlier tasks. If the operator started at task-009, they
+ * intended to skip 001-008; quietly re-running 001 after 009 finishes
+ * silently undoes that intent. When no later task is ready, auto-advance
+ * stops and the operator can pick an earlier one manually.
+ *
+ * When `justFinishedId` is null/unknown, falls back to the first ready
+ * task in the list — the original behavior for ad-hoc submissions
+ * without a recorded task id.
+ */
+export function pickNextReadyTask(
+  tasks: TaskFile[],
+  justFinishedId: string | null | undefined,
+): TaskFile | null {
+  if (justFinishedId) {
+    const idx = tasks.findIndex((t) => t.id === justFinishedId);
+    if (idx >= 0) {
+      return tasks.slice(idx + 1).find((t) => t.frontmatter.status === "ready") ?? null;
+    }
+  }
+  return tasks.find((t) => t.frontmatter.status === "ready") ?? null;
+}
+
 export async function updateTaskStatus(
   projectPath: string,
   taskId: string,
