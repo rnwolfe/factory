@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  ChevronDown,
   ChevronRight,
   ExternalLink,
   Eye,
@@ -29,6 +30,7 @@ import { SessionsList } from "../components/sessions-list.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
 import { cn } from "../lib/cn.ts";
+import { fmtCost } from "../lib/metrics-format.ts";
 import { trpc } from "../lib/trpc.ts";
 
 interface RunRow {
@@ -400,6 +402,8 @@ export function ProjectDetail() {
             disabled={setModel.isPending}
           />
         </div>
+
+        <SpendStrip projectId={p.id} />
       </header>
 
       <ProjectTabStrip active={activeTab} setActive={setActiveTab} />
@@ -927,6 +931,122 @@ function timeAgo(ts: number): string {
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
+}
+
+// ---- Spend sparkline strip ----
+
+const SPARK_W = 400;
+const SPARK_H = 36;
+
+function Sparkline({
+  days,
+  buckets,
+}: {
+  days: string[];
+  buckets: Array<{ totalCostUsd: number }>;
+}) {
+  const n = days.length;
+  if (n === 0) return null;
+  const maxVal = Math.max(...buckets.map((b) => b.totalCostUsd), 1e-9);
+  const slotW = SPARK_W / n;
+  const barW = Math.max(1.5, slotW * 0.8);
+  return (
+    <svg
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      className="w-full h-auto"
+      aria-label="30-day spend sparkline"
+    >
+      {/* Baseline */}
+      <line
+        x1={0}
+        y1={SPARK_H - 0.5}
+        x2={SPARK_W}
+        y2={SPARK_H - 0.5}
+        stroke="hsl(30 5% 22%)"
+        strokeWidth={0.75}
+      />
+      {days.map((day, di) => {
+        const val = buckets[di]?.totalCostUsd ?? 0;
+        if (val <= 0) return null;
+        const barH = Math.max(2, (val / maxVal) * (SPARK_H - 3));
+        return (
+          <rect
+            key={day}
+            x={di * slotW + (slotW - barW) / 2}
+            y={SPARK_H - barH - 1}
+            width={barW}
+            height={barH}
+            fill="hsl(22 88% 60%)"
+            opacity={0.82}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function SpendStrip({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState(false);
+
+  const dailyQ = useQuery({
+    queryKey: ["metrics.daily.sparkline", projectId],
+    queryFn: () =>
+      trpc.metrics.daily.query({
+        start: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+        end: new Date().toISOString(),
+        projectId,
+        groupBy: "none",
+      }) as unknown as Promise<{
+        days: string[];
+        series: Array<{ key: string | null; buckets: Array<{ totalCostUsd: number }> }>;
+      }>,
+    enabled: projectId.length > 0,
+    staleTime: 120_000,
+    refetchInterval: 120_000,
+  });
+
+  const buckets = dailyQ.data?.series?.[0]?.buckets ?? [];
+  const days = dailyQ.data?.days ?? [];
+  const totalCost = buckets.reduce((sum, b) => sum + b.totalCostUsd, 0);
+
+  if (dailyQ.data && totalCost <= 0) return null;
+  if (!dailyQ.data && !dailyQ.isLoading) return null;
+
+  return (
+    <div className="mt-3 border-t border-[var(--color-line)] pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 group"
+      >
+        <div className="flex items-center gap-2">
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] group-hover:text-[var(--color-fg-1)] transition-colors">
+            30d spend
+          </span>
+          {dailyQ.isLoading ? (
+            <span className="skel h-3 w-10 rounded" />
+          ) : totalCost > 0 ? (
+            <span className="mono text-[11.5px] tabular-nums text-[var(--color-fg-2)]">
+              {fmtCost(totalCost)}
+            </span>
+          ) : null}
+        </div>
+        <ChevronDown
+          size={11}
+          className={cn("text-[var(--color-fg-3)] transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open ? (
+        <Link
+          to={`/metrics?projectId=${projectId}`}
+          className="block mt-2 hover:opacity-75 transition-opacity"
+          title="view full metrics"
+        >
+          <Sparkline days={days} buckets={buckets} />
+        </Link>
+      ) : null}
+    </div>
+  );
 }
 
 function ProjectSkeleton() {
