@@ -16,7 +16,7 @@ import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
-import { listTasks, pickNextReadyTask, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
+import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
 import {
   type AutonomyMode,
@@ -31,6 +31,7 @@ import {
 } from "./factory-status.ts";
 import { recordMergeFailure } from "./merge-failure.ts";
 import type { WorkerPool } from "./pool.ts";
+import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
 
@@ -96,19 +97,6 @@ function blockerQuestionsFor(parsed: FactoryStatus | null, finalStatus: RunStatu
       : `Unmet acceptance — ${a.criterion}`,
   );
   return [...parsed.questions, ...fromAcceptance];
-}
-
-function taskStatusFor(runStatus: RunStatus): "ready" | "in_progress" | "done" | "blocked" {
-  switch (runStatus) {
-    case "completed":
-      return "done";
-    case "aborted":
-      return "ready";
-    case "blocked":
-      return "blocked";
-    default:
-      return "blocked";
-  }
 }
 
 /**
@@ -751,29 +739,14 @@ export async function executeRun(
       });
     }
 
-    // Auto-advance: pick the next ready task and submit it. We dynamically
-    // import to avoid a circular module dep with submit.ts (which imports
-    // runner.ts). Held when the merge into main failed — the next task
-    // would start from a main that's missing this run's work, so any
-    // dependency between tasks would silently break.
-    //
-    // Respects the operator's starting point: pick the next ready task
-    // AFTER the one we just finished, never wrap back to an earlier task.
-    // If the operator started at task-009, they intended to skip 001-008;
-    // auto-advancing back to 001 after 009 finishes silently undoes that
-    // intent and reorders the queue. When nothing ready remains after the
-    // current task, auto-advance stops — the operator can manually start
-    // an earlier task if they want to go back.
-    if (finalStatus === "completed" && project.autoAdvance && !mergeFailureNote) {
-      const tasks = await listTasks(project.workdirPath);
-      const next = pickNextReadyTask(tasks, row.taskId);
-      if (next) {
-        const { submitRun } = await import("./submit.ts");
-        await submitRun(
-          { config, db, events, runs, pool },
-          { projectId: project.id, taskId: next.id },
-        );
-      }
+    // Auto-advance + defensive task-status reconcile, via the shared helper
+    // that decisions.ts and interventions/orchestrate.ts also call on the
+    // operator-approved retry paths. Held when the merge into main failed —
+    // the next task would start from a main that's missing this run's work,
+    // so any dependency between tasks would silently break. The held
+    // advance fires from the same helper once the operator resolves.
+    if (finalStatus === "completed" && !mergeFailureNote) {
+      await applyPostMergeRunOutcome({ config, db, events, runs, pool }, runId);
     }
   } catch (err) {
     await db

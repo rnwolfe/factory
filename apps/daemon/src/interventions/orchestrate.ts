@@ -16,6 +16,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import type { WorkerPool } from "../workers/pool.ts";
+import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import type { RunRegistry } from "../workers/registry.ts";
 import { submitRun } from "../workers/submit.ts";
 
@@ -592,6 +593,19 @@ async function finalizeMergeFailureResume(
       subject: `merge to main: ${payload.branch}`,
       projectId: intervention.projectId,
     });
+  }
+
+  // Fire the post-merge reconcile that the runner held while the merge was
+  // failing. Scoped to run-backed merge_failure interventions; the ad-hoc-
+  // session variant carries a `sessionId` instead and has no task to
+  // reconcile.
+  if (payload.runId) {
+    try {
+      await applyPostMergeRunOutcome(deps, payload.runId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[intervention] post-merge reconcile failed for run ${payload.runId}: ${msg}`);
+    }
   }
 
   const now = Date.now();

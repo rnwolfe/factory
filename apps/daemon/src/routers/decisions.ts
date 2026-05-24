@@ -7,6 +7,7 @@ import { z } from "zod";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
+import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
 
 interface BlockedRunPayload {
@@ -222,6 +223,31 @@ export const decisionsRouter = router({
             sha: merge.sha,
             subject: `merge to main: ${payload.branch}`,
           });
+        }
+
+        // The runner held the post-merge side-effects (task status reconcile
+        // + auto-advance) when the original merge failed. Now that the
+        // operator-approved retry has landed, fire them here. Scoped to run-
+        // backed merge_failure decisions; the ad-hoc-session variant carries
+        // a `sessionId` instead and has no task to reconcile.
+        if (payload.runId) {
+          try {
+            await applyPostMergeRunOutcome(
+              {
+                config: ctx.config,
+                db: ctx.db,
+                events: ctx.events,
+                runs: ctx.runs,
+                pool: ctx.pool,
+              },
+              payload.runId,
+            );
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(
+              `[decisions] post-merge reconcile failed for run ${payload.runId}: ${msg}`,
+            );
+          }
         }
       }
 
