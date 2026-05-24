@@ -105,6 +105,29 @@ export function LivePane() {
   // who never toggle to raw) burns ~50–150ms of synchronous DOM construction
   // on every navigation into a run page. The structured view is the default
   // and covers 95% of operator needs.
+  //
+  // Keyboard-interception contract (neovim-via-pane support):
+  //
+  // - Arrow keys, Esc, F1–F12, Home/End/PageUp/PageDown, and Ctrl-anything
+  //   pass through xterm.js unmodified to tmux → claude/neovim. xterm owns
+  //   the helper-textarea focus and emits the correct VT sequences.
+  // - Alt/Option combos require `macOptionIsMeta: true`; without it the Mac
+  //   IME absorbs Option-key into Unicode glyphs and neovim's `<M-…>` maps
+  //   never fire. Linux/Windows xterm builds already send `Esc+key`.
+  // - PWA-level intercepts that USED to steal keys but no longer do inside
+  //   a focused pane: Cmd/Ctrl+K (command palette). See
+  //   `useCommandPaletteHotkey` in app.tsx — it bails when focus is in a
+  //   `.xterm` subtree.
+  // - PWA-level intercepts that REMAIN inside the pane (deliberate):
+  //   Cmd/Ctrl+V is captured by `wireXtermPaste` so bracketed-paste mode
+  //   wraps the payload correctly. The operator sees a normal paste in
+  //   neovim; without this capture, multi-line pastes smear via insert-mode
+  //   auto-indent. The chord never reaches xterm's default keypath.
+  // - Browser-owned chords that CANNOT be ceded to the pane in a tab:
+  //   Cmd/Ctrl+W/T/N/R/L/Q, F5, F11, F12, and the platform back/forward
+  //   gestures. Installing the PWA in standalone mode reclaims most of
+  //   these — when neovim use becomes routine, "Add to Home Screen" /
+  //   `factory install desktop` is the workaround.
   useEffect(() => {
     if (view !== "raw") return;
     if (!containerRef.current) return;
@@ -140,6 +163,10 @@ export function LivePane() {
       scrollback: 5000,
       convertEol: true,
       allowProposedApi: true,
+      // Send Esc+key (the VT meta-prefix neovim expects) for Option/Alt
+      // chords on Mac. Without this the OS IME consumes Option into
+      // Unicode glyphs and `<M-…>` maps silently no-op.
+      macOptionIsMeta: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

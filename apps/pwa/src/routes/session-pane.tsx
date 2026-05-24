@@ -88,6 +88,10 @@ export function SessionPane() {
       scrollback: 5000,
       convertEol: true,
       allowProposedApi: true,
+      // See live-pane.tsx for the full keyboard-interception contract;
+      // sessions are the other interactive surface where neovim's `<M-…>`
+      // maps need Esc+key, not Unicode glyphs.
+      macOptionIsMeta: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
