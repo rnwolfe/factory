@@ -7,6 +7,7 @@ import {
   hostSandbox,
   mergeIntoMain,
   type RuntimeEvent,
+  removeWorktree,
   runtime,
 } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
@@ -625,6 +626,28 @@ export async function executeRun(
             subject: `merge to main: ${result.branch}`,
             projectId: project.id,
           });
+        }
+        // Worktree is now redundant: the agent's work lives on main via
+        // the merge commit, and the run's branch ref still points at
+        // the pre-merge tip if the operator wants to inspect via
+        // `git log <branch>`. Removing just the working directory
+        // reclaims disk; the branch ref stays for history.
+        //
+        // Without this, every completed run leaves its worktree on disk
+        // forever (the runtime's existing cleanup only triggers on
+        // commits.length === 0). After weeks of use the worktrees dir
+        // becomes the largest thing in ~/.factory.
+        try {
+          await removeWorktree({
+            projectPath: project.workdirPath,
+            worktreePath: result.worktreePath,
+          });
+        } catch (err) {
+          // Best-effort. If the worktree is gone or git is wedged on it,
+          // the operator can clean up manually; the merge already
+          // succeeded so the run is otherwise complete.
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[runner] worktree cleanup failed for ${runId}: ${msg}`);
         }
       } else {
         mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;
