@@ -9,6 +9,7 @@ import {
   GitBranch,
   ListTree,
   Play,
+  Plus,
   Upload,
 } from "lucide-react";
 import { useState } from "react";
@@ -18,6 +19,7 @@ import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { ModelPicker } from "../components/model-picker.tsx";
+import { NewTaskModal } from "../components/new-task-modal.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
 import { PublishGithubModal } from "../components/publish-github-modal.tsx";
@@ -78,6 +80,7 @@ export function ProjectDetail() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [showPublish, setShowPublish] = useState(false);
+  const [showNewTask, setShowNewTask] = useState(false);
   const [showArchivedTasks, setShowArchivedTasks] = useState(false);
   const [showAllRuns, setShowAllRuns] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -238,6 +241,7 @@ export function ProjectDetail() {
           onPublished={() => setShowPublish(false)}
         />
       ) : null}
+      {showNewTask ? <NewTaskModal projectId={p.id} onClose={() => setShowNewTask(false)} /> : null}
       <header className="surface p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -305,6 +309,14 @@ export function ProjectDetail() {
         ) : null}
 
         <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowNewTask(true)}
+            className="btn btn-ghost text-[12px]"
+            title="capture a bug or feature for this project"
+          >
+            <Plus size={12} /> task
+          </button>
           <FeaturePlanLaunch projectId={id} />
           <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">
             deepen
