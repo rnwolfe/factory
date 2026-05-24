@@ -135,9 +135,12 @@ export function LivePane() {
     const term = new Terminal({
       cursorBlink: false,
       cursorStyle: "underline",
-      fontFamily: "Geist Mono, ui-monospace, monospace",
+      // See session-pane.tsx for the rationale — same Nerd Font
+      // preference + lineHeight 1.0 for accurate cell-grid alignment.
+      fontFamily:
+        '"Hack Nerd Font Mono","HackNerdFontMono-Regular","MesloLGM Nerd Font Mono","FiraCode Nerd Font Mono","JetBrainsMono Nerd Font Mono","Geist Mono",ui-monospace,monospace',
       fontSize: 12.5,
-      lineHeight: 1.25,
+      lineHeight: 1.0,
       theme: {
         background: "#0d0c0a",
         foreground: "#e8e3d8",

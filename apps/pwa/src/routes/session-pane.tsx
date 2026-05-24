@@ -45,6 +45,9 @@ export function SessionPane() {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // Stash for the term-boot effect's sendResize so the WS effect can
+  // resync the pane dims on (re)connect — same pattern as live-pane.
+  const sendResizeRef = useRef<(() => void) | null>(null);
   const replayedRef = useRef(false);
   const [paneStatus, setPaneStatus] = useState<"connecting" | "open" | "closed">("connecting");
 
@@ -76,9 +79,20 @@ export function SessionPane() {
     const term = new Terminal({
       cursorBlink: false,
       cursorStyle: "underline",
-      fontFamily: "Geist Mono, ui-monospace, monospace",
+      // Prefer Nerd Font Monos so vim/neovim/lazygit/etc. icons render
+      // and box-drawing characters land on exact cell boundaries. Falls
+      // through to Geist Mono (the dispatcher-console default) and then
+      // platform monospace if the operator doesn't have a Nerd Font
+      // installed on the client. The browser uses the OS font registry,
+      // so "installed on the operator's device" is what matters here —
+      // we don't ship the font as a web asset.
+      fontFamily:
+        '"Hack Nerd Font Mono","HackNerdFontMono-Regular","MesloLGM Nerd Font Mono","FiraCode Nerd Font Mono","JetBrainsMono Nerd Font Mono","Geist Mono",ui-monospace,monospace',
       fontSize: 12.5,
-      lineHeight: 1.25,
+      // lineHeight 1.0 keeps xterm's cell grid math exact — at 1.25 box-
+      // drawing characters end up split across the row boundary and the
+      // visible neovim window separators duplicate / mis-align.
+      lineHeight: 1.0,
       theme: {
         background: "#0d0c0a",
         foreground: "#e8e3d8",
@@ -104,9 +118,19 @@ export function SessionPane() {
     // Forward operator keystrokes via wsRef. Registering here (not inside
     // the WS effect) means the handler survives reconnects and is wired
     // before the first WS open/onmessage cycle finishes.
+    //
+    // Encode to bytes before send. The daemon's /ws/pane handler splits
+    // by WebSocket frame type — binary frames are keystrokes, text frames
+    // are JSON control envelopes (`{type:"resize",cols,rows}`). A bare
+    // `ws.send(string)` produces a text frame, which the daemon then
+    // tries to JSON.parse and silently drops on parse failure. Result:
+    // every keystroke gets thrown away. live-pane.tsx already does this
+    // correctly; this pane was missed when the binary/text split landed
+    // in f363bbe (resize fix) on 2026-05-23.
+    const encoder = new TextEncoder();
     const dataDisposer = term.onData((d) => {
       const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(d);
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(d));
     });
 
     // Auto-focus on mount so a fresh shell is ready to type into. On
@@ -130,6 +154,29 @@ export function SessionPane() {
     const detachTouch = wireXtermTouchScroll(term, container);
     const detachPaste = wireXtermPaste(term, container);
 
+    // Push the current grid dims to the daemon so tmux resize-windows
+    // the pane and the inner shell gets SIGWINCH with the right
+    // $LINES/$COLUMNS. Without this, tmux stays at its 80x24 spawn
+    // default and the visible xterm grid won't match — the content sits
+    // in the top-left corner with the rest of the pane dead space. Same
+    // bug pattern as the keystroke encoding miss in f363bbe: live-pane
+    // got resize forwarding then but session-pane was overlooked.
+    const sendResize = () => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const cols = term.cols;
+      const rows = term.rows;
+      if (cols < 2 || rows < 2) return;
+      try {
+        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      } catch {
+        // ignore — next fit() will retry
+      }
+    };
+    sendResizeRef.current = sendResize;
+    const resizeDisposer = term.onResize(() => sendResize());
+    sendResize();
+
     const onResize = () => {
       try {
         fit.fit();
@@ -138,11 +185,18 @@ export function SessionPane() {
       }
     };
     window.addEventListener("resize", onResize);
+    // iOS Safari sometimes settles layout after orientationchange fires
+    // and only later emits resize; wiring both makes rotation reliably
+    // trigger fit() before the user sees a stale grid.
+    window.addEventListener("orientationchange", onResize);
     const ro = new ResizeObserver(onResize);
     ro.observe(container);
     return () => {
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
       ro.disconnect();
+      resizeDisposer.dispose();
+      sendResizeRef.current = null;
       container.removeEventListener("mousedown", onMouseDown);
       detachTouch();
       detachPaste();
@@ -181,7 +235,13 @@ export function SessionPane() {
     const ws = new WebSocket(url);
     wsRef.current = ws;
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => setPaneStatus("open");
+    ws.onopen = () => {
+      setPaneStatus("open");
+      // Resync pane dims now that the channel is up. The xterm may have
+      // fit itself well before this connect; without this, tmux would
+      // stay at its 80x24 spawn default until the next browser resize.
+      sendResizeRef.current?.();
+    };
     ws.onclose = () => setPaneStatus("closed");
     ws.onerror = () => setPaneStatus("closed");
     ws.onmessage = (ev) => {

@@ -267,22 +267,10 @@ export async function startDaemon(): Promise<DaemonHandle> {
           if (ws.data.channel !== "pane") return;
           const runId = ws.data.runId;
           if (!runId) return;
-          const isBinary = typeof msg !== "string";
-          const msgLen = typeof msg === "string" ? msg.length : (msg as Buffer).byteLength;
-          // Diagnostic log for the "typing not reaching tmux" investigation
-          // — confirms whether pane messages arrive and which lookup path
-          // resolves the tmux session. Remove once the bug is identified.
-          console.log(
-            `[pane] msg runId=${runId} kind=${isBinary ? "bin" : "text"} len=${msgLen}`,
-          );
           void (async () => {
             // Interventions registry first (in-memory, no DB hit).
             let sessionName = tmuxNameForIntervention(runId);
-            let resolvedBy = sessionName ? "intervention" : null;
-            if (!sessionName) {
-              sessionName = tmuxNameForSession(runId);
-              if (sessionName) resolvedBy = "session";
-            }
+            if (!sessionName) sessionName = tmuxNameForSession(runId);
             if (!sessionName) {
               const row = await db
                 .select({ tmuxSession: schema.runs.tmuxSession })
@@ -290,11 +278,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
                 .where(eq(schema.runs.id, runId))
                 .get();
               sessionName = row?.tmuxSession ?? null;
-              if (sessionName) resolvedBy = "run-db";
             }
-            console.log(
-              `[pane] resolved runId=${runId} sessionName=${sessionName ?? "NULL"} by=${resolvedBy ?? "none"}`,
-            );
             if (!sessionName) return;
             if (typeof msg === "string") {
               let parsed: unknown;
@@ -314,14 +298,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
               }
               return;
             }
-            try {
-              await sendKeysToTmux(sessionName, new Uint8Array(msg as Buffer));
-              console.log(`[pane] sendKeysToTmux ok runId=${runId} → ${sessionName}`);
-            } catch (err) {
-              console.warn(
-                `[pane] sendKeysToTmux FAILED runId=${runId} → ${sessionName}: ${err instanceof Error ? err.message : String(err)}`,
-              );
-            }
+            await sendKeysToTmux(sessionName, new Uint8Array(msg as Buffer));
           })();
         },
         close(ws) {
