@@ -1,5 +1,5 @@
 import { createDb, runMigrations, schema } from "@factory/db";
-import { sendKeysToTmux } from "@factory/runtime";
+import { resizeTmuxWindow, sendKeysToTmux } from "@factory/runtime";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import { bindAgentBudgetConfig } from "./agent-budget.ts";
@@ -257,10 +257,16 @@ export async function startDaemon(): Promise<DaemonHandle> {
           // ws.data is the carrier id — cuid namespace is shared across
           // all three primitives, so a single lookup chain (interventions
           // → sessions → runs) finds the right tmux name.
+          //
+          // Frame convention:
+          //  - Binary frames → keystrokes (sent verbatim to the pane).
+          //  - Text frames → JSON control envelopes, currently just
+          //    `{type:"resize",cols,rows}`. xterm.js on the client always
+          //    encodes keystrokes to bytes before sending, so a string
+          //    frame here is unambiguously a control message.
           if (ws.data.channel !== "pane") return;
           const runId = ws.data.runId;
           if (!runId) return;
-          const data = typeof msg === "string" ? msg : (msg as Buffer);
           void (async () => {
             // Interventions registry first (in-memory, no DB hit).
             let sessionName = tmuxNameForIntervention(runId);
@@ -274,7 +280,25 @@ export async function startDaemon(): Promise<DaemonHandle> {
               sessionName = row?.tmuxSession ?? null;
             }
             if (!sessionName) return;
-            await sendKeysToTmux(sessionName, data instanceof Buffer ? new Uint8Array(data) : data);
+            if (typeof msg === "string") {
+              let parsed: unknown;
+              try {
+                parsed = JSON.parse(msg);
+              } catch {
+                return;
+              }
+              if (!parsed || typeof parsed !== "object") return;
+              const ctl = parsed as { type?: unknown; cols?: unknown; rows?: unknown };
+              if (
+                ctl.type === "resize" &&
+                typeof ctl.cols === "number" &&
+                typeof ctl.rows === "number"
+              ) {
+                await resizeTmuxWindow(sessionName, ctl.cols, ctl.rows);
+              }
+              return;
+            }
+            await sendKeysToTmux(sessionName, new Uint8Array(msg as Buffer));
           })();
         },
         close(ws) {

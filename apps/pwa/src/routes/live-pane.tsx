@@ -30,6 +30,13 @@ export function LivePane() {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // The pane WS and the xterm instance boot on independent effects (WS keys
+  // off run status; xterm boots lazily when the operator switches to raw).
+  // These refs let either side push the latest grid dims into the other
+  // when whichever one comes up second arrives — without rerunning the
+  // effect that owns it.
+  const paneWsRef = useRef<WebSocket | null>(null);
+  const sendResizeRef = useRef<(() => void) | null>(null);
   const [paneStatus, setPaneStatus] = useState<"connecting" | "open" | "closed">("connecting");
   /**
    * "structured" (default) shows the parsed event timeline (`RunEventStream`).
@@ -144,6 +151,26 @@ export function LivePane() {
 
     const detachTouch = wireXtermTouchScroll(term, container);
 
+    // Push current grid dims to the daemon so tmux resize-windows the pane
+    // and the inner program (claude, neovim, etc.) gets SIGWINCH with the
+    // right $LINES/$COLUMNS. No-op if the WS isn't open yet — the WS effect
+    // calls this again from its onopen handler to resync.
+    const sendResize = () => {
+      const ws = paneWsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const cols = term.cols;
+      const rows = term.rows;
+      if (cols < 2 || rows < 2) return;
+      try {
+        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      } catch {
+        // ignore — next fit() will retry
+      }
+    };
+    sendResizeRef.current = sendResize;
+    const resizeDisposer = term.onResize(() => sendResize());
+    sendResize();
+
     const onResize = () => {
       try {
         fit.fit();
@@ -152,12 +179,19 @@ export function LivePane() {
       }
     };
     window.addEventListener("resize", onResize);
+    // iOS Safari sometimes settles layout after `orientationchange` fires
+    // and only later emits a `resize` event; wiring both makes rotation
+    // reliably trigger fit() before the user sees a stale grid.
+    window.addEventListener("orientationchange", onResize);
     const ro = new ResizeObserver(onResize);
     ro.observe(container);
 
     return () => {
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
       ro.disconnect();
+      resizeDisposer.dispose();
+      sendResizeRef.current = null;
       detachTouch();
       term.dispose();
       termRef.current = null;
@@ -188,8 +222,19 @@ export function LivePane() {
     const url = `${proto}://${location.host}/ws/pane?runId=${encodeURIComponent(runId)}&token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => setPaneStatus("open");
-    ws.onclose = () => setPaneStatus("closed");
+    ws.onopen = () => {
+      paneWsRef.current = ws;
+      setPaneStatus("open");
+      // Resync the pane dims as soon as the channel is up. The xterm
+      // instance may have fit itself well before this connect (e.g. the
+      // operator was already in raw view) — without this, tmux would
+      // stay at its 80x24 spawn default until the next browser resize.
+      sendResizeRef.current?.();
+    };
+    ws.onclose = () => {
+      if (paneWsRef.current === ws) paneWsRef.current = null;
+      setPaneStatus("closed");
+    };
     ws.onerror = () => setPaneStatus("closed");
     ws.onmessage = (ev) => {
       const term = termRef.current;
@@ -201,11 +246,16 @@ export function LivePane() {
       }
     };
     const term = termRef.current;
+    // Encode to bytes so the daemon can tell keystrokes (binary frames)
+    // apart from JSON control envelopes (text frames) without resorting
+    // to a sentinel prefix on every keypress.
     const dataDisposer = term?.onData((d) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(d);
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(new TextEncoder().encode(d));
     });
     return () => {
       dataDisposer?.dispose();
+      if (paneWsRef.current === ws) paneWsRef.current = null;
       ws.close();
     };
   }, [runId, shouldConnectPane]);

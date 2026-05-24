@@ -65,6 +65,14 @@ export async function startTmuxSession(init: TmuxSessionInit): Promise<TmuxSessi
   // loop in the host sandbox never breaks and the runtime hangs.
   await tmux(["set-option", "-t", sessionName, "remain-on-exit", "off"]);
 
+  // Without an attached client, tmux's default `window-size latest` policy
+  // leaves the window pinned at default-size (80x24) — browser-side resizes
+  // routed through `resizeTmuxWindow` would not stick because tmux would
+  // re-derive size on every internal event. `manual` makes explicit resizes
+  // authoritative, which is what the live xterm pane needs so `$LINES`/
+  // `$COLUMNS` track the actual viewport.
+  await tmux(["set-option", "-t", sessionName, "window-size", "manual"]);
+
   // -o appends; -O captures the existing scrollback first. We use -o for
   // stream-style. `stdbuf -o0` disables stdout buffering on cat so each
   // byte tmux emits hits the log immediately — without it, an interactive
@@ -131,4 +139,35 @@ export async function sendKeysToTmux(
   }
   const r = await tmux(["send-keys", "-t", `${sessionName}:0.0`, "-H", ...hex]);
   return r.exitCode === 0;
+}
+
+/**
+ * Resize the tmux window (and its sole pane) backing this session so the
+ * inner program receives SIGWINCH and re-renders to the new grid. The pane
+ * is detached (no client attached), so this is the only path that makes
+ * `$LINES`/`$COLUMNS` track the browser's xterm.js viewport — `tmux
+ * refresh-client -C` requires an attached client and `tmux resize-pane`
+ * inside a one-pane window is equivalent to `resize-window`.
+ *
+ * Returns true on success; false if tmux refused (session gone, invalid
+ * dimensions). Callers should treat false as a soft signal.
+ */
+export async function resizeTmuxWindow(
+  sessionName: string,
+  cols: number,
+  rows: number,
+): Promise<boolean> {
+  if (!Number.isFinite(cols) || !Number.isFinite(rows)) return false;
+  const c = Math.max(2, Math.floor(cols));
+  const r = Math.max(2, Math.floor(rows));
+  const out = await tmux([
+    "resize-window",
+    "-t",
+    `${sessionName}:0`,
+    "-x",
+    String(c),
+    "-y",
+    String(r),
+  ]);
+  return out.exitCode === 0;
 }

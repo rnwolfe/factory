@@ -3,6 +3,7 @@ export { runtime } from "./runtime.ts";
 export { hostSandbox } from "./sandboxes/host.ts";
 export { followFileBytes, followFileLines, type TailHandle } from "./tail.ts";
 export {
+  resizeTmuxWindow,
   sendKeysToTmux,
   shellQuote,
   startTmuxSession,
