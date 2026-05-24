@@ -4,6 +4,19 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.10.2 — 2026-05-24
+
+Small follow-up to v0.10.1's per-task model picker: the override is
+now visible at a glance from the project's tasks list, not only on
+the per-task detail page.
+
+### Added
+- **Model chip on tasks-list rows.** When a task has a `model:`
+  override set, the project page's task row shows a compact chip
+  (`opus` / `sonnet` / `haiku`, or the trailing segment of any other
+  model id). No chip when the task inherits from project default —
+  the common case stays uncluttered.
+
 ## v0.10.1 — 2026-05-24
 
 Cost-discipline release ahead of Anthropic's 2026-06-15 Agent SDK
