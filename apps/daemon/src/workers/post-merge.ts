@@ -86,11 +86,20 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
       if (onMain && onMain.frontmatter.status !== target) {
         const updated = await updateTaskStatus(project.workdirPath, run.taskId, target);
         if (updated) {
-          await commitAllChanges(
+          const committed = await commitAllChanges(
             project.workdirPath,
             `chore: ${run.taskId} status -> ${updated.frontmatter.status}`,
             config.gitAuthor,
           );
+          // Same gitignore trap as runner.ts: we wrote the file but the
+          // commit was empty, so the reconcile won't actually land. Warn
+          // loudly — silent no-ops here stranded 7 tasks at `ready` before
+          // .factory/work/ was unignored on this project.
+          if (!committed) {
+            console.warn(
+              `[post-merge] reconcile commit was empty for ${run.taskId} in ${project.workdirPath} — .factory/work/ likely gitignored on this project; task status will stay at ${onMain.frontmatter.status} on main`,
+            );
+          }
         }
       }
     } catch {

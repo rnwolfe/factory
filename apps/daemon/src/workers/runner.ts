@@ -481,11 +481,22 @@ export async function executeRun(
           taskStatusFor(finalStatus),
         );
         if (updated) {
-          await commitAllChanges(
+          const committed = await commitAllChanges(
             result.worktreePath,
             `chore: ${row.taskId} status -> ${updated.frontmatter.status}`,
             config.gitAuthor,
           );
+          // We just wrote the task file; if the commit produced nothing,
+          // .factory/work/ is gitignored. The merge will bring no task-
+          // status update to main and the task stays at its prior value.
+          // Logged loudly because the silent-no-op cost us 7 stuck tasks
+          // before we caught it. Fix: unignore .factory/work/ in the
+          // project's .gitignore (only .factory/runs/ should be ignored).
+          if (!committed) {
+            console.warn(
+              `[runner] task-status commit was empty for ${row.taskId} in ${result.worktreePath} — .factory/work/ likely gitignored on this project; status will not propagate to main`,
+            );
+          }
         }
       } catch {
         // task file may not be present (ad-hoc run); commit may be a no-op.
