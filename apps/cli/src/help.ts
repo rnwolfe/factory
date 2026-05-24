@@ -33,4 +33,11 @@ upgrade lifecycle:
                         --skip-restart    apply without restarting the unit
   factory doctor        preflight checks (bun, git, unit, /health, config, db)
                         --strict          warn-level checks fail with exit 1
+
+maintenance:
+  factory prune         clean up worktrees from terminal-status runs
+                        --apply           actually remove (default: dry-run)
+                        --include-failed  also clean failed/blocked/aborted runs
+                        --project=<slug>  limit to one project
+                        --age=<days>      only clean worktrees older than N days
 `;

@@ -4,6 +4,7 @@ import { parseDoctorArgs, runDoctor } from "./commands/doctor.ts";
 import { runDown } from "./commands/down.ts";
 import { parseInstallArgs, runInstall } from "./commands/install.ts";
 import { parseLogsArgs, runLogs } from "./commands/logs.ts";
+import { parsePruneArgs, runPrune } from "./commands/prune.ts";
 import { runRestart } from "./commands/restart.ts";
 import { runStatus } from "./commands/status.ts";
 import { runUninstall } from "./commands/uninstall.ts";
@@ -39,6 +40,8 @@ async function main(argv: string[]): Promise<number> {
       return await runUpgrade(parseUpgradeArgs(rest));
     case "doctor":
       return await runDoctor(parseDoctorArgs(rest));
+    case "prune":
+      return await runPrune(parsePruneArgs(rest));
     default:
       process.stderr.write(`factory: unknown command '${cmd}'\n\n`);
       process.stdout.write(HELP);
