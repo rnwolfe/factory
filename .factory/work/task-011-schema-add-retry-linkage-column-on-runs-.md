@@ -1,11 +1,11 @@
 ---
 id: task-011
 title: "Schema: add retry linkage column on runs table"
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-05-24T01:46:25.591Z
-updated: 2026-05-24T01:46:25.591Z
+updated: 2026-05-25T00:24:28.094Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan mpdvz63d: "feedback: Sometimes plans fail after exiting for an unknown reason and"
+
 
