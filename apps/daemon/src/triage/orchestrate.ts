@@ -1,11 +1,11 @@
 import type { Db } from "@factory/db";
 import { schema } from "@factory/db";
-import { claudeCodeAgent, type StreamEvent } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
-import { spawn as bunSpawn } from "bun";
 import { and, desc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
+import { resolveAgent } from "../agents/resolve.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
+import { type AgentName, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { selectRubricKey } from "./select-rubric.ts";
 
 export interface TriageInput {
@@ -100,67 +100,18 @@ interface TriageInvocation {
   metrics: import("@factory/runtime").AgentMetrics | null;
 }
 
-async function invokeClaudeJson(prompt: string, budgetSeconds: number): Promise<TriageInvocation> {
-  const ac = new AbortController();
-  // budgetSeconds=0 means unlimited (matches running the Claude CLI directly).
-  const timer = budgetSeconds > 0 ? setTimeout(() => ac.abort(), budgetSeconds * 1000) : null;
-
-  const { argv, stdin } = claudeCodeAgent.buildArgv(prompt, {});
-  const proc = bunSpawn({
-    cmd: argv as string[],
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-    signal: ac.signal,
-  });
-  if (proc.stdin) {
-    if (stdin !== undefined) {
-      proc.stdin.write(stdin);
-    }
-    await proc.stdin.end();
-  }
-
-  // Concatenate every text event — assistant blocks and the final result
-  // envelope. Duplicates are harmless: the JSON extractor finds the first
-  // balanced object regardless of surrounding noise.
-  let resultText = "";
-  let metrics: import("@factory/runtime").AgentMetrics | null = null;
-  const reader = proc.stdout.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  const handleEvents = (events: readonly StreamEvent[]) => {
-    for (const e of events) {
-      if (e.kind === "text") resultText += e.text;
-      else if (e.kind === "metrics") metrics = e.metrics;
-    }
-  };
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx = buf.indexOf("\n");
-      while (idx !== -1) {
-        const line = buf.slice(0, idx);
-        buf = buf.slice(idx + 1);
-        handleEvents(claudeCodeAgent.parseLine(line));
-        idx = buf.indexOf("\n");
-      }
-    }
-    if (buf.length > 0) {
-      handleEvents(claudeCodeAgent.parseLine(buf));
-    }
-  } finally {
-    if (timer) clearTimeout(timer);
-    reader.releaseLock();
-  }
-
-  const exitCode = await proc.exited;
-  if (exitCode !== 0 && !resultText) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`claude exited ${exitCode}: ${stderr.trim().slice(0, 200)}`);
-  }
-  return { text: resultText, metrics };
+/**
+ * Triage-shaped wrapper around the shared dispatcher. Triage doesn't thread
+ * sessionId (each follow-up turn re-renders the full thread into the prompt),
+ * so we drop that return field; everything else matches.
+ */
+async function invokeTriageAgent(
+  prompt: string,
+  budgetSeconds: number,
+  agent: AgentName,
+): Promise<TriageInvocation> {
+  const inv = await invokeClaudeJson(prompt, { budgetSeconds, agent });
+  return { text: inv.text, metrics: inv.metrics ?? null };
 }
 
 /**
@@ -275,14 +226,16 @@ export async function runTriage(
     RUBRIC_YAML: rubric.yaml,
   });
 
-  // 3. Invoke the agent.
+  // 3. Invoke the agent. Triage runs ideaside (no project yet), so the agent
+  // comes from settings.default-agent → "claude-code". See codex-parity §2a.
   const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
+  const agent = resolveAgent(db);
   let responseText: string;
   let metrics: import("@factory/runtime").AgentMetrics | null = null;
   if (opts.agentInvoker) {
     responseText = await opts.agentInvoker(rendered);
   } else {
-    const inv = await invokeClaudeJson(rendered, budget);
+    const inv = await invokeTriageAgent(rendered, budget, agent);
     responseText = inv.text;
     metrics = inv.metrics;
   }
@@ -425,12 +378,13 @@ export async function runFollowupTriage(
   });
 
   const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
+  const agent = resolveAgent(db);
   let responseText: string;
   let metrics: import("@factory/runtime").AgentMetrics | null = null;
   if (opts.agentInvoker) {
     responseText = await opts.agentInvoker(rendered);
   } else {
-    const inv = await invokeClaudeJson(rendered, budget);
+    const inv = await invokeTriageAgent(rendered, budget, agent);
     responseText = inv.text;
     metrics = inv.metrics;
   }

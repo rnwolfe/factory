@@ -32,6 +32,12 @@ export const SETTING_KEYS = [
   // falls through to the CLI's own default. Sits at the bottom of the
   // inheritance chain: task model → project model → this → CLI default.
   "default-model",
+  // System-level default headless agent. Currently "claude-code" or "codex".
+  // Sits at the bottom of the agent inheritance chain:
+  //   submit input → task.frontmatter.agent → this → "claude-code".
+  // task-020 will add a per-project agent picker; until then this is how
+  // operators select codex as the default for new runs without per-task overrides.
+  "default-agent",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -169,6 +175,12 @@ export interface OpsSettings {
    * Bottom of the inheritance chain: task.model → project.model → this → null.
    */
   defaultModel: string | null;
+  /**
+   * System-level default headless agent. Null = "claude-code". Bottom of the
+   * agent inheritance chain: submit input → task.frontmatter.agent → this →
+   * "claude-code".
+   */
+  defaultAgent: string | null;
 }
 
 export interface SettingsView {
@@ -214,8 +226,10 @@ export function readOpsSettings(map: Map<SettingKey, string>): OpsSettings {
   const landingRaw = map.get("landing-route");
   const landingRoute: LandingRoute = landingRaw === "ops" ? "ops" : "inbox";
   const defaultModelRaw = map.get("default-model");
+  const defaultAgentRaw = map.get("default-agent");
   return {
     landingRoute,
     defaultModel: defaultModelRaw && defaultModelRaw.length > 0 ? defaultModelRaw : null,
+    defaultAgent: defaultAgentRaw && defaultAgentRaw.length > 0 ? defaultAgentRaw : null,
   };
 }

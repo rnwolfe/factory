@@ -2,6 +2,7 @@ import type { Audit, Db } from "@factory/db";
 import { schema } from "@factory/db";
 import { eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
+import { resolveAgent } from "../agents/resolve.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { readAuditSkill } from "../projects/audit-skills.ts";
@@ -76,12 +77,13 @@ export async function runAuditIteration(
   const prompt = buildAuditPrompt({ skill, projectName: project.name, ...context });
 
   const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
+  const agent = resolveAgent(db);
   let invocation: InvokeClaudeResult;
   try {
     if (opts.agentInvoker) {
       invocation = await opts.agentInvoker({ prompt });
     } else {
-      invocation = await invokeClaudeJson(prompt, { budgetSeconds: budget });
+      invocation = await invokeClaudeJson(prompt, { budgetSeconds: budget, agent });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

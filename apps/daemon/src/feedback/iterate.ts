@@ -2,8 +2,13 @@ import { type Db, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
+import { resolveAgent } from "../agents/resolve.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
-import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
+import {
+  agentSupportsResume,
+  type InvokeClaudeResult,
+  invokeClaudeJson,
+} from "../plans/invoke-claude.ts";
 import { extractJsonObject } from "../plans/json-extract.ts";
 import { setFeedbackSession } from "./store.ts";
 
@@ -94,13 +99,23 @@ export async function runAgentReply(
   const thread = await listFeedbackComments(db, feedbackId);
   const prompt = await buildPrompt(db, fb, thread);
 
+  // Resolve effective agent. Feedback threads relied on resume when present;
+  // for agents without resume (codex), drop the resumeSessionId — buildPrompt
+  // already encodes the full thread into the prompt, so the agent has the
+  // context it needs to reply (just spends more tokens than the resume path
+  // would). See docs/internal/codex-parity.md §5a.
+  const agent = resolveAgent(db);
+  const resumeAllowed = agentSupportsResume(agent);
+  const resumeSessionId = resumeAllowed ? (fb.claudeSessionId ?? undefined) : undefined;
+
   let invocation: InvokeClaudeResult;
   try {
     invocation = opts.agentInvoker
       ? await opts.agentInvoker(prompt)
       : await invokeClaudeJson(prompt, {
           budgetSeconds: opts.budgetSeconds ?? getAgentBudgetSeconds(),
-          resumeSessionId: fb.claudeSessionId ?? undefined,
+          agent,
+          resumeSessionId,
         });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

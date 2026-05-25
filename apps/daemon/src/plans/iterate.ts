@@ -17,10 +17,11 @@ import {
 import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
+import { resolveAgent } from "../agents/resolve.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
-import { type InvokeClaudeResult, invokeClaudeJson } from "./invoke-claude.ts";
+import { agentSupportsResume, type InvokeClaudeResult, invokeClaudeJson } from "./invoke-claude.ts";
 import { extractJsonObject } from "./json-extract.ts";
 import { planPromptKey } from "./prompts.ts";
 
@@ -529,9 +530,16 @@ export async function runPlanIteration(
   // running under stale instructions), and there's at least one prior agent
   // turn (without one, the session can't really exist anyway). The latest
   // operator comment is the conversational input the follow-up needs.
+  //
+  // For agents without `--resume` (codex), we additionally suppress the
+  // resume branch and always send the full prompt — buildPromptForKind
+  // re-renders the entire thread into the template, so correctness is
+  // preserved (at the cost of more tokens per turn). See codex-parity §3b.
+  const agentName = resolveAgent(db);
   const lastOperatorComment = [...thread].reverse().find((c) => c.role === "operator");
   const hasPriorAgentTurn = thread.some((c) => c.role === "agent");
   const canResume =
+    agentSupportsResume(agentName) &&
     Boolean(plan.claudeSessionId) &&
     plan.promptVersion === currentPromptVersion &&
     hasPriorAgentTurn &&
@@ -553,6 +561,7 @@ export async function runPlanIteration(
     if (opts.agentInvoker) return opts.agentInvoker(call);
     return invokeClaudeJson(call.prompt, {
       budgetSeconds: budget,
+      agent: agentName,
       resumeSessionId: call.resumeSessionId,
     });
   }

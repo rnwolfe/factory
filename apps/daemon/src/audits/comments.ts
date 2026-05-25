@@ -3,8 +3,9 @@ import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
+import { resolveAgent } from "../agents/resolve.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
-import { invokeClaudeJson } from "../plans/invoke-claude.ts";
+import { agentSupportsResume, invokeClaudeJson } from "../plans/invoke-claude.ts";
 
 /**
  * Operator/agent thread on a completed audit. v0.4 cut 5 — replaces the
@@ -89,11 +90,34 @@ export async function runAgentReply(
     return { comment: fallback, newSessionId: null, errorMessage: null };
   }
 
+  // Audit-comment replies are resume-dependent: the short prompt below assumes
+  // the original audit's findings + report are still in the agent's context.
+  // For agents without resume (codex), there is currently no fallback that
+  // rebuilds full context here — surface a clear, in-thread error so the
+  // operator sees what to do (switch agent, or open a new audit). The PWA
+  // submit-time guard at run-spawn handles the runs surface; this is the
+  // belt-and-suspenders guard for the iteration code path itself. See
+  // docs/internal/codex-parity.md §4d.
+  const agent = resolveAgent(db);
+  if (!agentSupportsResume(agent)) {
+    const row = await persistAgentRow(
+      db,
+      auditId,
+      `(audit comment follow-up requires session resume, which agent "${agent}" does not support. Switch the project to claude-code, or open a fresh audit to re-grow context. See docs/internal/codex-parity.md §4d.)`,
+    );
+    return {
+      comment: row,
+      newSessionId: null,
+      errorMessage: `agent ${agent} does not support resume`,
+    };
+  }
+
   try {
     const reply = await invokeClaudeJson(
       `Operator just asked a follow-up on the audit report:\n\n${operatorBody.trim()}\n\nReply in 1–3 short paragraphs of markdown. Do not re-emit the JSON envelope; just prose.`,
       {
         budgetSeconds: getAgentBudgetSeconds(),
+        agent,
         resumeSessionId: audit.claudeSessionId ?? undefined,
       },
     );

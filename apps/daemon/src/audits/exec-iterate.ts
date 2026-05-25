@@ -4,6 +4,7 @@ import { schema } from "@factory/db";
 import { ensureWorktree, removeWorktree } from "@factory/runtime";
 import { eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
+import { resolveAgent } from "../agents/resolve.ts";
 import type { FactoryConfig } from "../config.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { invokeClaudeJson } from "../plans/invoke-claude.ts";
@@ -83,8 +84,10 @@ export async function runExecAudit(
     });
     const prompt = buildAuditPrompt({ skill, projectName: project.name, ...context });
     const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
+    const agent = resolveAgent(db);
     const invocation = await invokeClaudeJson(prompt, {
       budgetSeconds: budget,
+      agent,
       cwd: wt.worktreePath,
     });
 
