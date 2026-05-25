@@ -38,11 +38,51 @@ interface RecoveredFactoryStatus {
 }
 
 /**
+ * Walk one stream-json line and return any agent text it carries. Dispatched
+ * by agent kind because the two CLIs use entirely different envelope shapes:
+ *
+ * - **claude-code** (`stream-json`): `type='assistant'` with
+ *   `message.content[].text`; `type='result'` with `result` string.
+ * - **codex** (`exec --json`): `type='item.completed'` with
+ *   `item.type='agent_message'` and `item.text` string.
+ *
+ * Returning a string (possibly empty) instead of mutating an outer buffer
+ * keeps the dispatch local. Tolerant of unknown line shapes — recover
+ * caller filters out non-JSON lines before calling.
+ */
+function extractTextFromLogLine(parsed: unknown, agentName: string): string {
+  if (typeof parsed !== "object" || parsed === null) return "";
+  const p = parsed as Record<string, unknown>;
+  if (agentName === "codex") {
+    if (p.type !== "item.completed") return "";
+    const item = p.item as Record<string, unknown> | undefined;
+    if (!item || item.type !== "agent_message") return "";
+    return typeof item.text === "string" ? item.text : "";
+  }
+  // Default: claude-code stream-json shape.
+  if (p.type === "assistant") {
+    const msg = p.message as { content?: Array<{ type?: string; text?: string }> } | undefined;
+    if (!msg?.content) return "";
+    let out = "";
+    for (const c of msg.content) {
+      if (c.type === "text" && typeof c.text === "string") out += c.text;
+    }
+    return out;
+  }
+  if (p.type === "result" && typeof p.result === "string") return p.result;
+  return "";
+}
+
+/**
  * Read the agent's persisted log for an orphaned run and try to extract its
  * `factory-status` declaration. The log lives at
  * `<workdirPath>/.factory/runs/<runId>/log.txt` (see runner.ts logSocketPath).
  * Streaming-JSON `assistant` messages embed text deltas; we concatenate all
  * such text and run the standard parser over it.
+ *
+ * Agent-aware: dispatches on the run row's `agentName` to handle codex's
+ * different envelope shape. Default is claude-code for backwards-compat
+ * with rows that pre-date the agentName column.
  *
  * Returns null if the log doesn't exist, no text was found, or no status
  * block was emitted.
@@ -50,6 +90,7 @@ interface RecoveredFactoryStatus {
 async function recoverFactoryStatusFromLog(
   workdirPath: string,
   runId: string,
+  agentName: string,
 ): Promise<RecoveredFactoryStatus | null> {
   const logPath = path.join(workdirPath, ".factory", "runs", runId, "log.txt");
   let raw: string;
@@ -60,26 +101,16 @@ async function recoverFactoryStatusFromLog(
   }
   if (raw.length === 0) return null;
 
-  // Walk newline-delimited stream-json. Pull text deltas out of `assistant`
-  // and `result` shapes. Tolerate non-JSON lines (the log is shared with raw
+  // Walk newline-delimited stream-json. Pull text out per the agent's
+  // envelope shape. Tolerate non-JSON lines (the log is shared with raw
   // pane bytes via pipe-pane).
   let text = "";
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
     try {
-      const parsed = JSON.parse(trimmed) as {
-        type?: string;
-        message?: { content?: Array<{ type?: string; text?: string }> };
-        result?: string;
-      };
-      if (parsed.type === "assistant" && parsed.message?.content) {
-        for (const c of parsed.message.content) {
-          if (c.type === "text" && typeof c.text === "string") text += c.text;
-        }
-      } else if (parsed.type === "result" && typeof parsed.result === "string") {
-        text += parsed.result;
-      }
+      const parsed = JSON.parse(trimmed);
+      text += extractTextFromLogLine(parsed, agentName);
     } catch {
       // skip
     }
@@ -149,6 +180,7 @@ export async function reapOrphanedRuns(deps: SubmitRunDeps): Promise<ReapStats> 
       taskId: schema.runs.taskId,
       branch: schema.runs.branch,
       sessionId: schema.runs.sessionId,
+      agentName: schema.runs.agentName,
       slug: schema.projects.slug,
       workdirPath: schema.projects.workdirPath,
     })
@@ -167,7 +199,7 @@ export async function reapOrphanedRuns(deps: SubmitRunDeps): Promise<ReapStats> 
     await killTmuxSession(tmuxSessionNameFor(o.slug, o.id));
 
     // Tier 1: agent already declared a status before the daemon died.
-    const recovered = await recoverFactoryStatusFromLog(o.workdirPath, o.id);
+    const recovered = await recoverFactoryStatusFromLog(o.workdirPath, o.id, o.agentName);
     if (recovered) {
       await db
         .update(schema.runs)

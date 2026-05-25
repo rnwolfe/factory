@@ -5,6 +5,7 @@ import { spawn as bunSpawn } from "bun";
 import { and, desc, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import { agentSupportsResume } from "../plans/invoke-claude.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import { readAllSettings, readOpsSettings } from "../settings/store.ts";
 import type { WorkerPool } from "./pool.ts";
@@ -209,23 +210,53 @@ export async function submitRun(
   // the run was actually invoked with, independent of any later changes to
   // the upstream values. Null means "let the CLI pick its own default."
   let effectiveModel: string | null = null;
-  // Resolve effective agent: submit input → task.frontmatter.agent → "claude-code".
+  // Resolve effective agent, top-down:
+  //   submit input  →  task.frontmatter.agent  →  settings.default-agent
+  //     →  "claude-code"
+  // (Per-project agent column is task-020's follow-up; until then the
+  // settings-level default covers operator-wide preference for codex.)
   // The provider interpreting `effectiveModel` is determined by this name —
   // a codex model id passed to claude-code (or vice versa) would just bounce.
   let effectiveAgent = normalizeAgent(input.agent) ?? "claude-code";
+  let agentResolvedFromInputOrTask = normalizeAgent(input.agent) !== null;
   if (input.taskId) {
     const taskFile = await readTaskFile(project.workdirPath, input.taskId);
     const raw = taskFile?.frontmatter.model;
     if (typeof raw === "string" && raw.trim().length > 0) effectiveModel = raw.trim();
     if (!normalizeAgent(input.agent)) {
       const fromFile = normalizeAgent(taskFile?.frontmatter.agent);
-      if (fromFile) effectiveAgent = fromFile;
+      if (fromFile) {
+        effectiveAgent = fromFile;
+        agentResolvedFromInputOrTask = true;
+      }
     }
   }
   if (!effectiveModel && project.model) effectiveModel = project.model;
-  if (!effectiveModel) {
+  if (!effectiveModel || !agentResolvedFromInputOrTask) {
     const ops = readOpsSettings(readAllSettings(db));
-    if (ops.defaultModel) effectiveModel = ops.defaultModel;
+    if (!effectiveModel && ops.defaultModel) effectiveModel = ops.defaultModel;
+    if (!agentResolvedFromInputOrTask && ops.defaultAgent) {
+      const fromSettings = normalizeAgent(ops.defaultAgent);
+      if (fromSettings) effectiveAgent = fromSettings;
+    }
+  }
+
+  // Parity-block precheck: when the operator selected an agent that does not
+  // support session resume (codex) and the run path needs resume (operator's
+  // explicit resumeFromSessionId, OR reuseFromRunId of a source that captured
+  // a sessionId), refuse with an actionable error pointing at the parity
+  // inventory. The PWA surfaces this verbatim. See docs/internal/codex-parity.md
+  // "Ship-with-gap policy enforcement" section.
+  const resumeWanted = (sessionIdForRow ?? "").length > 0;
+  const supportsResume = agentSupportsResume(
+    (effectiveAgent === "codex" ? "codex" : "claude-code") as "claude-code" | "codex",
+  );
+  if (resumeWanted && !supportsResume) {
+    throw new Error(
+      `agent "${effectiveAgent}" does not support session resume — this run path needs it ` +
+        `(intervene-resume / reuse-worktree). Switch the run to claude-code, or wait for the resume-fallback ` +
+        `follow-up. See docs/internal/codex-parity.md.`,
+    );
   }
 
   await db.insert(schema.runs).values({

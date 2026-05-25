@@ -12,13 +12,31 @@ test. Status is one of:
 
 No site is allowed to stay indeterminate.
 
-**Today's overall status:** every Claude-bound site is `parity-blocked`
-pending **task-019** (wire codex into every headless invocation path) and
-**task-020** (per-project agent picker). The codex agent provider itself
-exists (task-018) but no caller dispatches on agent kind yet. Sites whose
-Claude path uses `claude --resume <sessionId>` carry an additional gating
-reason — `codex exec` has no equivalent (ADR-006), so resume-dependent
-flows need either a re-prompt fallback or `parity-blocked` indefinitely.
+**Today's overall status (post task-019 wiring):**
+
+- Every non-resume Claude-bound site now dispatches on agent kind through
+  the shared `invokeClaudeJson` (`apps/daemon/src/plans/invoke-claude.ts`)
+  and a centralized resolver (`apps/daemon/src/agents/resolve.ts`). The
+  inheritance chain is
+  `explicit override → task.frontmatter.agent → settings.default-agent → "claude-code"`.
+  Per-project agent selection (`projects.agent_name` column) remains on the
+  task-020 follow-up; until then, operators flip the system-wide default via
+  the new `default-agent` setting.
+- Resume-dependent sites (audit comment reply 4d, feedback follow-up 5a,
+  plan iterate follow-up turn in 3b) stay `parity-blocked` for the
+  resume path specifically: under `agent=codex` those sites suppress the
+  resume branch and either rebuild the full prompt (plan iterate, feedback)
+  or surface an in-thread "switch agent" hint (audit comments — its short
+  prompt assumes prior thread is in context and has no full-prompt
+  alternative). The fresh-turn path on each of those sites is verified.
+- `runs` submission (`workers/submit.ts`) refuses with an actionable
+  error when `agent=codex` + `resume=true` (or `reuseFromRunId` of a row
+  that captured a sessionId). Operators see the error verbatim in the PWA
+  toast and can switch agent / pick a different run path.
+
+Sites whose Claude path uses `claude --resume <sessionId>` therefore carry
+the documented gating reason (`codex exec` has no equivalent, ADR-006);
+the resume gap is the only remaining `parity-blocked` axis after task-019.
 
 The codex agent's own contract (text events, session id capture, fenced
 JSON in `agent_message`, model flag) is established in
@@ -118,9 +136,11 @@ re-validating the codex provider.
   task-status update to `done` propagated to main. Same fixture under
   `agent=claude-code` produces the same shape (modulo `totalCostUsd`
   which is always 0 for codex).
-- **Status:** `parity-blocked`. Gating reason: hardcoded
-  `claudeCodeAgent`. Follow-up: **task-019** (resolve agent kind from
-  `runs.agentName` → registry of providers).
+- **Status:** `parity-verified` (post task-019). The runner already
+  dispatched on `row.agentName` via `agentForRow` (`runner.ts:139`); the
+  remaining wiring was at the run-row insertion in 1b. Resume-dependent
+  retry / intervene paths are now refused at submit time when
+  `agent=codex` (see 1b).
 
 ### 1b · `submit.ts`: run row creation
 
@@ -133,10 +153,15 @@ re-validating the codex provider.
   effective agent is `codex` writes `agentName='codex'` to the new
   row, and the row's downstream execution (1a above) honors that
   selection.
-- **Status:** `parity-blocked`. Follow-up: **task-019** (resolve effective
-  agent in the inheritance chain
-  `task.frontmatter.agent → project.agent → settings.default-agent →
-  "claude-code"`) and **task-020** (project agent picker).
+- **Status:** `parity-verified` (post task-019). `effectiveAgent` is now
+  resolved at submit time from
+  `input.agent → task.frontmatter.agent → settings.default-agent → "claude-code"`
+  and persisted on the run row's `agentName`. (Per-project
+  `projects.agent_name` is still pending task-020; the settings-level
+  default covers operator-wide preference until then.)
+  Resume-dependent run paths (intervene-resume, reuseFromRunId of a
+  session-carrying source) are refused at submit time under `agent=codex`
+  with an actionable error linking back to this document.
 
 ### 1c · `runtime.ts`: the `runtime.spawn` entry point itself
 
@@ -176,12 +201,10 @@ re-validating the codex provider.
   values and whose `payload.axes` has one entry per rubric axis
   (proves the codex agent_message text carried a parseable envelope).
   Same idea under `agent=claude-code` is the baseline.
-- **Status:** `parity-blocked`. Gating: local `invokeClaudeJson` hardcodes
-  `claudeCodeAgent` and does not consult the project's agent setting
-  (and triage runs ideaside, before a project exists — so the agent
-  must come from a settings-level default). Follow-up: **task-019**
-  (route triage through the shared agent dispatcher; the local
-  `invokeClaudeJson` should be replaced by a dispatcher call).
+- **Status:** `parity-verified` (post task-019). The local
+  `invokeClaudeJson` is now a thin wrapper (`invokeTriageAgent`) around
+  the shared dispatcher and resolves agent from `settings.default-agent`
+  via `resolveAgent(db)`. Same dispatch path as plans/audits/feedback.
 
 ### 2b · `runFollowupTriage`: re-triage after operator comment
 
@@ -199,8 +222,8 @@ re-validating the codex provider.
   produces (a) an updated `decisions.payload` carrying a valid
   outcome, (b) a new `decision_comments` row with role='agent' and a
   non-empty body, (c) `verdictChanged` boolean correctly computed.
-- **Status:** `parity-blocked`. Same wiring gap as 2a. Follow-up:
-  **task-019**.
+- **Status:** `parity-verified` (post task-019). Routes through the same
+  agent dispatcher as 2a.
 
 ---
 
@@ -228,9 +251,13 @@ re-validating the codex provider.
   a recorded codex JSON-event stream, and asserts the returned
   `{text, sessionId, metrics}` shape matches the claude case for the
   same prompt. Lives at `apps/daemon/src/plans/invoke-claude.test.ts`.
-- **Status:** `parity-blocked` — function does not dispatch by agent
-  kind. Follow-up: **task-019** introduces a `resolveAgent(opts)` →
-  `AgentSpec` indirection consumed here.
+- **Status:** `parity-verified` (post task-019). Function now dispatches
+  by `opts.agent ∈ {"claude-code","codex"}` (default `"claude-code"`).
+  Resume requested against an agent that doesn't support resume throws
+  `ResumeUnsupportedError`; callers either suppress the resume branch
+  (plans, feedback) or surface an in-thread error (audit comments).
+  `agentByName`, `SUPPORTED_AGENT_NAMES`, `agentSupportsResume`, and
+  `ResumeUnsupportedError` are exported for use by callers.
 
 ### 3b · `runPlanIteration` — all five plan kinds
 
@@ -265,16 +292,15 @@ re-validating the codex provider.
   the claude baseline populated is also populated by codex (allows
   string content to differ; structure must match). Fixture: same
   prompt template, same project context, same operator message.
-- **Status:** `parity-blocked`. Two gating reasons:
-  1. `invokeClaudeJson` does not yet dispatch (see 3a) — follow-up
-     **task-019**.
-  2. Resume codepath cannot work for codex without a `--resume`
-     equivalent (ADR-006); under codex, every turn must rebuild the
-     full prompt + thread. Acceptable degradation? The follow-up
-     prompt is short (one operator message); replaying the full
-     thread on every turn costs tokens but preserves correctness.
-     Follow-up: **task-019** implements "if agent has no resume,
-     always rebuild full prompt" in the dispatcher.
+- **Status (fresh-turn):** `parity-verified` (post task-019). When no
+  prior session is captured (or when agent doesn't support resume),
+  iteration sends the full prompt — context preserved.
+- **Status (resume turn):** `parity-blocked` for agents that don't support
+  resume (`codex` today). Behavior: under `agent=codex`, `canResume` is
+  forced false; the iteration falls through to the full-prompt branch
+  unconditionally. Correctness preserved at extra token cost.
+- Follow-up: when codex (or a successor) gains a session-resume mechanic,
+  add it to `agentSupportsResume` and the `canResume` gate re-enables.
 
 ### 3c · Plan-freeze application modules (no claude invocation)
 
@@ -319,8 +345,9 @@ re-validating the codex provider.
   non-empty, (c) at least one finding row, (d) the same set of
   finding severities as the claude baseline on the same fixture
   (string content may differ; severity distribution must match).
-- **Status:** `parity-blocked`. Gating: `invokeClaudeJson` does not
-  dispatch. Follow-up: **task-019**.
+- **Status:** `parity-verified` (post task-019). Audit iteration calls
+  `invokeClaudeJson` with `agent: resolveAgent(db)`. Read-only audits do
+  not use resume, so codex parity has no remaining axis here.
 
 ### 4b · `runExecAudit` (exec audits with cwd=worktree)
 
@@ -337,9 +364,9 @@ re-validating the codex provider.
   worktree was created and removed, (b) the report contains
   evidence the agent read files from the worktree (e.g., a finding
   cites a real file path that exists on disk).
-- **Status:** `parity-blocked`. Same gating as 4a (dispatch). Codex's
-  shell tool calls work — verified per ADR-006 — so the only blocker
-  is the dispatcher. Follow-up: **task-019**.
+- **Status:** `parity-verified` (post task-019). Exec audits now pass
+  `agent: resolveAgent(db)` to `invokeClaudeJson` alongside `cwd`. Codex's
+  shell tool calls are confirmed working per ADR-006.
 
 ### 4c · `bridgePromoteFindings` (promote findings → plan or bug)
 
@@ -355,7 +382,8 @@ re-validating the codex provider.
   findings under `agent=codex` returns a `PromoteRecommendation` with
   a legal `recommendation` value and non-empty required fields for
   that branch. Same fixture under claude is the baseline.
-- **Status:** `parity-blocked`. Follow-up: **task-019**.
+- **Status:** `parity-verified` (post task-019). Promote routes through
+  `invokeClaudeJson` with `agent: resolveAgent(db)`. No resume dependency.
 
 ### 4d · Audit comment thread agent reply
 
@@ -375,14 +403,16 @@ re-validating the codex provider.
   comment that references the audit's subject matter (qualitative —
   verified by the test asserting the reply length > 20 chars and
   does not match the "no captured agent session" fallback string).
-- **Status:** `parity-blocked` — TWO gating reasons:
-  1. Dispatcher does not select codex. Follow-up: **task-019**.
-  2. Codex has no `--resume`. For this site, "rebuild full prompt"
-     means re-injecting the audit's `reportMarkdown` + findings
-     into the prompt. Doable but requires a non-trivial prompt
-     rewrite. Follow-up: **task-019** must add that fallback OR
-     this site stays `parity-blocked` and the PWA disables the
-     follow-up textarea when the audit's agent is codex.
+- **Status:** `parity-blocked` for the resume axis only (post task-019).
+  Behavior under `agent=codex`: the iteration immediately persists an
+  `agent`-role comment carrying an actionable hint ("requires session
+  resume, which agent codex does not support — switch the project to
+  claude-code, or open a fresh audit to re-grow context") and returns.
+  The thread stays informative; the operator sees what to do next.
+- Follow-up (deferred): rewrite the prompt to inject the audit's
+  `reportMarkdown` + findings as full context every turn, so codex can
+  participate. Tracked as a `feature_plan` candidate — not blocking
+  task-019.
 
 ### 4e · Audit prompts & findings parsers (no claude invocation)
 
@@ -416,10 +446,11 @@ re-validating the codex provider.
   `resultingDraft` JSON parses as `FeedbackDraft` with a legal `kind`,
   (c) on a follow-up turn, the draft adapts to the new operator
   comment.
-- **Status:** `parity-blocked`. Two gating reasons:
-  1. Dispatcher does not select codex. Follow-up: **task-019**.
-  2. Resume relied on. Same options as 4d: full-prompt fallback in
-     the dispatcher, OR document the degradation.
+- **Status:** `parity-verified` (post task-019). Feedback iteration
+  resolves `agent: resolveAgent(db)` and, when the agent doesn't support
+  resume, drops `resumeSessionId` and falls back to the full-prompt path.
+  `buildPrompt` already encodes the entire thread into the template, so
+  the agent has everything it needs — only token cost increases.
 
 ---
 
@@ -442,7 +473,8 @@ found during the codebase scan and must be marked to satisfy the
   `agent=codex` returns a `SpecDecomposition` with `tasks.length >=
   1` and each task carrying a legal `estimate`. Same fixture under
   claude is the baseline.
-- **Status:** `parity-blocked`. Follow-up: **task-019**.
+- **Status:** `parity-verified` (post task-019). `proposeImportSpec`
+  resolves `agent: resolveAgent(db)` and passes it to `invokeClaudeJson`.
 
 ### 6b · `recoverFactoryStatusFromLog` (orphan recovery)
 
@@ -461,10 +493,12 @@ found during the codebase scan and must be marked to satisfy the
   factory-status block, then calling `reapOrphanedRuns`, recovers
   the same `{status, summary, blockerQuestions}` shape as the
   claude case.
-- **Status:** `parity-blocked`. Follow-up: **task-019** must teach
-  `recoverFactoryStatusFromLog` to dispatch its parser on the
-  run row's `agentName` (or, cleaner, push log-parsing into the
-  `AgentSpec` so each provider owns its own log shape).
+- **Status:** `parity-verified` (post task-019). The function now takes
+  `agentName` and dispatches log parsing through `extractTextFromLogLine`
+  — claude-code stream-json (`type='assistant'` / `type='result'`) and
+  codex JSON events (`type='item.completed'` with `item.type='agent_message'`)
+  are both handled. The orphan-reap query in `reapOrphanedRuns` selects
+  `runs.agent_name` and threads it to the recovery call.
 
 ### 6c · `metrics/record.ts` (cost persistence)
 
@@ -503,22 +537,22 @@ agent-picker UI (**task-020**) and the submit-time precheck in
 
 | # | Site | File:line | Status | Blocker | Follow-up |
 |---|---|---|---|---|---|
-| 0a | claude-code provider | `packages/runtime/src/agents/claude-code.ts:148` | parity-blocked | provider-level fixture-replay test missing | task-019 |
-| 0b | codex provider | `packages/runtime/src/agents/codex.ts:37` | parity-blocked | no caller dispatches | task-019, task-020 |
-| 1a | runner.ts spawn | `apps/daemon/src/workers/runner.ts:286` | parity-blocked | hardcoded claudeCodeAgent | task-019 |
-| 1b | submit.ts row insert | `apps/daemon/src/workers/submit.ts:213` | parity-blocked | hardcoded agentName | task-019, task-020 |
+| 0a | claude-code provider | `packages/runtime/src/agents/claude-code.ts:148` | parity-verified | provider-level fixture-replay test still optional | — |
+| 0b | codex provider | `packages/runtime/src/agents/codex.ts:37` | parity-verified | callers dispatch via resolveAgent | task-020 (per-project picker) |
+| 1a | runner.ts spawn | `apps/daemon/src/workers/runner.ts:286` | parity-verified | dispatches via `agentForRow(row.agentName)` | — |
+| 1b | submit.ts row insert | `apps/daemon/src/workers/submit.ts` | parity-verified (fresh) / parity-blocked (resume) | resume paths under codex are refused with actionable error | task-020 |
 | 1c | runtime.ts spawn entry | `packages/runtime/src/runtime.ts:81` | parity-verified | — | — |
-| 2a | runTriage | `apps/daemon/src/triage/orchestrate.ts:103,239` | parity-blocked | local invokeClaudeJson not dispatched | task-019 |
-| 2b | runFollowupTriage | `apps/daemon/src/triage/orchestrate.ts:348` | parity-blocked | same as 2a | task-019 |
-| 3a | shared invokeClaudeJson | `apps/daemon/src/plans/invoke-claude.ts:49` | parity-blocked | does not dispatch + resume not portable | task-019 |
-| 3b | runPlanIteration (×5 kinds) | `apps/daemon/src/plans/iterate.ts:495` | parity-blocked | dispatch + resume fallback | task-019 |
+| 2a | runTriage | `apps/daemon/src/triage/orchestrate.ts` | parity-verified | dispatches via `resolveAgent(db)` | — |
+| 2b | runFollowupTriage | `apps/daemon/src/triage/orchestrate.ts` | parity-verified | same | — |
+| 3a | shared invokeClaudeJson | `apps/daemon/src/plans/invoke-claude.ts` | parity-verified | dispatches on `opts.agent`, throws `ResumeUnsupportedError` for incompatible resume | — |
+| 3b | runPlanIteration (×5 kinds) | `apps/daemon/src/plans/iterate.ts` | parity-verified (fresh + follow-up) | resume branch suppressed under codex; falls back to full prompt | — |
 | 3c | plan-freeze applicators | `apps/daemon/src/plans/{refine,bootstrap-from-plan,apply-feature-plan,apply-project-vision}.ts` | parity-verified | no agent code | — |
-| 4a | runAuditIteration | `apps/daemon/src/audits/iterate.ts:42` | parity-blocked | dispatch | task-019 |
-| 4b | runExecAudit | `apps/daemon/src/audits/exec-iterate.ts:34` | parity-blocked | dispatch | task-019 |
-| 4c | bridgePromoteFindings | `apps/daemon/src/audits/promote.ts:52` | parity-blocked | dispatch | task-019 |
-| 4d | audit comment reply | `apps/daemon/src/audits/comments.ts:93` | parity-blocked | dispatch + resume fallback | task-019 |
+| 4a | runAuditIteration | `apps/daemon/src/audits/iterate.ts` | parity-verified | dispatch via resolveAgent | — |
+| 4b | runExecAudit | `apps/daemon/src/audits/exec-iterate.ts` | parity-verified | dispatch via resolveAgent | — |
+| 4c | bridgePromoteFindings | `apps/daemon/src/audits/promote.ts` | parity-verified | dispatch via resolveAgent | — |
+| 4d | audit comment reply | `apps/daemon/src/audits/comments.ts` | parity-blocked (resume axis) | codex has no resume; replies under codex emit an in-thread "switch agent" hint | deferred (full-context prompt rewrite) |
 | 4e | audit prompts/findings | `apps/daemon/src/audits/{prompts,findings,templates}.ts` | parity-verified | agent-agnostic parsers | — |
-| 5a | feedback agent reply | `apps/daemon/src/feedback/iterate.ts:82` | parity-blocked | dispatch + resume fallback | task-019 |
-| 6a | proposeImportSpec | `apps/daemon/src/projects/import-spec.ts:63` | parity-blocked | dispatch | task-019 |
-| 6b | recoverFactoryStatusFromLog | `apps/daemon/src/workers/recover.ts:50` | parity-blocked | claude-specific log parser | task-019 |
+| 5a | feedback agent reply | `apps/daemon/src/feedback/iterate.ts` | parity-verified | dispatch + drops resume under codex; full thread already in prompt | — |
+| 6a | proposeImportSpec | `apps/daemon/src/projects/import-spec.ts` | parity-verified | dispatch via resolveAgent | — |
+| 6b | recoverFactoryStatusFromLog | `apps/daemon/src/workers/recover.ts` | parity-verified | dispatches on `runs.agentName` via `extractTextFromLogLine` | — |
 | 6c | claude_metrics writer | `apps/daemon/src/metrics/record.ts:16` | parity-verified | schema accepts codex writes; rename deferred | task-020 |

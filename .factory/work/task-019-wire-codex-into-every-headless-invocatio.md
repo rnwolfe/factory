@@ -2,11 +2,11 @@
 id: task-019
 title: Wire codex into every headless invocation path identified in the parity
   inventory
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-05-25T17:43:24.864Z
-updated: 2026-05-25T17:43:24.864Z
+updated: 2026-05-25T22:33:27.550Z
 labels:
   - feature-plan-task
 ---
@@ -21,4 +21,5 @@ labels:
 ## Notes
 
 Emitted by feature plan nt7386gu: "Full support for OpenAI Codex as an agent harness/model powering Factory/Heimdall. We could use either headless codex cli, or the codex sdk as long as it supports use of subscription usage and not just api key."
+
 

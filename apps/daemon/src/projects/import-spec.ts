@@ -6,6 +6,7 @@ import { commitAllChanges } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { and, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
+import { resolveAgent } from "../agents/resolve.ts";
 import type { FactoryConfig } from "../config.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
@@ -88,9 +89,10 @@ export async function proposeImportSpec(
   });
 
   const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
+  const agent = resolveAgent(db);
   const invocation = opts.agentInvoker
     ? await opts.agentInvoker(rendered)
-    : await invokeClaudeJson(rendered, { budgetSeconds: budget });
+    : await invokeClaudeJson(rendered, { budgetSeconds: budget, agent });
 
   const parsed = extractJsonObject<Record<string, unknown>>(invocation.text);
   const metrics = invocation.metrics ?? null;
