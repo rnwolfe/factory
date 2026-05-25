@@ -11,6 +11,7 @@ export {
 } from "./tmux.ts";
 export * from "./types.ts";
 export {
+  attachExistingWorktree,
   commitAllChanges,
   ensureWorktree,
   getHeadRef,

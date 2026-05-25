@@ -133,6 +133,14 @@ export interface RunSpec {
   worktreePath?: string;
   /** Author identity used when the runtime auto-commits residual dirty state. */
   gitAuthor?: { name: string; email: string };
+  /**
+   * When true, require `worktreePath` to already exist on disk as a registered
+   * git worktree checked out on the expected branch. Raises a clear error
+   * rather than silently creating a fresh worktree (which would lose any
+   * gitignored state the prior run built up). Used by the reuse-worktree
+   * retry path.
+   */
+  requireExistingWorktree?: boolean;
   /** Claude model id forwarded to the agent's CLI. Null/undefined = CLI default. */
   model?: string | null;
   /**

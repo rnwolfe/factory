@@ -232,6 +232,41 @@ export async function mergeIntoMain(opts: MergeIntoMainOpts): Promise<MergeResul
   return { ok: true, sha, alreadyMerged: false };
 }
 
+export interface AttachExistingWorktreeOpts {
+  projectPath: string;
+  worktreePath: string;
+  branch: string;
+}
+
+/**
+ * Attach to an already-existing worktree without creating anything new.
+ * Raises a clear error when the path is missing from disk, is not a
+ * registered git worktree, or is checked out on the wrong branch.
+ */
+export async function attachExistingWorktree(
+  opts: AttachExistingWorktreeOpts,
+): Promise<EnsureWorktreeResult> {
+  if (!existsSync(opts.worktreePath)) {
+    throw new Error(`existing worktree missing from disk: ${opts.worktreePath}`);
+  }
+
+  const list = await git(["worktree", "list", "--porcelain"], opts.projectPath);
+  if (!list.stdout.includes(opts.worktreePath)) {
+    throw new Error(`path exists but is not a registered git worktree: ${opts.worktreePath}`);
+  }
+
+  const symref = await git(["symbolic-ref", "--short", "HEAD"], opts.worktreePath);
+  const actualBranch = symref.stdout.trim();
+  if (actualBranch !== opts.branch) {
+    throw new Error(
+      `worktree at ${opts.worktreePath} is on branch '${actualBranch}', expected '${opts.branch}'`,
+    );
+  }
+
+  const baseHead = await getHeadRef(opts.worktreePath);
+  return { worktreePath: opts.worktreePath, branch: opts.branch, baseHead, created: false };
+}
+
 export interface RemoveWorktreeOpts {
   projectPath: string;
   worktreePath: string;
