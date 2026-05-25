@@ -1,11 +1,11 @@
 ---
 id: task-012
 title: "Runtime: support reusing an existing worktree on spawn"
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-05-24T01:46:25.600Z
-updated: 2026-05-24T01:46:25.600Z
+updated: 2026-05-25T00:28:03.849Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan mpdvz63d: "feedback: Sometimes plans fail after exiting for an unknown reason and"
+
 
