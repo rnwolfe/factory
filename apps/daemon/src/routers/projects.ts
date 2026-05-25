@@ -329,6 +329,21 @@ export const projectsRouter = router({
       return { ok: true, model: input.model };
     }),
 
+  setAgent: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        agent: z.enum(["claude-code", "codex"]).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(schema.projects)
+        .set({ agent: input.agent })
+        .where(eq(schema.projects.id, input.id));
+      return { ok: true, agent: input.agent };
+    }),
+
   setCeremony: protectedProcedure
     .input(z.object({ id: z.string(), ceremony: CeremonyEnum }))
     .mutation(async ({ ctx, input }) => {

@@ -19,7 +19,7 @@ import { AuditsSection } from "../components/audits-section.tsx";
 import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
-import { ModelPicker } from "../components/model-picker.tsx";
+import { AgentModelPicker, type AgentName } from "../components/model-picker.tsx";
 import { NewTaskModal } from "../components/new-task-modal.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
@@ -191,6 +191,13 @@ export function ProjectDetail() {
     },
   });
 
+  const setAgent = useMutation({
+    mutationFn: (agent: AgentName | null) => trpc.projects.setAgent.mutate({ id, agent }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
   if (project.isLoading) return <ProjectSkeleton />;
   if (!project.data) {
     return (
@@ -215,6 +222,7 @@ export function ProjectDetail() {
       autoAdvance: boolean;
       autonomyMode: "collaborative" | "autonomous";
       model: string | null;
+      agent: AgentName | null;
       githubRemote: string | null;
     };
     tasks: Array<{
@@ -394,12 +402,14 @@ export function ProjectDetail() {
 
         <div className="mt-3">
           <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
-            model
+            agent · model
           </div>
-          <ModelPicker
-            value={p.model ?? null}
-            onChange={(m) => setModel.mutate(m)}
-            disabled={setModel.isPending}
+          <AgentModelPicker
+            agent={p.agent ?? "claude-code"}
+            model={p.model ?? null}
+            onAgentChange={(a) => setAgent.mutate(a)}
+            onModelChange={(m) => setModel.mutate(m)}
+            disabled={setAgent.isPending || setModel.isPending}
           />
         </div>
 

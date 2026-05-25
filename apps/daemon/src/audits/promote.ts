@@ -81,7 +81,7 @@ export async function bridgePromoteFindings(
   });
 
   const budget = Math.min(opts.budgetSeconds ?? PROMOTE_BUDGET_SECONDS, PROMOTE_BUDGET_SECONDS);
-  const agent = resolveAgent(db);
+  const agent = resolveAgent(db, { projectAgent: project.agent });
   const invocation = opts.agentInvoker
     ? await opts.agentInvoker({ prompt })
     : await invokeClaudeJson(prompt, { budgetSeconds: budget, agent });

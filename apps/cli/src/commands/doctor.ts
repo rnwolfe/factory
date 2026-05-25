@@ -194,6 +194,60 @@ async function checkDb(): Promise<CheckResult> {
   }
 }
 
+/**
+ * When any project (or the system default) selects codex, the operator needs
+ * to have run `codex login` at least once or runs will fail at spawn time.
+ * This check is silent when codex isn't in use anywhere; otherwise it
+ * surfaces whether `~/.codex/auth.json` exists and the codex bin is on PATH.
+ */
+async function checkCodexAuth(): Promise<CheckResult | null> {
+  const home = process.env.FACTORY_HOME || path.join(os.homedir(), ".factory");
+  const dbPath = path.join(home, "data.db");
+  let codexInUse = false;
+  if (existsSync(dbPath)) {
+    try {
+      const { Database } = await import("bun:sqlite");
+      const db = new Database(dbPath, { readonly: true });
+      try {
+        const project = db
+          .prepare("SELECT 1 AS n FROM projects WHERE agent = 'codex' LIMIT 1")
+          .get() as { n: number } | undefined;
+        if (project) codexInUse = true;
+        if (!codexInUse) {
+          const setting = db
+            .prepare("SELECT value FROM settings WHERE key = 'default-agent' LIMIT 1")
+            .get() as { value: string } | undefined;
+          if (setting?.value === "codex") codexInUse = true;
+        }
+      } finally {
+        db.close();
+      }
+    } catch {
+      // db unreadable — checkDb will already have surfaced it
+    }
+  }
+  if (!codexInUse) return null;
+
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const authPath = path.join(codexHome, "auth.json");
+  const codexBin = process.env.FACTORY_CLI_CODEX || (await whichBin("codex"));
+  if (!codexBin) {
+    return {
+      name: "codex",
+      status: "fail",
+      detail: "codex selected but `codex` binary not on PATH — `npm i -g @openai/codex`",
+    };
+  }
+  if (!existsSync(authPath)) {
+    return {
+      name: "codex",
+      status: "fail",
+      detail: `${authPath} missing — run \`codex login\` as the user the factory daemon runs as`,
+    };
+  }
+  return { name: "codex", status: "pass", detail: `authed (${authPath})` };
+}
+
 function fmt(c: CheckResult): string {
   const sym = c.status === "pass" ? "✓" : c.status === "warn" ? "!" : "✗";
   const padName = c.name.padEnd(14);
@@ -213,6 +267,8 @@ export async function runDoctor(args: DoctorArgs): Promise<number> {
     await checkBind(),
     await checkDb(),
   ];
+  const codex = await checkCodexAuth();
+  if (codex) checks.push(codex);
   for (const c of checks) process.stdout.write(`${fmt(c)}\n`);
 
   const failed = checks.some((c) => c.status === "fail");

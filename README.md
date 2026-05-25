@@ -54,6 +54,28 @@ factory doctor                # preflight checks (bun, git, unit, /health, db, e
 
 Environment variable overrides (`FACTORY_PORT`, `FACTORY_HOME`, `FACTORY_TOKEN`, …) work for any field; useful for ephemeral / containerized runs.
 
+### Using codex (ChatGPT subscription)
+
+Factory can drive runs with OpenAI's Codex CLI instead of Claude Code. Auth uses the operator's ChatGPT subscription — no API key, no separate billing. Per-project: PWA project header → **agent · model** picker → `codex`. System default: `/settings` → **default agent**.
+
+One-time setup, as the user the daemon runs as (systemd-managed installs use the same user that owns `~/.factory/`):
+
+```sh
+npm i -g @openai/codex                   # installs the `codex` binary
+codex login                              # browser OAuth flow → writes ~/.codex/auth.json
+codex login status                       # expect: "Logged in using ChatGPT"
+```
+
+The token is a long-lived credential stored at `~/.codex/auth.json`. The factory daemon reads it transparently on every codex run — no env vars needed. Persists across daemon restarts and host reboots; `factory doctor` will surface "codex selected but not authenticated" if it's missing.
+
+Override the credentials directory with `CODEX_HOME` (the codex CLI honors it). To rotate: `codex logout` then `codex login` again — the next codex run picks up the new token.
+
+Caveats (see [`docs/adr/006-codex-harness.md`](./docs/adr/006-codex-harness.md)):
+
+- **No session resume.** Codex runs that hit a usage cap fail instead of parking-and-resuming. The PWA refuses intervene-resume / reuse-worktree paths under `agent=codex` with an actionable error at submit time, before a worktree is created.
+- **No per-call cost.** Codex runs report token counts but `totalCostUsd=0`; spend dashboards under-report.
+- **Audit comment threads.** Resuming a finished audit's thread needs session resume; under codex, the agent emits an in-thread "switch agent" hint instead of replying.
+
 ### Upgrading
 
 ```sh

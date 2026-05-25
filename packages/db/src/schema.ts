@@ -271,8 +271,20 @@ export const projects = sqliteTable("projects", {
   autonomyMode: text("autonomy_mode", { enum: autonomyModeEnum })
     .notNull()
     .default("collaborative"),
-  /** Claude model id used for runs in this project. Null = CLI default. */
+  /**
+   * Model id used for runs in this project. Interpreted by whichever provider
+   * `agent` names — `claude-code` reads claude model ids; `codex` reads codex
+   * model ids. Null = let the provider's CLI pick its own default.
+   */
   model: text("model"),
+  /**
+   * Headless agent for runs in this project. Sits between
+   * `task.frontmatter.agent` and `settings.default-agent` in the inheritance
+   * chain. Null falls through to the system default → "claude-code". Pairs
+   * with `model` to form the fused {agent, model} shape the PWA picker
+   * exposes as one control.
+   */
+  agent: text("agent"),
   /**
    * Set when the operator soft-archives the project. The project's `tag` also
    * moves to "past" so existing queries that filter on tag continue to work;

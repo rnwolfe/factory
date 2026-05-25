@@ -3,6 +3,7 @@ import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, desc, eq } from "drizzle-orm";
+import { probeCodexAuth } from "../agents/codex-auth.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { agentSupportsResume } from "../plans/invoke-claude.ts";
@@ -204,17 +205,15 @@ export async function submitRun(
     baseRefSha = await resolveSha(input.baseRef ?? "main", project.workdirPath);
   }
 
-  // Resolve effective Claude model id, top-down:
+  // Resolve effective model id, top-down:
   //   task.frontmatter.model  →  project.model  →  settings.default-model  →  null
   // Stored on the run row so resume/retry paths and metrics views see what
   // the run was actually invoked with, independent of any later changes to
-  // the upstream values. Null means "let the CLI pick its own default."
+  // the upstream values. Null means "let the provider's CLI pick its own default."
   let effectiveModel: string | null = null;
   // Resolve effective agent, top-down:
-  //   submit input  →  task.frontmatter.agent  →  settings.default-agent
-  //     →  "claude-code"
-  // (Per-project agent column is task-020's follow-up; until then the
-  // settings-level default covers operator-wide preference for codex.)
+  //   submit input  →  task.frontmatter.agent  →  project.agent
+  //     →  settings.default-agent  →  "claude-code"
   // The provider interpreting `effectiveModel` is determined by this name —
   // a codex model id passed to claude-code (or vice versa) would just bounce.
   let effectiveAgent = normalizeAgent(input.agent) ?? "claude-code";
@@ -232,6 +231,13 @@ export async function submitRun(
     }
   }
   if (!effectiveModel && project.model) effectiveModel = project.model;
+  if (!agentResolvedFromInputOrTask) {
+    const fromProject = normalizeAgent(project.agent);
+    if (fromProject) {
+      effectiveAgent = fromProject;
+      agentResolvedFromInputOrTask = true;
+    }
+  }
   if (!effectiveModel || !agentResolvedFromInputOrTask) {
     const ops = readOpsSettings(readAllSettings(db));
     if (!effectiveModel && ops.defaultModel) effectiveModel = ops.defaultModel;
@@ -257,6 +263,21 @@ export async function submitRun(
         `(intervene-resume / reuse-worktree). Switch the run to claude-code, or wait for the resume-fallback ` +
         `follow-up. See docs/internal/codex-parity.md.`,
     );
+  }
+
+  // Codex-auth precheck: if the operator selected (or inherited) codex, make
+  // sure `codex login` has actually run on this host before we insert a run
+  // row and spawn a worktree. Without this, the agent boots, hits
+  // "Authentication required" on its first turn, and dies — the operator sees
+  // a silent mid-run failure instead of an actionable error at submit time.
+  if (effectiveAgent === "codex") {
+    const auth = probeCodexAuth();
+    if (!auth.ok) {
+      throw new Error(
+        `codex agent selected but not authenticated: ${auth.reason}. ` +
+          `See README.md "Using codex (ChatGPT subscription)" for the one-time login flow.`,
+      );
+    }
   }
 
   await db.insert(schema.runs).values({
