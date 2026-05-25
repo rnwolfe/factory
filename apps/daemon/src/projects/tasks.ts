@@ -26,6 +26,12 @@ export interface TaskFrontmatter {
    * task to Haiku without changing the project-wide default.
    */
   model?: string;
+  /**
+   * Per-task agent harness override. Currently `claude-code` (default) or
+   * `codex`. Selects which provider drives the code-changing run; the model
+   * string in `model` is interpreted by the chosen provider.
+   */
+  agent?: string;
   [k: string]: unknown;
 }
 
