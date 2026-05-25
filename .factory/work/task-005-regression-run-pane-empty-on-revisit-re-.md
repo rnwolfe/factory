@@ -1,11 +1,11 @@
 ---
 id: task-005
 title: "Regression: run pane empty on revisit — re-pin event seed + diff load"
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-05-23T04:04:06.570Z
-updated: 2026-05-23T04:04:06.570Z
+updated: 2026-05-25T00:21:42.757Z
 labels:
   - feedback
 ---
@@ -25,3 +25,5 @@ Reproduce on run `qjc6bs923k6cc4795j2kil09`: open DevTools, confirm whether `run
 ## Acceptance
 
 - [ ] (TBD)
+
+

@@ -64,10 +64,12 @@ export function LivePane() {
     queryKey: ["runs.diff", runId],
     queryFn: () => trpc.runs.diff.query({ runId }) as unknown as Promise<RunDiff>,
     enabled: runId.length > 0,
-    refetchInterval: (query) => {
-      // Once the run is settled, the diff doesn't change. Stop polling then.
-      const status = query.state.data?.commits?.length != null ? "settled" : "running";
-      return status === "settled" ? false : 5_000;
+    refetchInterval: () => {
+      // Stop polling once the run is in a terminal state — the diff can't
+      // change after that. Checking commits.length would stop prematurely for
+      // ongoing runs whose first poll returns [] (before any commits land).
+      const terminal = ["completed", "failed", "aborted", "blocked", "deferred"];
+      return run.data?.status && terminal.includes(run.data.status) ? false : 5_000;
     },
   });
 

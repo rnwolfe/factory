@@ -199,11 +199,17 @@ export const runsRouter = router({
           .get();
         if (oldest) {
           try {
-            const raw = typeof oldest.payload === "string" ? oldest.payload : "";
-            const parsed = (raw ? JSON.parse(raw) : {}) as { sha?: string };
-            if (parsed.sha) {
+            // Drizzle's mode:"json" column auto-parses the stored JSON text into
+            // a JS object on read, so oldest.payload is already an object — not
+            // a string. The typeof guard handles legacy rows that might still
+            // carry a raw JSON string (e.g. written before the schema was set up
+            // with mode:"json").
+            const payloadObj = (
+              typeof oldest.payload === "string" ? JSON.parse(oldest.payload) : oldest.payload
+            ) as { sha?: string };
+            if (payloadObj?.sha) {
               const parent = await runGit(
-                ["rev-parse", "--verify", `${parsed.sha}^`],
+                ["rev-parse", "--verify", `${payloadObj.sha}^`],
                 project.workdirPath,
               );
               if (parent.exitCode === 0) baseRef = parent.stdout.trim();
