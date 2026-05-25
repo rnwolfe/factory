@@ -1,11 +1,11 @@
 ---
 id: task-018
 title: Add `codex` agent provider in packages/runtime/src/agents/ (code-changing runs)
-status: blocked
+status: done
 priority: med
 estimate: medium
 created: 2026-05-25T17:43:24.857Z
-updated: 2026-05-25T22:08:07.639Z
+updated: 2026-05-25T22:16:53.642Z
 labels:
   - feature-plan-task
 ---
@@ -20,5 +20,6 @@ labels:
 ## Notes
 
 Emitted by feature plan nt7386gu: "Full support for OpenAI Codex as an agent harness/model powering Factory/Heimdall. We could use either headless codex cli, or the codex sdk as long as it supports use of subscription usage and not just api key."
+
 
 
