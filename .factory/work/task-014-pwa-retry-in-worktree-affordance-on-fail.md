@@ -1,11 +1,11 @@
 ---
 id: task-014
 title: "PWA: Retry in worktree affordance on failed runs"
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-05-24T01:46:25.612Z
-updated: 2026-05-24T01:46:25.612Z
+updated: 2026-05-25T00:37:26.159Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan mpdvz63d: "feedback: Sometimes plans fail after exiting for an unknown reason and"
+
 
