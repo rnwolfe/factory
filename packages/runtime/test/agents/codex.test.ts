@@ -176,8 +176,7 @@ describe("codex factory-status footer compatibility", () => {
   // and is unit-tested there; this test just confirms the agent's
   // `text` events carry the footer bytes verbatim.
   test("agent_message text carries a factory-status fenced block verbatim", () => {
-    const footer =
-      '```factory-status\n{"status": "done", "summary": "Landed."}\n```';
+    const footer = '```factory-status\n{"status": "done", "summary": "Landed."}\n```';
     const line = JSON.stringify({
       type: "item.completed",
       item: { type: "agent_message", text: `Did the work.\n\n${footer}` },
