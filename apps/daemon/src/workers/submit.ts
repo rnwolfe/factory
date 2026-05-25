@@ -87,6 +87,11 @@ export interface SubmitRunInput {
    * and branch verbatim.
    */
   reuseFromRunId?: string;
+  /**
+   * When this run is a retry of a prior run, the original run's id.
+   * Stored on the new run row so retry chains are traceable.
+   */
+  retryOfRunId?: string;
 }
 
 /**
@@ -215,6 +220,7 @@ export async function submitRun(
     operatorContext: operatorContext && operatorContext.length > 0 ? operatorContext : null,
     sessionId: sessionIdForRow ?? null,
     model: effectiveModel,
+    retryOfRunId: input.retryOfRunId ?? null,
   });
 
   // Resume mode: explicit sessionId set, OR inherited via reuseFromRunId

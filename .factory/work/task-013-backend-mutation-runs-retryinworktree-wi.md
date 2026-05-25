@@ -1,11 +1,11 @@
 ---
 id: task-013
 title: "Backend mutation: runs.retryInWorktree with continuation preamble"
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-05-24T01:46:25.607Z
-updated: 2026-05-24T01:46:25.607Z
+updated: 2026-05-25T00:33:02.622Z
 labels:
   - feature-plan-task
 ---
@@ -20,4 +20,5 @@ labels:
 ## Notes
 
 Emitted by feature plan mpdvz63d: "feedback: Sometimes plans fail after exiting for an unknown reason and"
+
 
