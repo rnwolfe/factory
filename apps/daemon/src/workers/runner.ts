@@ -2,7 +2,9 @@ import path from "node:path";
 import type { Db } from "@factory/db";
 import { schema } from "@factory/db";
 import {
+  type AgentSpec,
   claudeCodeAgent,
+  codexAgent,
   commitAllChanges,
   hostSandbox,
   mergeIntoMain,
@@ -127,6 +129,25 @@ function buildMergeMessage(opts: {
     `Factory-Task: ${taskId}`,
     `Factory-Status: ${finalStatus}`,
   ].join("\n");
+}
+
+/**
+ * Resolve the agent provider for a run row. Unknown agent names fall back to
+ * claude-code so a typo in a task frontmatter or a future provider removal
+ * never strands a queued run; the daemon logs the fallback for visibility.
+ */
+function agentForRow(agentName: string): AgentSpec {
+  switch (agentName) {
+    case "codex":
+      return codexAgent;
+    case "claude-code":
+      return claudeCodeAgent;
+    default:
+      console.warn(
+        `[runner] unknown agentName "${agentName}" on run row — falling back to claude-code`,
+      );
+      return claudeCodeAgent;
+  }
 }
 
 export interface ExecuteRunOpts {
@@ -283,7 +304,7 @@ export async function executeRun(
       // predate the runs.model column.
       model: row.model ?? project.model,
       task: { id: row.taskId ?? "ad-hoc", prompt },
-      agent: claudeCodeAgent,
+      agent: agentForRow(row.agentName),
       sandbox: hostSandbox,
       strategy: runStrategy,
       // row.budgetSeconds is NOT NULL; preserve 0 (= infinite) instead of

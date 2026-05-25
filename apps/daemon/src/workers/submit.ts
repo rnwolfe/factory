@@ -92,6 +92,21 @@ export interface SubmitRunInput {
    * Stored on the new run row so retry chains are traceable.
    */
   retryOfRunId?: string;
+  /**
+   * Per-run agent override. Currently `claude-code` (default) or `codex`.
+   * When set, beats the task-frontmatter / project default. Stored on the
+   * run row so retry/resume paths bind to the same provider.
+   */
+  agent?: string;
+}
+
+const SUPPORTED_AGENTS = new Set(["claude-code", "codex"]);
+
+function normalizeAgent(raw: string | undefined | null): string | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim();
+  if (!v) return null;
+  return SUPPORTED_AGENTS.has(v) ? v : null;
 }
 
 /**
@@ -194,10 +209,18 @@ export async function submitRun(
   // the run was actually invoked with, independent of any later changes to
   // the upstream values. Null means "let the CLI pick its own default."
   let effectiveModel: string | null = null;
+  // Resolve effective agent: submit input → task.frontmatter.agent → "claude-code".
+  // The provider interpreting `effectiveModel` is determined by this name —
+  // a codex model id passed to claude-code (or vice versa) would just bounce.
+  let effectiveAgent = normalizeAgent(input.agent) ?? "claude-code";
   if (input.taskId) {
     const taskFile = await readTaskFile(project.workdirPath, input.taskId);
     const raw = taskFile?.frontmatter.model;
     if (typeof raw === "string" && raw.trim().length > 0) effectiveModel = raw.trim();
+    if (!normalizeAgent(input.agent)) {
+      const fromFile = normalizeAgent(taskFile?.frontmatter.agent);
+      if (fromFile) effectiveAgent = fromFile;
+    }
   }
   if (!effectiveModel && project.model) effectiveModel = project.model;
   if (!effectiveModel) {
@@ -210,7 +233,7 @@ export async function submitRun(
     projectId: project.id,
     taskId: input.taskId ?? null,
     status: "queued",
-    agentName: "claude-code",
+    agentName: effectiveAgent,
     branch,
     worktreePath,
     startedAt: now,

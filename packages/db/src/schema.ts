@@ -1,4 +1,12 @@
-import { type AnySQLiteColumn, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  type AnySQLiteColumn,
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const ceremonyEnum = ["tinker", "personal", "shared", "production"] as const;
 export const roleEnum = ["owner", "contributor"] as const;
