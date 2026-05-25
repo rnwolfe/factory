@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { type AnySQLiteColumn, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const ceremonyEnum = ["tinker", "personal", "shared", "production"] as const;
 export const roleEnum = ["owner", "contributor"] as const;
@@ -386,6 +386,13 @@ export const runs = sqliteTable("runs", {
    * invoked with, independent of any later changes to the upstream values.
    */
   model: text("model"),
+  /**
+   * When this run is a retry of a prior run (e.g. the operator retried a
+   * failed or blocked run), this points to the original run's id. Null for
+   * first-attempt runs. Enables retry-chain tracing and diff views between
+   * attempts.
+   */
+  retryOfRunId: text("retry_of_run_id").references((): AnySQLiteColumn => runs.id),
 });
 
 export const events = sqliteTable("events", {
