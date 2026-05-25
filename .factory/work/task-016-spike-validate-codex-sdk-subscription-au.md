@@ -6,9 +6,10 @@ status: ready
 priority: med
 estimate: medium
 created: 2026-05-25T17:43:24.836Z
-updated: 2026-05-25T17:43:24.836Z
+updated: 2026-05-25T17:43:47.563Z
 labels:
   - feature-plan-task
+model: claude-opus-4-7
 ---
 
 ## Acceptance
@@ -22,4 +23,5 @@ labels:
 ## Notes
 
 Emitted by feature plan nt7386gu: "Full support for OpenAI Codex as an agent harness/model powering Factory/Heimdall. We could use either headless codex cli, or the codex sdk as long as it supports use of subscription usage and not just api key."
+
 
