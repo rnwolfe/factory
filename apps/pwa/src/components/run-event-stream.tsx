@@ -85,6 +85,14 @@ function RunEventStreamInner({ runId }: { runId: string }) {
     // then disabled — so the run's actual persisted events never appear. Clearing
     // on unmount guarantees every page navigation triggers a fresh fetch.
     gcTime: 0,
+    // refetchOnMount:"always" closes the race condition where gcTime:0 hasn't
+    // fired its setTimeout(evict,0) before the component remounts (SPA nav is
+    // synchronous; the eviction macro-task may fire after the new observer
+    // subscribes). With "always", a background refetch is triggered even when
+    // staleTime:Infinity would otherwise serve the not-yet-evicted cache entry.
+    // The isFetching guard in the seed effect below prevents seeding with the
+    // stale [] until the real network response arrives.
+    refetchOnMount: "always",
     // Limit the implicit React-Query retry on stuck/failed network so we
     // don't pile up multi-megabyte requests on a slow connection.
     retry: 1,
@@ -106,13 +114,19 @@ function RunEventStreamInner({ runId }: { runId: string }) {
 
   useEffect(() => {
     if (!persisted.data || seeded) return;
+    // Don't seed from a stale empty cache while refetchOnMount:"always" has a
+    // background fetch in flight. The stale [] was served before the eviction
+    // timer (gcTime:0) fired; if we seed now we'd lock the query as disabled
+    // (enabled:!seeded) before the real events arrive. Wait for isFetching to
+    // clear — the network response will re-enter this effect with fresh data.
+    if (persisted.data.length === 0 && persisted.isFetching) return;
     const seed: KeyedEvent[] = persisted.data
       .filter((row): row is PersistedEventRow => Boolean(row?.payload))
       .map((row) => ({ id: `db:${row.id}`, ev: row.payload }))
       .slice(-MAX_EVENTS);
     setEvents(seed);
     setSeeded(true);
-  }, [persisted.data, seeded]);
+  }, [persisted.data, seeded, persisted.isFetching]);
 
   useRunChannel(runId, [], {
     onEvent: (e) => {
@@ -151,7 +165,11 @@ function RunEventStreamInner({ runId }: { runId: string }) {
     },
   });
 
-  if (!seeded && persisted.isLoading) {
+  // Show loading while: initial fetch has no data yet (isLoading), OR a
+  // background refetch is in-flight and the seed hasn't fired (isFetching +
+  // no events). The latter prevents a "no events yet" flash during the brief
+  // window between stale-cache-serve and the real network response.
+  if (!seeded && (persisted.isLoading || (persisted.isFetching && events.length === 0))) {
     return (
       <div className="surface px-3 py-3 mono text-[11.5px] text-[var(--color-fg-3)]">
         <div className="flex items-center justify-between gap-2">

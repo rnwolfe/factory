@@ -1,19 +1,24 @@
 /**
- * Regression test for the "empty events on run page revisit" bug.
+ * Regression tests for the "empty events on run page revisit" bug.
  *
- * Root cause: `staleTime: Infinity` on the `runs.events` query meant that an
- * empty response cached during a first visit (e.g., when the run had just
- * started and the events table was empty) persisted for the default 5-minute
- * gcTime window. On the next navigation to the same run page the component
- * received [] from cache, seeded with nothing, set seeded=true, and disabled
- * the query — so the real persisted events were never fetched.
+ * Root cause 1 (gcTime race): `staleTime: Infinity` on the `runs.events` query
+ * meant that an empty response cached during a first visit (e.g., when the run
+ * had just started and the events table was empty) could persist until the next
+ * navigation. On that navigation the component received [] from cache, seeded
+ * with nothing, set seeded=true, and disabled the query — so the real persisted
+ * events were never fetched.
+ * Fix: `gcTime: 0` evicts the cache on unmount, and `refetchOnMount: "always"`
+ * triggers a background network fetch even if the not-yet-evicted [] entry is
+ * still in cache (the eviction macro-task can race with the synchronous SPA
+ * remount).
  *
- * Fix: `gcTime: 0` on the query evicts the cache entry the instant the last
- * observer (the component) unmounts. Every page navigation therefore starts
- * with a cold cache and gets the current server state.
- *
- * The gcTime test fails against the pre-fix code (no gcTime:0) and passes
- * after the fix.
+ * Root cause 2 (isFetching race): even with gcTime:0, if the component remounts
+ * before the eviction setTimeout fires, the stale [] is served synchronously
+ * while isFetching=true. Without an isFetching guard the seed fired immediately
+ * with [], set seeded=true, disabled the query, and the background fetch result
+ * was discarded — leaving events permanently empty.
+ * Fix: the seed effect now skips seeding when data.length===0 && isFetching,
+ * waiting for the real network response before locking the seed state.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -101,6 +106,54 @@ describe("RunEventStream — seed from persisted events", () => {
         const html = container.innerHTML;
         if (!html.includes("hello from agent")) {
           throw new Error(`Expected "hello from agent" in DOM, got: ${html.slice(0, 500)}`);
+        }
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  test("isFetching guard — stale empty cache does not seed before network response", async () => {
+    const client = makeClient();
+    const RUN_ID = "run-ifetching-guard-test";
+
+    // Pre-populate the cache with [] to simulate the gcTime:0 race where the
+    // eviction setTimeout hasn't fired yet when the component remounts.
+    client.setQueryData(["runs.events", RUN_ID], []);
+
+    // The network fetch is held pending so we can observe the component
+    // while isFetching=true and stale [] is in cache.
+    let resolveNetworkFetch!: (rows: PersistedRow[]) => void;
+    eventsQueryFn.mockReturnValueOnce(
+      new Promise<PersistedRow[]>((resolve) => {
+        resolveNetworkFetch = resolve;
+      }),
+    );
+
+    const { container } = render(
+      <Wrapper client={client}>
+        <RunEventStream runId={RUN_ID} />
+      </Wrapper>,
+    );
+
+    // While the background refetch is in-flight the component must show the
+    // loading state (not "no events yet"), because seeding from the stale []
+    // cache at this point would permanently suppress the real events.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(container.innerHTML).not.toContain("no events yet");
+
+    // Resolve the pending fetch with real persisted events.
+    resolveNetworkFetch([
+      {
+        id: 7,
+        payload: { kind: "text", text: "real events after background fetch", iteration: 1 },
+      },
+    ]);
+
+    // After the network response the real events must appear.
+    await waitFor(
+      () => {
+        if (!container.innerHTML.includes("real events after background fetch")) {
+          throw new Error(`Expected real events in DOM, got: ${container.innerHTML.slice(0, 400)}`);
         }
       },
       { timeout: 3000 },
