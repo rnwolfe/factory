@@ -6,7 +6,7 @@ status: blocked
 priority: med
 estimate: medium
 created: 2026-05-25T17:43:24.868Z
-updated: 2026-05-25T22:45:09.326Z
+updated: 2026-05-25T23:02:37.477Z
 labels:
   - feature-plan-task
 ---
@@ -22,5 +22,6 @@ labels:
 ## Notes
 
 Emitted by feature plan nt7386gu: "Full support for OpenAI Codex as an agent harness/model powering Factory/Heimdall. We could use either headless codex cli, or the codex sdk as long as it supports use of subscription usage and not just api key."
+
 
 
