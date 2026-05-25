@@ -275,6 +275,7 @@ export async function executeRun(
       runId,
       projectPath: project.workdirPath,
       worktreePath: row.worktreePath,
+      requireExistingWorktree: isReusedWorktree,
       gitAuthor: config.gitAuthor,
       // The effective model was resolved at submit time per the
       // task → project → system-default inheritance chain. Falling back

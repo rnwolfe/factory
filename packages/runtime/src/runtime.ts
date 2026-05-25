@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { RunResult, RunSpec, Runtime, SpawnHandle, StreamEvent } from "./types.ts";
 import {
+  attachExistingWorktree,
   commitAllChanges,
   ensureWorktree,
   getHeadRef,
@@ -50,12 +51,24 @@ class HostRuntime implements Runtime {
         ? spec.strategy.baseRef
         : (spec.strategy.baseRef ?? (await getHeadRef(spec.projectPath)));
 
-    const wt = await ensureWorktree({
-      projectPath: spec.projectPath,
-      branch,
-      baseRef,
-      worktreePath: spec.worktreePath,
-    });
+    let wt: Awaited<ReturnType<typeof ensureWorktree>>;
+    if (spec.requireExistingWorktree) {
+      if (!spec.worktreePath) {
+        throw new Error("requireExistingWorktree=true but worktreePath not provided");
+      }
+      wt = await attachExistingWorktree({
+        projectPath: spec.projectPath,
+        worktreePath: spec.worktreePath,
+        branch,
+      });
+    } else {
+      wt = await ensureWorktree({
+        projectPath: spec.projectPath,
+        branch,
+        baseRef,
+        worktreePath: spec.worktreePath,
+      });
+    }
 
     const iteration = 1;
     spec.onEvent({
