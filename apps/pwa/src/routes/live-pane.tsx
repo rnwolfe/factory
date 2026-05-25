@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { ArrowLeft, Hourglass, ListTree, Pencil, Square, X } from "lucide-react";
+import { ArrowLeft, Hourglass, ListTree, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { QualityReportPanel, type QualityReportView } from "../components/quality-report.tsx";
@@ -318,6 +318,15 @@ export function LivePane() {
     qc.invalidateQueries({ queryKey: ["runs.get", runId] });
   };
 
+  const retryInWorktree = useMutation({
+    mutationFn: () => trpc.runs.retry.mutate({ runId }),
+    onSuccess: (newRun) => {
+      qc.invalidateQueries({ queryKey: ["runs.list", id] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+      nav(`/projects/${id}/runs/${newRun.runId}`);
+    },
+  });
+
   const startRefinement = useMutation({
     mutationFn: () => {
       if (!run.data?.taskId) throw new Error("ad-hoc runs cannot be refined");
@@ -385,6 +394,18 @@ export function LivePane() {
         <div className="mt-2 flex items-center gap-2">
           <div className="mono text-[11px] text-[var(--color-fg-3)] truncate flex-1 min-w-0">
             run {runId.slice(0, 12)} · task {run.data?.taskId ?? "ad-hoc"}
+            {run.data?.retryOfRunId ? (
+              <>
+                {" "}
+                {"·"}{" "}
+                <Link
+                  to={`/projects/${id}/runs/${run.data.retryOfRunId}`}
+                  className="text-[var(--color-accent)] hover:underline"
+                >
+                  retried from {run.data.retryOfRunId.slice(0, 12)}
+                </Link>
+              </>
+            ) : null}
           </div>
           {run.data?.taskPlanId ? (
             <Link
@@ -475,8 +496,25 @@ export function LivePane() {
         <button type="button" onClick={abort} className="btn btn-danger w-full mt-2">
           <Square size={14} /> abort run
         </button>
-      ) : run.data?.taskId &&
-        (status === "completed" || status === "failed" || status === "blocked") ? (
+      ) : null}
+      {status === "failed" && run.data?.worktreeExists ? (
+        <button
+          type="button"
+          onClick={() => retryInWorktree.mutate()}
+          disabled={retryInWorktree.isPending}
+          className="btn w-full mt-2"
+        >
+          <RefreshCw size={14} />
+          {retryInWorktree.isPending ? "retrying…" : "retry in worktree"}
+        </button>
+      ) : null}
+      {retryInWorktree.isError ? (
+        <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+          {(retryInWorktree.error as Error).message}
+        </div>
+      ) : null}
+      {run.data?.taskId &&
+      (status === "completed" || status === "failed" || status === "blocked") ? (
         <button
           type="button"
           onClick={() => startRefinement.mutate()}

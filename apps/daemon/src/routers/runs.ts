@@ -49,7 +49,9 @@ export const runsRouter = router({
     }),
 
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
-    return ctx.db.select().from(schema.runs).where(eq(schema.runs.id, input.id)).get() ?? null;
+    const row = await ctx.db.select().from(schema.runs).where(eq(schema.runs.id, input.id)).get();
+    if (!row) return null;
+    return { ...row, worktreeExists: existsSync(row.worktreePath) };
   }),
 
   start: protectedProcedure
