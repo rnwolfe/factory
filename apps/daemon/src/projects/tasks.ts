@@ -184,6 +184,12 @@ export interface CreateTaskInput {
   parent?: string;
   /** Per-task model override. Falls through to project/system default when omitted. */
   model?: string;
+  /**
+   * Per-task agent override (`claude-code` | `codex`). Falls through to the
+   * project/system default when omitted. Persisted into the task's
+   * frontmatter so it survives across runs that target the task.
+   */
+  agent?: string;
 }
 
 /**
@@ -216,6 +222,7 @@ export async function createTask(projectPath: string, input: CreateTaskInput): P
   if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
   if (input.parent) frontmatter.parent = input.parent;
   if (input.model && input.model.trim().length > 0) frontmatter.model = input.model.trim();
+  if (input.agent && input.agent.trim().length > 0) frontmatter.agent = input.agent.trim();
   const file: TaskFile = { id, filePath, frontmatter, body: input.body };
   await writeFile(filePath, renderTaskMarkdown(file), "utf8");
   return file;

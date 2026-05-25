@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { probeCodexAuth } from "../src/agents/codex-auth.ts";
 
 describe("probeCodexAuth", () => {

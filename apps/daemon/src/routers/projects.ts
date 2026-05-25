@@ -165,6 +165,7 @@ const tasksRouter = router({
         estimate: TaskEstimateEnum.optional(),
         priority: TaskPriorityEnum.optional(),
         model: z.string().max(120).optional(),
+        agent: z.enum(["claude-code", "codex"]).optional(),
         acceptance: z.array(z.string().max(500)).max(50).optional(),
       }),
     )
@@ -186,6 +187,7 @@ const tasksRouter = router({
         estimate: input.estimate,
         priority: input.priority,
         model: input.model,
+        agent: input.agent,
       });
       await commitAllChanges(
         project.workdirPath,
