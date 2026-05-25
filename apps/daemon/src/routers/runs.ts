@@ -119,10 +119,11 @@ export const runsRouter = router({
   }),
 
   /**
-   * Submit a new run that resumes from a prior run's branch tip. Use case:
-   * the source run blocked or failed and the operator wants the agent to
-   * pick up where it left off (including any auto-committed partial work)
-   * rather than start fresh from project HEAD.
+   * Submit a new run that resumes from a prior failed run's branch tip.
+   * The source run must have status="failed" and its worktree must still
+   * exist on disk. The spawned run receives a continuation preamble
+   * instructing the agent to inspect git state and pick up from the
+   * existing worktree rather than starting fresh.
    */
   retry: protectedProcedure
     .input(z.object({ runId: z.string() }))
@@ -133,9 +134,20 @@ export const runsRouter = router({
         .where(eq(schema.runs.id, input.runId))
         .get();
       if (!source) throw new Error("source run not found");
-      if (source.status !== "blocked" && source.status !== "failed") {
+      if (source.status !== "failed") {
         throw new Error(`cannot retry a ${source.status} run`);
       }
+      if (!existsSync(source.worktreePath)) {
+        throw new Error(`worktree no longer exists on disk: ${source.worktreePath}`);
+      }
+      const preamble = `## Orphaned-run recovery
+
+This is a continuation of run \`${source.id}\` which exited unexpectedly. The worktree at \`${source.worktreePath}\` may contain uncommitted partial work from the previous run.
+
+Recovery procedure:
+1. Run \`git status\` to identify any uncommitted changes left by the previous run.
+2. Run \`git log --oneline -10\` to review commits made during the previous run.
+3. Continue the task from inside this worktree — do not start over from scratch.`;
       return submitRun(
         {
           config: ctx.config,
@@ -148,6 +160,8 @@ export const runsRouter = router({
           projectId: source.projectId,
           taskId: source.taskId ?? undefined,
           baseRef: source.branch,
+          operatorContext: preamble,
+          retryOfRunId: source.id,
         },
       );
     }),
