@@ -4,7 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
-import { recordClaudeMetrics } from "../metrics/record.ts";
+import { recordAgentMetrics } from "../metrics/record.ts";
 import { agentSupportsResume, invokeClaudeJson } from "../plans/invoke-claude.ts";
 
 /**
@@ -125,11 +125,12 @@ export async function runAgentReply(
       },
     );
     if (reply.metrics) {
-      await recordClaudeMetrics({
+      await recordAgentMetrics({
         db,
         ownerKind: "audit_comment",
         ownerId: audit.id,
         projectId: audit.projectId,
+        agent,
         metrics: reply.metrics,
       });
     }

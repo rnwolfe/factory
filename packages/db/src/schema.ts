@@ -616,6 +616,13 @@ export const claudeMetrics = sqliteTable(
     ownerKind: text("owner_kind", { enum: claudeMetricsOwnerKindEnum }).notNull(),
     ownerId: text("owner_id").notNull(),
     projectId: text("project_id").references(() => projects.id),
+    /**
+     * Canonical agent id from the registry (claude-code | codex | …). Null
+     * for pre-0027 rows where the column didn't exist; backfilled by migration
+     * 0027 based on model-id prefix where the model was set. New rows always
+     * carry the agent name (recordAgentMetrics requires it).
+     */
+    agent: text("agent"),
     /** Primary model id from the result envelope's first modelUsage entry, when present. */
     model: text("model"),
     /** JSON-encoded ClaudeMetricsModelUsage map keyed by model id. */
@@ -638,11 +645,15 @@ export const claudeMetrics = sqliteTable(
     index("claude_metrics_owner_idx").on(t.ownerKind, t.ownerId),
     index("claude_metrics_project_created_idx").on(t.projectId, t.createdAt),
     index("claude_metrics_created_idx").on(t.createdAt),
+    index("claude_metrics_agent_created_idx").on(t.agent, t.createdAt),
   ],
 );
 
 export type ClaudeMetrics = typeof claudeMetrics.$inferSelect;
 export type NewClaudeMetrics = typeof claudeMetrics.$inferInsert;
+/** Agent-neutral aliases preferred for new code (table stays `claude_metrics`). */
+export type AgentInvocationMetrics = ClaudeMetrics;
+export type NewAgentInvocationMetrics = NewClaudeMetrics;
 
 export const feedbackVoteEnum = ["up", "down"] as const;
 export const feedbackStatusEnum = ["open", "in_progress", "resolved", "dismissed"] as const;

@@ -18,7 +18,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
-import { recordClaudeMetrics } from "../metrics/record.ts";
+import { recordAgentMetrics } from "../metrics/record.ts";
 import { readAgentInstructions } from "../projects/agents-md.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
@@ -629,11 +629,12 @@ export async function runPlanIteration(
     };
   }
   if (invocation.metrics) {
-    await recordClaudeMetrics({
+    await recordAgentMetrics({
       db,
       ownerKind: "plan_iteration",
       ownerId: planId,
       projectId: plan.projectId ?? null,
+      agent: agentName,
       metrics: invocation.metrics,
       now,
     });

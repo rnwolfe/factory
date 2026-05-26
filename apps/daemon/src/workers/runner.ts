@@ -16,7 +16,7 @@ import { and, eq, gt } from "drizzle-orm";
 import { getAgentDescriptor } from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
-import { recordClaudeMetrics } from "../metrics/record.ts";
+import { recordAgentMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
 import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
@@ -339,11 +339,12 @@ export async function executeRun(
           }
         }
         if (e.kind === "metrics") {
-          void recordClaudeMetrics({
+          void recordAgentMetrics({
             db,
             ownerKind: "run",
             ownerId: e.runId,
             projectId: project.id,
+            agent: row.agentName,
             metrics: e.metrics,
           });
         }

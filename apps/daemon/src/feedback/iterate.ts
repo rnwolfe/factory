@@ -3,7 +3,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
-import { recordClaudeMetrics } from "../metrics/record.ts";
+import { recordAgentMetrics } from "../metrics/record.ts";
 import {
   agentSupportsResume,
   type InvokeClaudeResult,
@@ -129,11 +129,12 @@ export async function runAgentReply(
   }
 
   if (invocation.metrics) {
-    await recordClaudeMetrics({
+    await recordAgentMetrics({
       db,
       ownerKind: "audit_comment", // reusing kind enum — feedback comments aren't a separate kind yet
       ownerId: feedbackId,
       projectId: null,
+      agent,
       metrics: invocation.metrics,
     });
   }

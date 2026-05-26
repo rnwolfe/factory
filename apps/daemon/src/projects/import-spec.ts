@@ -8,7 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
 import type { FactoryConfig } from "../config.ts";
-import { recordClaudeMetrics } from "../metrics/record.ts";
+import { recordAgentMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { extractJsonObject } from "../plans/json-extract.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
@@ -104,11 +104,12 @@ export async function proposeImportSpec(
   // `confirmImportSpec`). The (ownerKind, ownerId) pair is unique by
   // construction so the index is happy.
   if (metrics) {
-    await recordClaudeMetrics({
+    await recordAgentMetrics({
       db,
       ownerKind: "spec_import",
       ownerId: createId(),
       projectId: null,
+      agent,
       metrics,
     });
   }

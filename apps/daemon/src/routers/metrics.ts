@@ -266,9 +266,15 @@ export const metricsRouter = router({
    * - `start` / `end` are ISO timestamps. The half-open interval matches the
    *   range scan against `claude_metrics_created_idx` (or, when projectId is
    *   set, the composite `claude_metrics_project_created_idx`).
-   * - `projectId` restricts to one project. `groupBy='project'` partitions
-   *   by project_id; `groupBy='model'` partitions by the primary model
-   *   captured on each metrics row (null model_ids ride through as null).
+   * - `projectId` restricts to one project. `groupBy` partitions by:
+   *   - `project` → `project_id`
+   *   - `model`   → primary model captured on each row (null ids preserved)
+   *   - `agent`   → canonical agent id (`claude-code` | `codex` | …); rows
+   *                 written before migration 0027 may carry `null` agent
+   *   - `agent+model` → composite key `"<agent>||<model>"` so series can
+   *                     distinguish "claude opus" from "claude sonnet" while
+   *                     still keeping both under the claude umbrella
+   *   - `none`    → unpartitioned
    * - `runCount` is COUNT DISTINCT owner_id where owner_kind='run' — i.e.
    *   the number of distinct runs that recorded at least one invocation in
    *   the bucket. Other owner kinds (audits, plan iterations, triage) flow
@@ -280,7 +286,7 @@ export const metricsRouter = router({
         start: z.string().datetime(),
         end: z.string().datetime(),
         projectId: z.string().optional(),
-        groupBy: z.enum(["project", "model", "none"]).default("none"),
+        groupBy: z.enum(["project", "model", "agent", "agent+model", "none"]).default("none"),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -334,6 +340,27 @@ export const metricsRouter = router({
           .from(schema.claudeMetrics)
           .where(where)
           .groupBy(daySql, schema.claudeMetrics.model)
+          .all();
+        rows = r as GroupedRow[];
+      } else if (input.groupBy === "agent") {
+        const r = await ctx.db
+          .select({ ...baseSelect, seriesKey: schema.claudeMetrics.agent })
+          .from(schema.claudeMetrics)
+          .where(where)
+          .groupBy(daySql, schema.claudeMetrics.agent)
+          .all();
+        rows = r as GroupedRow[];
+      } else if (input.groupBy === "agent+model") {
+        // Composite key. `||` is SQLite's string-concat operator; ifnull
+        // keeps null-agent / null-model rows from collapsing the whole bucket
+        // to NULL (which would lose the distinction between "unknown agent"
+        // and "unknown model").
+        const compositeSql = sql<string>`IFNULL(${schema.claudeMetrics.agent}, '') || '||' || IFNULL(${schema.claudeMetrics.model}, '')`;
+        const r = await ctx.db
+          .select({ ...baseSelect, seriesKey: compositeSql })
+          .from(schema.claudeMetrics)
+          .where(where)
+          .groupBy(daySql, compositeSql)
           .all();
         rows = r as GroupedRow[];
       } else {
@@ -391,6 +418,127 @@ export const metricsRouter = router({
         groupBy: input.groupBy,
         days,
         series,
+      };
+    }),
+
+  /**
+   * Total agent-work runtime — the operator-facing "Factory has produced X
+   * hours of agent work" number — broken down by project and agent.
+   *
+   * Two parallel counters per slice:
+   *
+   * - **wallClockMs**: `SUM(runs.ended_at - runs.started_at)` over completed
+   *   runs. Wall-clock per run from spawn to teardown, including tool calls,
+   *   git operations, merge attempts, the works. Each run counts once. This
+   *   is the headline figure ("agent worked for X hours").
+   *
+   * - **apiMs**: `SUM(claude_metrics.duration_ms)` over the same window.
+   *   API+turn time as reported by each provider's result envelope. A
+   *   strict subset of wall-clock (smaller because it misses idle gaps,
+   *   tool-only stretches, and post-turn daemon work). Useful for "how
+   *   much of the runtime was actually generating tokens?"
+   *
+   * Filters: `projectId` restricts to one project; the global call (no
+   * filter) is the dashboard headline. Ended-but-not-completed runs
+   * (failed, aborted, blocked) are excluded — operator-visible "agent
+   * work hours" is usually completed work; failures are still in
+   * `claude_metrics` but don't get counted in the headline.
+   */
+  runtime: protectedProcedure
+    .input(
+      z
+        .object({
+          projectId: z.string().optional(),
+          since: z.number().int().nonnegative().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const sinceFilter = input?.since ? gte(schema.runs.startedAt, input.since) : null;
+      const projectFilter = input?.projectId ? eq(schema.runs.projectId, input.projectId) : null;
+      const baseRunWhere = and(
+        ...[
+          sql`${schema.runs.endedAt} IS NOT NULL`,
+          sinceFilter ?? undefined,
+          projectFilter ?? undefined,
+        ].filter((c): c is NonNullable<typeof c> => c !== undefined),
+      );
+
+      const wallClockExpr = sql<number>`COALESCE(SUM(${schema.runs.endedAt} - ${schema.runs.startedAt}), 0)`;
+      const runCountExpr = sql<number>`COUNT(*)`;
+
+      const totalsRow = await ctx.db
+        .select({
+          wallClockMs: wallClockExpr,
+          runCount: runCountExpr,
+        })
+        .from(schema.runs)
+        .where(baseRunWhere)
+        .get();
+
+      // API time is the sum of durationMs in claude_metrics over the same
+      // filter set. Joining metrics→runs lets us scope by project + start
+      // window through the runs row even when the metric row's createdAt is
+      // slightly off the run's startedAt.
+      const apiSinceFilter = input?.since ? gte(schema.claudeMetrics.createdAt, input.since) : null;
+      const apiProjectFilter = input?.projectId
+        ? eq(schema.claudeMetrics.projectId, input.projectId)
+        : null;
+      const apiWhere = and(
+        ...[apiSinceFilter ?? undefined, apiProjectFilter ?? undefined].filter(
+          (c): c is NonNullable<typeof c> => c !== undefined,
+        ),
+      );
+      const apiRow = await ctx.db
+        .select({
+          apiMs: sql<number>`COALESCE(SUM(${schema.claudeMetrics.durationMs}), 0)`,
+        })
+        .from(schema.claudeMetrics)
+        .where(apiWhere)
+        .get();
+
+      // Per-project breakdown for the runtime dashboard.
+      const byProject = await ctx.db
+        .select({
+          projectId: schema.runs.projectId,
+          wallClockMs: wallClockExpr,
+          runCount: runCountExpr,
+        })
+        .from(schema.runs)
+        .where(baseRunWhere)
+        .groupBy(schema.runs.projectId)
+        .all();
+
+      // Per-agent breakdown for the runtime dashboard. Rows recorded before
+      // migration 0027 have null agent; they collapse into a single
+      // "(unattributed)" bucket the PWA can render as such.
+      const byAgent = await ctx.db
+        .select({
+          agent: schema.runs.agentName,
+          wallClockMs: wallClockExpr,
+          runCount: runCountExpr,
+        })
+        .from(schema.runs)
+        .where(baseRunWhere)
+        .groupBy(schema.runs.agentName)
+        .all();
+
+      return {
+        totals: {
+          wallClockMs: Number(totalsRow?.wallClockMs ?? 0),
+          apiMs: Number(apiRow?.apiMs ?? 0),
+          runCount: Number(totalsRow?.runCount ?? 0),
+        },
+        byProject: byProject.map((r) => ({
+          projectId: r.projectId,
+          wallClockMs: Number(r.wallClockMs),
+          runCount: Number(r.runCount),
+        })),
+        byAgent: byAgent.map((r) => ({
+          agent: r.agent,
+          wallClockMs: Number(r.wallClockMs),
+          runCount: Number(r.runCount),
+        })),
       };
     }),
 });

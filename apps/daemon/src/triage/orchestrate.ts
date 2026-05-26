@@ -4,7 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { and, desc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
-import { recordClaudeMetrics } from "../metrics/record.ts";
+import { recordAgentMetrics } from "../metrics/record.ts";
 import { type AgentName, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { selectRubricKey } from "./select-rubric.ts";
 
@@ -262,11 +262,12 @@ export async function runTriage(
   await db.update(schema.ideas).set({ triagedAt: now }).where(eq(schema.ideas.id, input.ideaId));
 
   if (metrics) {
-    await recordClaudeMetrics({
+    await recordAgentMetrics({
       db,
       ownerKind: "triage",
       ownerId: decisionId,
       projectId: null,
+      agent,
       metrics,
       now,
     });
@@ -419,11 +420,12 @@ export async function runFollowupTriage(
   });
 
   if (metrics) {
-    await recordClaudeMetrics({
+    await recordAgentMetrics({
       db,
       ownerKind: "triage",
       ownerId: decisionId,
       projectId: null,
+      agent,
       metrics,
       now,
     });

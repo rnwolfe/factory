@@ -36,7 +36,30 @@ interface DailyResponse {
 }
 
 type RangePeriod = "7d" | "30d" | "90d";
-type GroupByMode = "project" | "model" | "total";
+type GroupByMode = "project" | "agent" | "agent+model" | "model" | "total";
+
+interface RuntimeResponse {
+  totals: { wallClockMs: number; apiMs: number; runCount: number };
+  byProject: Array<{ projectId: string | null; wallClockMs: number; runCount: number }>;
+  byAgent: Array<{ agent: string | null; wallClockMs: number; runCount: number }>;
+}
+
+function fmtHours(ms: number): string {
+  const hours = ms / 3_600_000;
+  if (hours >= 100) return `${hours.toFixed(0)}h`;
+  if (hours >= 10) return `${hours.toFixed(1)}h`;
+  if (hours >= 1) return `${hours.toFixed(2)}h`;
+  const minutes = ms / 60_000;
+  if (minutes >= 1) return `${minutes.toFixed(0)}m`;
+  return `${(ms / 1000).toFixed(0)}s`;
+}
+
+function agentLabel(id: string | null): string {
+  if (id === null) return "(unattributed)";
+  if (id === "claude-code") return "claude";
+  if (id === "codex") return "codex";
+  return id;
+}
 
 // ---- Constants ----
 
@@ -117,6 +140,18 @@ function seriesLabel(
   if (groupBy === "project") {
     const n = projectName.get(key);
     return n ? n.slice(0, 20) : key.slice(0, 8);
+  }
+  if (groupBy === "agent") {
+    return agentLabel(key);
+  }
+  if (groupBy === "agent+model") {
+    // Composite key from the daily query: `"<agent>||<model>"`. Render
+    // `agent · model` so the legend stays scannable.
+    const [agent = "", model = ""] = key.split("||");
+    if (!agent && !model) return "(unattributed)";
+    if (!model) return agentLabel(agent);
+    const prettyModel = model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+    return `${agentLabel(agent)} · ${prettyModel}`;
   }
   return key
     .replace(/claude-/g, "")
@@ -378,7 +413,7 @@ function RowBody({
 
 // ---- Main export ----
 
-function toApiGroupBy(g: GroupByMode): "project" | "model" | "none" {
+function toApiGroupBy(g: GroupByMode): "project" | "model" | "agent" | "agent+model" | "none" {
   return g === "total" ? "none" : g;
 }
 
@@ -430,6 +465,17 @@ export function Metrics() {
     queryKey: ["metrics.summary"],
     queryFn: () => trpc.metrics.summary.query() as unknown as Promise<SummaryResponse>,
     refetchInterval: 30_000,
+  });
+
+  const runtimeQ = useQuery({
+    queryKey: ["metrics.runtime"],
+    queryFn: () =>
+      (
+        trpc.metrics as unknown as {
+          runtime: { query: () => Promise<RuntimeResponse> };
+        }
+      ).runtime.query(),
+    refetchInterval: 60_000,
   });
 
   const projects = useQuery({
@@ -492,8 +538,19 @@ export function Metrics() {
           runtime metrics
         </h1>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
-          Cost and token usage across every Claude invocation Heimdall has made.
+          Wall-clock runtime, cost, and tokens across every agent invocation Heimdall has driven —
+          drillable by project, agent, and model.
         </p>
+        {runtimeQ.data ? (
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <HeadlineStat
+              label="agent work (all time)"
+              value={fmtHours(runtimeQ.data.totals.wallClockMs)}
+            />
+            <HeadlineStat label="api time" value={fmtHours(runtimeQ.data.totals.apiMs)} />
+            <HeadlineStat label="runs completed" value={String(runtimeQ.data.totals.runCount)} />
+          </div>
+        ) : null}
       </header>
 
       {/* Range spend section */}
@@ -508,8 +565,8 @@ export function Metrics() {
                 ))}
               </div>
               <div className="w-px h-3 bg-[var(--color-line)]" />
-              <div className="flex gap-1">
-                {(["project", "model", "total"] as const).map((g) => (
+              <div className="flex gap-1 flex-wrap">
+                {(["project", "agent", "agent+model", "model", "total"] as const).map((g) => (
                   <PillButton
                     key={g}
                     label={g}
@@ -600,6 +657,38 @@ export function Metrics() {
                 }
               />
             ))}
+          </ul>
+        )}
+      </section>
+
+      {/* All-time breakdown: by agent */}
+      <section>
+        <SectionHeader title="by agent (all time)" />
+        {runtimeQ.isLoading ? (
+          <div className="surface p-3 mono text-[12px] text-[var(--color-fg-3)]">loading…</div>
+        ) : !runtimeQ.data || runtimeQ.data.byAgent.length === 0 ? (
+          <div className="surface px-3 py-3 text-[12.5px] text-[var(--color-fg-3)]">
+            no runs recorded yet.
+          </div>
+        ) : (
+          <ul className="surface divide-y divide-[var(--color-line)]">
+            {[...runtimeQ.data.byAgent]
+              .sort((a, b) => b.wallClockMs - a.wallClockMs)
+              .map((row) => (
+                <li key={row.agent ?? "_null"}>
+                  <div className="px-3 py-2.5 flex items-center gap-3">
+                    <span className="text-[13.5px] text-[var(--color-fg)] truncate flex-1">
+                      {agentLabel(row.agent)}
+                    </span>
+                    <span className="mono text-[11px] text-[var(--color-fg-2)] tabular-nums">
+                      {fmtHours(row.wallClockMs)}
+                    </span>
+                    <span className="mono text-[10.5px] text-[var(--color-fg-3)] tabular-nums w-[44px] text-right">
+                      ×{row.runCount}
+                    </span>
+                  </div>
+                </li>
+              ))}
           </ul>
         )}
       </section>

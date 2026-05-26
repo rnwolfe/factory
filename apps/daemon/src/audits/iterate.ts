@@ -3,7 +3,7 @@ import { schema } from "@factory/db";
 import { eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
-import { recordClaudeMetrics } from "../metrics/record.ts";
+import { recordAgentMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { readAuditSkill } from "../projects/audit-skills.ts";
 import { parseAuditResponse, writeFindings } from "./findings.ts";
@@ -107,11 +107,12 @@ export async function runAuditIteration(
     .where(eq(schema.audits.id, audit.id));
 
   if (invocation.metrics) {
-    await recordClaudeMetrics({
+    await recordAgentMetrics({
       db,
       ownerKind: "audit",
       ownerId: audit.id,
       projectId: project.id,
+      agent,
       metrics: invocation.metrics,
       now,
     });
