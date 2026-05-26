@@ -179,6 +179,21 @@ export function Settings() {
         </Link>
       </Section>
 
+      <Section title="about">
+        <Link
+          to="/settings/release-notes"
+          className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
+        >
+          <span className="text-[13px] text-[var(--color-fg-1)]">release notes</span>
+          <span className="flex items-center gap-1.5">
+            <span className="mono text-[11px] text-[var(--color-fg-2)] tabular-nums">
+              v{__FACTORY_VERSION__}
+            </span>
+            <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
+          </span>
+        </Link>
+      </Section>
+
       <Section title="active rubric">
         {rubrics.data && rubrics.data.length > 0 ? (
           rubrics.data.map((r) => (

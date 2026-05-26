@@ -4,6 +4,7 @@ import { AuthGate } from "./components/auth-gate.tsx";
 import { CommandPalette } from "./components/command-palette.tsx";
 import { ErrorBoundary } from "./components/error-boundary.tsx";
 import { LandingRouter } from "./components/landing-router.tsx";
+import { ReleaseNotesSheet } from "./components/release-notes-sheet.tsx";
 import { Shell } from "./components/shell.tsx";
 import { useAuth } from "./lib/auth.ts";
 import { useAppBadge } from "./lib/use-app-badge.ts";
@@ -25,6 +26,7 @@ import { ProjectDetail } from "./routes/project-detail.tsx";
 import { Projects } from "./routes/projects.tsx";
 import { PromptDetail } from "./routes/prompt-detail.tsx";
 import { PromptsViewer } from "./routes/prompts-viewer.tsx";
+import { ReleaseNotes } from "./routes/release-notes.tsx";
 import { RepoBrowser } from "./routes/repo-browser.tsx";
 import { RubricDetail } from "./routes/rubric-detail.tsx";
 import { RubricsViewer } from "./routes/rubrics-viewer.tsx";
@@ -56,6 +58,7 @@ export function App() {
   return (
     <>
       <CommandPalette />
+      <ReleaseNotesSheet />
       <Shell>
         <Routes>
           <Route
@@ -247,6 +250,14 @@ export function App() {
             element={
               <RouteBoundary label="worktrees">
                 <WorktreesAdmin />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/release-notes"
+            element={
+              <RouteBoundary label="release-notes">
+                <ReleaseNotes />
               </RouteBoundary>
             }
           />
