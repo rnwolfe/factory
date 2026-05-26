@@ -4,6 +4,45 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.14.0 — 2026-05-26
+
+Per-harness metrics + the operator-facing 'X hours of agent work'
+headline. Codex usage was already captured; now it's a first-class
+axis you can drill down on.
+
+### Added
+- **`metrics.runtime` tRPC query** + a top-of-page headline on `/metrics`:
+  agent work (wall-clock from `runs.ended_at − runs.started_at` summed
+  over completed runs), API time (`SUM(claude_metrics.duration_ms)`), and
+  runs completed. Per-project and per-agent breakdowns ride in the same
+  response.
+- **By-agent breakdown section** on the metrics page — wall-clock hours +
+  run count per harness, sorted desc.
+- **`daily.groupBy='agent'` and `'agent+model'`.** Per-harness time-series
+  is a direct column read; the composite key (`<agent>||<model>`) keeps
+  per-model series scoped under their parent harness so codex's
+  `gpt-5.4` doesn't get lumped with claude's `claude-sonnet-4-6` when
+  the operator wants to see both legends.
+
+### Changed
+- **`claude_metrics.agent` column** + index `(agent, created_at)` for the
+  per-harness query path. Migration 0027 backfills existing rows from
+  the model prefix (claude-* / opus-* / sonnet-* / haiku-* → claude-code;
+  gpt-* / codex-* → codex). Table name stays `claude_metrics` (historical);
+  every consumer-facing identifier on the TS side goes agent-neutral.
+- **`recordAgentMetrics`** replaces `recordClaudeMetrics` (legacy alias
+  preserved). Every caller — runner, triage, plan iteration, audit
+  iterate/exec/promote/comments, feedback iterate, spec-import — now
+  passes the agent id it already had in scope, so per-harness slicing is
+  a column read, not model-prefix inference.
+
+### Known follow-up
+- Parallel sub-agent (Task tool) per-token attribution isn't recoverable
+  from the parent's stream — Claude Code surfaces sub-agent calls as
+  opaque `tool_use → tool_result` pairs. Wall-clock for sub-agent gaps
+  can be derived from log timestamps when needed; per-model attribution
+  needs harness-side instrumentation.
+
 ## v0.13.0 — 2026-05-26
 
 One AgentDescriptor registry collapses every "which harness?" call site
