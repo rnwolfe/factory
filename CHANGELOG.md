@@ -4,6 +4,30 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.19.0 — 2026-05-26
+
+### Added
+- **`release` button on the project header.** Cuts a release of the
+  current project via a seeded `release-project` task template — opens
+  the variable form directly (version + optional notes; no picker step).
+  The template's agent-rendered Recipe section defers to the project's
+  `skills/release/SKILL.md` if present, falling back to a generic
+  semver-bump + changelog + annotated tag flow otherwise. Implementation
+  is a thin specialization on v0.17.0's task templates; no new primitive,
+  no `releases` table.
+- **Seeded task templates infrastructure.** New `SEEDED_TEMPLATES` array
+  in `packages/db/src/seed.ts` upserts on every daemon start. Operator
+  edits to a seeded template (name/description change) are preserved on
+  subsequent seeds; body-only refreshes re-seed.
+- **`preselectSlug` on `InstantiateTemplateModal`.** Lets any caller
+  (release button today; deploy / hotfix / etc. tomorrow) open the modal
+  pre-pointed at a specific template, skipping the picker. Same
+  underlying flow.
+- **Project workdir passed as `cwd`** to the model invocation for agent-
+  rendered template sections, so the agent can Read project files like
+  `skills/release/SKILL.md` at render time without an upstream prompt
+  injection.
+
 ## v0.18.0 — 2026-05-26
 
 ### Added
