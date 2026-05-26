@@ -4,6 +4,17 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.12.3 — 2026-05-26
+
+### Fixed
+- **Settings → default model now offers the agent axis.** The backend has
+  accepted a `default-agent` setting since the codex harness shipped, but
+  the settings page only rendered the legacy claude-only `ModelPicker`,
+  so operators couldn't pick codex (or any codex model id) as the system
+  default. Swapped in `AgentModelPicker`; switching agent resets the
+  model selection to "default" so a stale claude model id doesn't ride
+  into a codex run by inheritance.
+
 ## v0.12.2 — 2026-05-26
 
 ### Changed
