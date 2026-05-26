@@ -62,7 +62,7 @@ describe("buildHealth", () => {
       id: createId(),
       projectId,
       status: "running",
-      mode: "claude",
+      mode: "claude-code",
       description: null,
       branchName: "factory/adhoc-y",
       worktreePath: path.join(tmpRoot, "sess"),

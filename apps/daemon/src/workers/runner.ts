@@ -4,7 +4,6 @@ import { schema } from "@factory/db";
 import {
   type AgentSpec,
   claudeCodeAgent,
-  codexAgent,
   commitAllChanges,
   hostSandbox,
   mergeIntoMain,
@@ -14,6 +13,7 @@ import {
 } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { and, eq, gt } from "drizzle-orm";
+import { getAgentDescriptor } from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
@@ -137,17 +137,12 @@ function buildMergeMessage(opts: {
  * never strands a queued run; the daemon logs the fallback for visibility.
  */
 function agentForRow(agentName: string): AgentSpec {
-  switch (agentName) {
-    case "codex":
-      return codexAgent;
-    case "claude-code":
-      return claudeCodeAgent;
-    default:
-      console.warn(
-        `[runner] unknown agentName "${agentName}" on run row — falling back to claude-code`,
-      );
-      return claudeCodeAgent;
-  }
+  const descriptor = getAgentDescriptor(agentName);
+  if (descriptor) return descriptor.runtimeSpec;
+  console.warn(
+    `[runner] unknown agentName "${agentName}" on run row — falling back to claude-code`,
+  );
+  return claudeCodeAgent;
 }
 
 export interface ExecuteRunOpts {

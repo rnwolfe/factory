@@ -1,10 +1,6 @@
 import type { Db } from "@factory/db";
-import {
-  type AgentName,
-  agentSupportsResume,
-  SUPPORTED_AGENT_NAMES,
-} from "../plans/invoke-claude.ts";
 import { readAllSettings, readOpsSettings } from "../settings/store.ts";
+import { AGENT_NAMES, type AgentName, getAgentDescriptor } from "./registry.ts";
 
 /**
  * Single source of truth for "which headless agent should this code path
@@ -59,7 +55,7 @@ export function normalizeAgent(raw: string | null | undefined): AgentName | null
   if (typeof raw !== "string") return null;
   const v = raw.trim();
   if (!v) return null;
-  return (SUPPORTED_AGENT_NAMES as readonly string[]).includes(v) ? (v as AgentName) : null;
+  return (AGENT_NAMES as readonly string[]).includes(v) ? (v as AgentName) : null;
 }
 
 /**
@@ -71,7 +67,7 @@ export function normalizeAgent(raw: string | null | undefined): AgentName | null
  * replies, feedback follow-ups. See `docs/internal/codex-parity.md`.
  */
 export function assertAgentSupportsResume(agent: AgentName, sitelabel: string): void {
-  if (agentSupportsResume(agent)) return;
+  if (getAgentDescriptor(agent)?.supports.resume) return;
   throw new Error(
     `${sitelabel} requires session resume, which agent "${agent}" does not support. ` +
       `Switch this project/run to claude-code, or wait for the resume-fallback follow-up. ` +

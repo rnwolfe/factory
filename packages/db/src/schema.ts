@@ -706,7 +706,11 @@ export type NewFeedbackComment = typeof feedbackComments.$inferInsert;
 
 export const sessionStatusEnum = ["running", "ended", "merged", "merge_failed", "aborted"] as const;
 
-export const sessionModeEnum = ["claude", "shell"] as const;
+// `shell` is harness-free (operator's $SHELL). Every other value names an
+// agent in the registry (`apps/daemon/src/agents/registry.ts`). Migration
+// 0026 renamed the legacy `claude` rows to `claude-code` so the mode lines
+// up with the canonical AgentName.
+export const sessionModeEnum = ["shell", "claude-code", "codex"] as const;
 
 /**
  * v0.5 cut 9 — ad-hoc interactive sessions. Reuses the run/worktree/tmux
@@ -722,7 +726,7 @@ export const sessions = sqliteTable(
       .references(() => projects.id, { onDelete: "cascade" })
       .notNull(),
     status: text("status", { enum: sessionStatusEnum }).notNull(),
-    mode: text("mode", { enum: sessionModeEnum }).notNull().default("claude"),
+    mode: text("mode", { enum: sessionModeEnum }).notNull().default("claude-code"),
     description: text("description"),
     branchName: text("branch_name").notNull(),
     worktreePath: text("worktree_path").notNull(),

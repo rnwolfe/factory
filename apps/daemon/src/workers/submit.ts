@@ -3,10 +3,9 @@ import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, desc, eq } from "drizzle-orm";
-import { probeCodexAuth } from "../agents/codex-auth.ts";
+import { AGENT_NAMES, type AgentName, getAgentDescriptor } from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
-import { agentSupportsResume } from "../plans/invoke-claude.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import { readAllSettings, readOpsSettings } from "../settings/store.ts";
 import type { WorkerPool } from "./pool.ts";
@@ -102,13 +101,13 @@ export interface SubmitRunInput {
   agent?: string;
 }
 
-const SUPPORTED_AGENTS = new Set(["claude-code", "codex"]);
+const SUPPORTED_AGENTS = new Set<string>(AGENT_NAMES);
 
-function normalizeAgent(raw: string | undefined | null): string | null {
+function normalizeAgent(raw: string | undefined | null): AgentName | null {
   if (typeof raw !== "string") return null;
   const v = raw.trim();
   if (!v) return null;
-  return SUPPORTED_AGENTS.has(v) ? v : null;
+  return SUPPORTED_AGENTS.has(v) ? (v as AgentName) : null;
 }
 
 /**
@@ -254,10 +253,8 @@ export async function submitRun(
   // inventory. The PWA surfaces this verbatim. See docs/internal/codex-parity.md
   // "Ship-with-gap policy enforcement" section.
   const resumeWanted = (sessionIdForRow ?? "").length > 0;
-  const supportsResume = agentSupportsResume(
-    (effectiveAgent === "codex" ? "codex" : "claude-code") as "claude-code" | "codex",
-  );
-  if (resumeWanted && !supportsResume) {
+  const descriptor = getAgentDescriptor(effectiveAgent);
+  if (resumeWanted && descriptor && !descriptor.supports.resume) {
     throw new Error(
       `agent "${effectiveAgent}" does not support session resume — this run path needs it ` +
         `(intervene-resume / reuse-worktree). Switch the run to claude-code, or wait for the resume-fallback ` +
@@ -265,17 +262,18 @@ export async function submitRun(
     );
   }
 
-  // Codex-auth precheck: if the operator selected (or inherited) codex, make
-  // sure `codex login` has actually run on this host before we insert a run
-  // row and spawn a worktree. Without this, the agent boots, hits
-  // "Authentication required" on its first turn, and dies — the operator sees
-  // a silent mid-run failure instead of an actionable error at submit time.
-  if (effectiveAgent === "codex") {
-    const auth = probeCodexAuth();
-    if (!auth.ok) {
+  // Agent-level auth precheck: any registry entry can expose a `probeAuth`.
+  // Codex uses this for its `~/.codex/auth.json` check; future harnesses
+  // (kimi, qwen, …) plug in the same way. Claude-code has no probe — auth
+  // is operator-managed and mid-run failures surface in the pane.
+  if (descriptor?.probeAuth) {
+    const auth = descriptor.probeAuth();
+    if (auth && !auth.ok) {
       throw new Error(
-        `codex agent selected but not authenticated: ${auth.reason}. ` +
-          `See README.md "Using codex (ChatGPT subscription)" for the one-time login flow.`,
+        `${effectiveAgent} agent selected but not authenticated: ${auth.detail}. ` +
+          (effectiveAgent === "codex"
+            ? `See README.md "Using codex (ChatGPT subscription)" for the one-time login flow.`
+            : `See the harness's docs to authenticate.`),
       );
     }
   }

@@ -8,7 +8,10 @@ import { z } from "zod";
 import { abortSession, endSession, SessionError, startSession } from "../sessions/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
-const ModeEnum = z.enum(["claude", "shell"]);
+// Accept the new canonical ids plus the legacy `claude` alias for back-compat
+// with older PWA builds in operators' caches. `orchestrate.resolveModeFromInput`
+// folds `claude` → `claude-code`.
+const ModeEnum = z.enum(["shell", "claude-code", "codex", "claude"]);
 
 // Cap per-request tail read so a long-running session doesn't ship a
 // multi-megabyte log on every reconnect. 128 KiB ≈ a few thousand lines

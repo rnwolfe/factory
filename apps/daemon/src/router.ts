@@ -1,3 +1,4 @@
+import { agentsRouter } from "./routers/agents.ts";
 import { auditsRouter } from "./routers/audits.ts";
 import { changelogRouter } from "./routers/changelog.ts";
 import { decisionsRouter } from "./routers/decisions.ts";
@@ -33,6 +34,7 @@ export const appRouter = router({
   prompts: promptsRouter,
   runs: runsRouter,
   rubrics: rubricsRouter,
+  agents: agentsRouter,
   audits: auditsRouter,
   changelog: changelogRouter,
   metrics: metricsRouter,

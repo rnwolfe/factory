@@ -4,13 +4,36 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 
-type SessionMode = "claude" | "shell";
+/**
+ * Session modes mirror the daemon-side sessionModeEnum. `shell` is the
+ * harness-free path; every other id names an agent from the registry. Adding
+ * a new agent extends both this picker and the daemon's launch path through
+ * a single registry-entry edit — see `apps/daemon/src/agents/registry.ts`.
+ *
+ * Legacy session rows may still carry mode `"claude"` (pre-rename); display
+ * uses the canonical labels but the type accepts the alias for back-compat
+ * with sessions in-flight at migration time.
+ */
+type SessionMode = "shell" | "claude-code" | "codex";
+type StoredSessionMode = SessionMode | "claude";
+
+const MODE_LABELS: Record<SessionMode, string> = {
+  "claude-code": "claude",
+  codex: "codex",
+  shell: "shell",
+};
+
+const MODE_OPTIONS: ReadonlyArray<SessionMode> = ["claude-code", "codex", "shell"];
+
+function displayMode(m: StoredSessionMode): string {
+  return MODE_LABELS[(m === "claude" ? "claude-code" : m) as SessionMode];
+}
 
 interface SessionRow {
   id: string;
   projectId: string;
   status: "running" | "ended" | "merged" | "merge_failed" | "aborted";
-  mode: "claude" | "shell";
+  mode: StoredSessionMode;
   description: string | null;
   branchName: string;
   startedAt: number;
@@ -41,7 +64,7 @@ interface Props {
 export function SessionsList({ projectId }: Props) {
   const nav = useNavigate();
   const qc = useQueryClient();
-  const [mode, setMode] = useState<SessionMode>("claude");
+  const [mode, setMode] = useState<SessionMode>("claude-code");
 
   const sessions = useQuery({
     queryKey: ["sessions.list", projectId],
@@ -64,7 +87,7 @@ export function SessionsList({ projectId }: Props) {
 
   const ModePicker = (
     <div className="flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em]">
-      {(["claude", "shell"] as const).map((m) => (
+      {MODE_OPTIONS.map((m) => (
         <button
           key={m}
           type="button"
@@ -76,7 +99,7 @@ export function SessionsList({ projectId }: Props) {
               : "border-[var(--color-line)] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
           }`}
         >
-          {m}
+          {MODE_LABELS[m]}
         </button>
       ))}
     </div>
@@ -104,7 +127,7 @@ export function SessionsList({ projectId }: Props) {
           ) : (
             <Terminal size={12} />
           )}
-          start {mode} session
+          start {MODE_LABELS[mode]} session
         </button>
         {start.isError ? (
           <div className="mt-2 mono text-[11px] text-[var(--color-verdict-trashed)]">
@@ -141,7 +164,7 @@ export function SessionsList({ projectId }: Props) {
               </span>
             </div>
             <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate mt-0.5">
-              {s.mode} · {s.commitCount} commit{s.commitCount === 1 ? "" : "s"}
+              {displayMode(s.mode)} · {s.commitCount} commit{s.commitCount === 1 ? "" : "s"}
             </div>
           </Link>
         ))}
@@ -154,7 +177,7 @@ export function SessionsList({ projectId }: Props) {
         title={hasRunning ? "a session is already running for this project" : undefined}
       >
         {start.isPending ? <Loader2 size={12} className="animate-spin" /> : <Terminal size={12} />}
-        {hasRunning ? "session already running" : `start ${mode} session`}
+        {hasRunning ? "session already running" : `start ${MODE_LABELS[mode]} session`}
       </button>
       {start.isError ? (
         <div className="mt-2 mono text-[11px] text-[var(--color-verdict-trashed)]">

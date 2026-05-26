@@ -14,6 +14,7 @@ import {
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, eq, inArray } from "drizzle-orm";
+import { getAgentDescriptor } from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { recordMergeFailure } from "../workers/merge-failure.ts";
@@ -26,7 +27,8 @@ export class SessionError extends Error {
       | "session_not_running"
       | "concurrent_session"
       | "tmux_failed"
-      | "no_tmux",
+      | "no_tmux"
+      | "invalid_input",
     message: string,
   ) {
     super(message);
@@ -86,10 +88,50 @@ async function countCommitsAhead(workdir: string, branch: string): Promise<numbe
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Session modes. `shell` is the harness-free path (the operator's `$SHELL`).
+ * Every other value names an agent registered in `AGENT_REGISTRY` — adding a
+ * new agent automatically grows the set of valid modes since the orchestrator
+ * looks up the launch command via {@link buildSessionCommand}.
+ */
+export type SessionMode = "shell" | "claude-code" | "codex";
+
 interface StartInput {
   projectId: string;
-  mode?: "claude" | "shell";
+  /** `SessionMode` or the legacy `"claude"` alias. Normalized inside. */
+  mode?: SessionMode | "claude";
   description?: string | null;
+}
+
+/**
+ * Resolve the inner shell command for a session mode. For `shell` mode this
+ * is the operator's `$SHELL`; for agent modes it's the agent descriptor's
+ * `buildInteractiveCommand()`. Throws when the agent doesn't support
+ * interactive sessions (no descriptor will register `interactiveSession=true`
+ * without a `buildInteractiveCommand`, but defense-in-depth).
+ */
+function buildSessionCommand(mode: SessionMode): string {
+  if (mode === "shell") return `exec ${"$"}{SHELL:-/bin/sh}`;
+  const descriptor = getAgentDescriptor(mode);
+  if (!descriptor) throw new SessionError("invalid_input", `unknown session mode "${mode}"`);
+  if (!descriptor.supports.interactiveSession || !descriptor.buildInteractiveCommand) {
+    throw new SessionError("invalid_input", `agent "${mode}" doesn't support interactive sessions`);
+  }
+  return descriptor.buildInteractiveCommand();
+}
+
+/**
+ * Normalize a session-mode input value. The PWA passes the canonical
+ * `claude-code` / `codex` / `shell`, but the legacy enum value `claude` is
+ * still accepted for back-compat (older clients, hand-issued tRPC calls)
+ * and aliased to `claude-code`. Defaults to `claude-code` (matches the
+ * column default for INSERTs without an explicit mode).
+ */
+function resolveModeFromInput(raw: string | undefined): SessionMode {
+  if (raw === undefined) return "claude-code";
+  if (raw === "claude") return "claude-code";
+  if (raw === "shell" || raw === "claude-code" || raw === "codex") return raw;
+  throw new SessionError("invalid_input", `unknown session mode "${raw}"`);
 }
 
 export async function startSession(
@@ -139,9 +181,12 @@ export async function startSession(
   await writeFile(logPath, "", "utf8");
 
   const sessionName = `factoryd-session-${sessionId.slice(0, 12)}`;
-  // Shell mode uses the operator's $SHELL with /bin/sh fallback. The
-  // ${SHELL:-/bin/sh} expansion is interpreted by the inner sh -c, not by JS.
-  const command = input.mode === "shell" ? `exec ${"$"}{SHELL:-/bin/sh}` : "exec claude";
+  // Mode → inner shell command via the agent registry. `shell` mode uses
+  // the operator's $SHELL with /bin/sh fallback; any agent mode (claude-code,
+  // codex, future harnesses) routes through `buildInteractiveCommand` so new
+  // agents become valid session modes by adding a single registry entry.
+  const mode: SessionMode = resolveModeFromInput(input.mode);
+  const command = buildSessionCommand(mode);
   const innerCommand = `sh -c ${shellQuote(`sleep 0.15; ${command}`)}`;
 
   let tmux: TmuxSessionHandle;
@@ -167,7 +212,7 @@ export async function startSession(
     id: sessionId,
     projectId: project.id,
     status: "running",
-    mode: input.mode ?? "claude",
+    mode,
     description: input.description ?? null,
     branchName,
     worktreePath: wt.worktreePath,

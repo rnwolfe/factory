@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
-import { AGENT_OPTIONS, type AgentName } from "../components/model-picker.tsx";
+import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -89,6 +89,7 @@ export function DecisionDetail() {
   const { id = "" } = useParams<{ id: string }>();
   const nav = useNavigate();
   const qc = useQueryClient();
+  const agentRegistry = useAgentRegistry();
 
   const decision = useQuery({
     queryKey: ["decisions.get", id],
@@ -703,11 +704,11 @@ export function DecisionDetail() {
                   >
                     inherit
                   </button>
-                  {AGENT_OPTIONS.map((opt) => (
+                  {agentRegistry.map((opt) => (
                     <button
                       key={opt.id}
                       type="button"
-                      onClick={() => setRetryAgent(opt.id)}
+                      onClick={() => setRetryAgent(opt.id as AgentName)}
                       className={cn(
                         "chip mono cursor-pointer",
                         retryAgent === opt.id ? "chip-accent" : "",

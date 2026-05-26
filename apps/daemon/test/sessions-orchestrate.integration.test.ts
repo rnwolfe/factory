@@ -243,7 +243,7 @@ describe("sessions orchestrate", () => {
           id,
           projectId,
           status: "running",
-          mode: "claude",
+          mode: "claude-code",
           description: null,
           branchName: "factory/adhoc-stale",
           worktreePath: "/nonexistent/path",

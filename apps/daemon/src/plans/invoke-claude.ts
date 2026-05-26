@@ -1,41 +1,34 @@
-import {
-  type AgentMetrics,
-  type AgentSpec,
-  claudeCodeAgent,
-  codexAgent,
-  type StreamEvent,
-} from "@factory/runtime";
+import type { AgentMetrics, AgentSpec, StreamEvent } from "@factory/runtime";
 import { spawn as bunSpawn } from "bun";
+import {
+  AGENT_NAMES,
+  type AgentName,
+  getAgentDescriptor,
+  requireAgentDescriptor,
+} from "../agents/registry.ts";
 
 /**
- * Supported headless agents. Adding a third entry here requires (1) an
- * AgentSpec in `packages/runtime/src/agents/`, (2) a row in `agentByName`
- * below, and (3) entries in `SUPPORTED_AGENTS` (`workers/submit.ts`) +
- * `agentForRow` (`workers/runner.ts`) for the run path.
+ * Re-exports kept thin so callers can `import { AgentName } from "./invoke-claude.ts"`
+ * unchanged after the registry consolidation. New code should import from
+ * `../agents/registry.ts` directly.
  */
-export type AgentName = "claude-code" | "codex";
+export type { AgentName };
+export const SUPPORTED_AGENT_NAMES: readonly AgentName[] = AGENT_NAMES;
 
-export const SUPPORTED_AGENT_NAMES: readonly AgentName[] = ["claude-code", "codex"] as const;
-
-/** Resolve an agent name to its AgentSpec. */
+/** Resolve an agent name to its AgentSpec via the registry. */
 export function agentByName(name: AgentName): AgentSpec {
-  switch (name) {
-    case "codex":
-      return codexAgent;
-    case "claude-code":
-      return claudeCodeAgent;
-  }
+  return requireAgentDescriptor(name).runtimeSpec;
 }
 
 /**
  * Whether the agent's underlying CLI supports `--resume <session>` to pick
- * up a prior conversation. Callers that rely on resume (`renderFollowUpPrompt`
- * patterns where the follow-up prompt is short and assumes prior thread in
- * context) MUST either fall back to a full prompt when this returns false,
- * or surface a parity error to the operator. See `docs/internal/codex-parity.md`.
+ * up a prior conversation. Reads from the registry's capability flag.
+ * Callers that rely on resume MUST either fall back to a full prompt when
+ * this returns false, or surface a parity error. See
+ * `docs/internal/codex-parity.md`.
  */
 export function agentSupportsResume(name: AgentName): boolean {
-  return name === "claude-code";
+  return getAgentDescriptor(name)?.supports.resume ?? false;
 }
 
 export interface InvokeClaudeOptions {

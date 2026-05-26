@@ -1,4 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "../lib/cn.ts";
+import { trpc } from "../lib/trpc.ts";
 
 export type AgentName = "claude-code" | "codex";
 
@@ -8,42 +10,63 @@ export interface ModelOption {
   hint: string;
 }
 
-/**
- * Models selectable per agent. The `null` entry lets the agent's CLI pick its
- * own default. Keep claude entries in sync with what `claude --model` accepts;
- * codex entries should mirror the visible, API-supported models in codex's
- * own `~/.codex/models_cache.json`. The cache lives next to the codex CLI's
- * config and is the most authoritative list — run `codex doctor` to see the
- * active model, or `cat ~/.codex/models_cache.json` for the full lineup
- * with priorities and visibility flags.
- */
-export const MODELS_BY_AGENT: Record<AgentName, ReadonlyArray<ModelOption>> = {
-  "claude-code": [
-    { id: null, label: "default", hint: "claude cli's choice" },
-    { id: "claude-opus-4-7", label: "opus 4.7", hint: "max capability" },
-    { id: "claude-sonnet-4-6", label: "sonnet 4.6", hint: "balanced" },
-    { id: "claude-haiku-4-5-20251001", label: "haiku 4.5", hint: "fast / cheap" },
-  ],
-  codex: [
-    { id: null, label: "default", hint: "codex cli's choice" },
-    { id: "gpt-5.5", label: "gpt-5.5", hint: "frontier · complex coding" },
-    { id: "gpt-5.4", label: "gpt-5.4", hint: "everyday coding" },
-    { id: "gpt-5.4-mini", label: "5.4 mini", hint: "fast / cheap" },
-    { id: "gpt-5.3-codex", label: "5.3 codex", hint: "codex-tuned" },
-  ],
-} as const;
+interface AgentDescriptorView {
+  id: string;
+  label: string;
+  hint: string;
+  models: ReadonlyArray<ModelOption>;
+  supports: { resume: boolean; interactiveSession: boolean };
+}
 
-export const AGENT_OPTIONS: ReadonlyArray<{ id: AgentName; label: string; hint: string }> = [
-  { id: "claude-code", label: "claude", hint: "anthropic claude code" },
-  { id: "codex", label: "codex", hint: "openai codex (chatgpt subscription)" },
+/**
+ * Fallback model lineup used only when the `agents.list` tRPC query hasn't
+ * resolved yet (or fails). The authoritative source is the daemon's
+ * `apps/daemon/src/agents/registry.ts` — the picker reads from there via
+ * `trpc.agents.list`, so adding a new harness or refreshing a model id is a
+ * single registry-entry edit on the daemon with no PWA changes needed.
+ *
+ * Keeping a static fallback so an offline daemon doesn't strand the picker
+ * with empty chips.
+ */
+const FALLBACK_AGENTS: ReadonlyArray<AgentDescriptorView> = [
+  {
+    id: "claude-code",
+    label: "claude",
+    hint: "anthropic claude code",
+    models: [
+      { id: null, label: "default", hint: "claude cli's choice" },
+      { id: "claude-opus-4-7", label: "opus 4.7", hint: "max capability" },
+      { id: "claude-sonnet-4-6", label: "sonnet 4.6", hint: "balanced" },
+      { id: "claude-haiku-4-5-20251001", label: "haiku 4.5", hint: "fast / cheap" },
+    ],
+    supports: { resume: true, interactiveSession: true },
+  },
+  {
+    id: "codex",
+    label: "codex",
+    hint: "openai codex (chatgpt subscription)",
+    models: [{ id: null, label: "default", hint: "codex cli's choice" }],
+    supports: { resume: false, interactiveSession: true },
+  },
 ];
 
 /**
- * Back-compat alias. The legacy ModelPicker had a flat MODEL_OPTIONS list
- * (claude only). Callers that still import it get claude's options. Prefer
- * AgentModelPicker for new callers.
+ * Subscribe to the registry-served descriptor list. Cached for ~5min so
+ * unrelated re-renders don't re-fetch. Exported for callers that need the
+ * raw agent list outside of the fused picker (e.g. retry-agent chip rows on
+ * the decision-detail page).
  */
-export const MODEL_OPTIONS = MODELS_BY_AGENT["claude-code"];
+export function useAgentRegistry(): ReadonlyArray<AgentDescriptorView> {
+  const q = useQuery({
+    queryKey: ["agents.list"],
+    queryFn: () => trpc.agents.list.query() as Promise<ReadonlyArray<AgentDescriptorView>>,
+    staleTime: 5 * 60 * 1000,
+  });
+  return q.data ?? FALLBACK_AGENTS;
+}
+
+/** Back-compat: pre-fused-picker callers that still import this constant. */
+export const MODEL_OPTIONS: ReadonlyArray<ModelOption> = FALLBACK_AGENTS[0]?.models ?? [];
 
 /**
  * Fused {agent, model} picker. Agent radio sits above a per-agent model row;
@@ -66,12 +89,14 @@ export function AgentModelPicker({
   onModelChange: (model: string | null) => void;
   disabled?: boolean;
 }) {
-  const effectiveAgent: AgentName = (agent ?? "claude-code") as AgentName;
-  const models = MODELS_BY_AGENT[effectiveAgent] ?? MODELS_BY_AGENT["claude-code"];
+  const agents = useAgentRegistry();
+  const effectiveAgent: string = agent ?? "claude-code";
+  const effective = agents.find((a) => a.id === effectiveAgent) ?? agents[0];
+  const models = effective?.models ?? [];
   return (
     <div className="space-y-2" data-card-skip-open>
       <div className="flex flex-wrap gap-1.5">
-        {AGENT_OPTIONS.map((opt) => {
+        {agents.map((opt) => {
           const selected = effectiveAgent === opt.id;
           return (
             <button
@@ -79,7 +104,7 @@ export function AgentModelPicker({
               type="button"
               onClick={() => {
                 if (opt.id === effectiveAgent) return;
-                onAgentChange(opt.id);
+                onAgentChange(opt.id as AgentName);
                 onModelChange(null);
               }}
               disabled={disabled}
@@ -125,7 +150,8 @@ export function AgentModelPicker({
 /**
  * Legacy single-axis picker. Kept for callers that haven't migrated to the
  * fused {agent, model} shape yet (decision-approve forms; spec-import).
- * Operates on the claude-code model list only.
+ * Operates on the claude-code model list only, queried from the registry
+ * with the static fallback for offline / pre-resolve states.
  */
 export function ModelPicker({
   value,
@@ -136,9 +162,12 @@ export function ModelPicker({
   onChange: (id: string | null) => void;
   disabled?: boolean;
 }) {
+  const agents = useAgentRegistry();
+  const claude = agents.find((a) => a.id === "claude-code");
+  const models = claude?.models ?? MODEL_OPTIONS;
   return (
     <div className="flex flex-wrap gap-1.5" data-card-skip-open>
-      {MODELS_BY_AGENT["claude-code"].map((opt) => {
+      {models.map((opt) => {
         const selected = (value ?? null) === opt.id;
         return (
           <button

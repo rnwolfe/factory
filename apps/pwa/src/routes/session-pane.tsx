@@ -14,7 +14,8 @@ interface SessionRow {
   id: string;
   projectId: string;
   status: "running" | "ended" | "merged" | "merge_failed" | "aborted";
-  mode: "claude" | "shell";
+  /** Canonical: `shell | claude-code | codex`. Legacy rows carry `claude`. */
+  mode: "shell" | "claude-code" | "codex" | "claude";
   description: string | null;
   branchName: string;
   worktreePath: string;
