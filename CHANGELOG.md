@@ -4,6 +4,18 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.12.1 — 2026-05-25
+
+### Changed
+- **CLAUDE.md narrow-`bun test` contract.** Agents running under Factory
+  are now told to scope `bun test` to single files or single workspaces
+  and avoid the wide-scope invocations (`bun test apps/daemon/`, `bun
+  --filter '@factory/daemon' test`) that have reproducibly killed the
+  parent `claude --print` process within ~5 seconds of starting. Four
+  consecutive task-020 attempts died this way before the retry-in-worktree
+  path (which lets the agent verify on already-committed work) cleared
+  the task. Root-cause hunt deferred; this is the operational workaround.
+
 ## v0.12.0 — 2026-05-25
 
 In-app release notes. The next upgrade greets the operator with a
