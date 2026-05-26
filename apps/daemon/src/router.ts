@@ -13,6 +13,7 @@ import { opsRouter } from "./routers/ops.ts";
 import { plansRouter } from "./routers/plans.ts";
 import { projectsRouter } from "./routers/projects.ts";
 import { promptsRouter } from "./routers/prompts.ts";
+import { recoveryPromptsRouter } from "./routers/recovery-prompts.ts";
 import { repoRouter } from "./routers/repo.ts";
 import { rubricsRouter } from "./routers/rubrics.ts";
 import { runsRouter } from "./routers/runs.ts";
@@ -29,6 +30,7 @@ export const appRouter = router({
   deferredTasks: deferredTasksRouter,
   feedback: feedbackRouter,
   interventions: interventionsRouter,
+  recoveryPrompts: recoveryPromptsRouter,
   plans: plansRouter,
   projects: projectsRouter,
   prompts: promptsRouter,

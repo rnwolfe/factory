@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
+import { RecoveryPrompt } from "../components/recovery-prompt.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -689,6 +690,7 @@ export function DecisionDetail() {
             retry resumes from this run's branch tip — partial work and the auto-commit ride
             forward. operator replies in the thread fold into the new run's prompt.
           </p>
+          {isPending ? <RecoveryPrompt decisionId={id} /> : null}
           {isPending ? (
             <Section title="retry agent">
               <div className="px-4 py-3 space-y-2">
@@ -769,6 +771,7 @@ export function DecisionDetail() {
             the agent's commits live on the run's branch — retry merges them into main once the
             blocker is cleared. dismiss leaves them on the branch.
           </p>
+          {isPending ? <RecoveryPrompt decisionId={id} /> : null}
         </>
       ) : null}
 
