@@ -4,6 +4,18 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.12.4 — 2026-05-26
+
+### Fixed
+- **Codex model picker refreshed against the current codex CLI.** The
+  hardcoded `gpt-5` / `gpt-5-codex` entries were stale — they no longer
+  appear in codex 0.133.0's own model cache, and codex's internal
+  migration table even maps `gpt-5.2-codex → gpt-5.3-codex → gpt-5.4`.
+  Picker now lists `gpt-5.5` (frontier), `gpt-5.4` (everyday),
+  `gpt-5.4-mini` (fast/cheap), and `gpt-5.3-codex` (codex-tuned). Source
+  of truth comment now points at `~/.codex/models_cache.json` so future
+  refreshes have an authoritative list to check.
+
 ## v0.12.3 — 2026-05-26
 
 ### Fixed
