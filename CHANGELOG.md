@@ -4,6 +4,36 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.15.0 — 2026-05-26
+
+Scenario-specific operator-intervention prompts on every decision card
+that needs human help. No more digging up worktree paths and branch
+names to drive a recovery — the prompt is pre-filled with everything an
+interactive agent needs.
+
+### Added
+- **Recovery-prompt block on blocked-run + merge-failure decisions.** Six
+  scenarios covered, classified daemon-side from the decision payload:
+  `blocked_run_failed` (factory-status-null), `blocked_run_questions`,
+  `blocked_run_usage_capped`, `merge_failure_dirty`,
+  `merge_failure_conflict` (file paths extracted from the merge message),
+  and `merge_failure_other`. Each carries worktree path, branch, base
+  ref, summary, and (where relevant) the agent's questions or the
+  conflicted files, plus the task body so the recovering agent has the
+  acceptance criteria.
+- **`recoveryPrompts.forDecision` tRPC route.** Returns `null` for
+  decision kinds that don't need a prompt (`tag_change`, `triage`,
+  `agent_decision`) so the PWA component renders gracefully — every
+  consumer treats the response as opaque.
+- **Copy button + scenario label** on the prompt block. Falls back to
+  range-selection when `navigator.clipboard` isn't available (http
+  origins, private browsing).
+
+### Follow-up
+- "Open in agent session" affordance is deferred — it needs
+  session-attach-to-existing-worktree wiring (today's `sessions.start`
+  creates a fresh worktree off main). Copy-paste is the v1 path.
+
 ## v0.14.0 — 2026-05-26
 
 Per-harness metrics + the operator-facing 'X hours of agent work'
