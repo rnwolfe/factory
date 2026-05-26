@@ -4,6 +4,40 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.17.0 — 2026-05-26
+
+Cross-project task templates. Author a reusable blueprint once (release-
+notes flow, expose+systemd deploy, operator-CLI scaffolding); instantiate
+into any project with one click. Agent-rendered sections read the target
+project's AGENTS.md + recent commits and tailor the task body to its stack.
+
+### Added
+- **`task_template` plan kind.** Authoring goes through the same
+  iterate-with-agent / freeze flow as project_vision and feature_plan.
+  Templates are Factory-canonical (cross-project, alongside rubrics and
+  prompts) — explicit exception to the "per-project artifacts are
+  repo-canonical" doctrine, since templates by definition aren't
+  per-project. Migration 0028 adds the `task_templates` table.
+- **"from template" picker** on the project header. Two-step modal:
+  pick a template from the library, fill the variable form, optionally
+  toggle "tailor agent sections to this project," instantiate →
+  navigates straight into the new task page. Variables surface as
+  inputs with descriptions and defaults; agent sections invoke the
+  model once each with the target's context.
+- **Settings → library → task templates.** List view + form editor for
+  direct authoring/refinement. Parallel surface to plan-iterate, same
+  underlying storage. Includes an inline "draft with agent" seed: type
+  a goal, agent iterates the variable+section breakdown.
+- **Static + agent-rendered sections.** Static sections do `{var}`
+  substitution against operator inputs + project-derived helpers
+  (`{projectName}`, `{projectSlug}`). Agent sections carry an
+  instruction-to-the-renderer body; instantiate-time invocation reads
+  the target's AGENTS.md, README, and recent commits and returns
+  per-project tailored markdown. Recorded under
+  `ownerKind=plan_iteration` so the cost surfaces in the metrics view.
+- **`taskTemplates.{list,bySlug,update,archive,unarchive,instantiate}`
+  tRPC routes.** `plans.startTaskTemplate` for the plan-iterate flow.
+
 ## v0.16.0 — 2026-05-26
 
 The "open in agent session" affordance on recovery-prompt blocks. Stuck
