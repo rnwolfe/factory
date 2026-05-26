@@ -33,6 +33,7 @@ const PLAN_PROMPT_FILES: Array<{ key: string; file: string }> = [
   { key: "plan-refinement-v1", file: "prompts/plan-refinement-v1.md" },
   { key: "plan-feature-plan-v1", file: "prompts/plan-feature-plan-v1.md" },
   { key: "plan-project-vision-v1", file: "prompts/plan-project-vision-v1.md" },
+  { key: "plan-task-template-v1", file: "prompts/plan-task-template-v1.md" },
 ];
 
 const ALL_PROMPT_FILES: Array<{ key: string; file: string }> = [

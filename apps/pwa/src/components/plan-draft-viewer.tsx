@@ -66,12 +66,31 @@ export interface ProjectVisionDraftView {
   priorArt: string[];
 }
 
+interface TaskTemplateDraftView {
+  kind: "task_template";
+  name: string;
+  description: string;
+  titlePattern: string;
+  labels: string[];
+  priority: "low" | "med" | "high";
+  estimate: "small" | "medium" | "large";
+  variables: Array<{
+    key: string;
+    label: string;
+    description: string;
+    required: boolean;
+    default: string | null;
+  }>;
+  sections: Array<{ heading: string; kind: "static" | "agent"; body: string }>;
+}
+
 export type AnyDraftView =
   | ProjectSpecDraftView
   | TaskPlanDraftView
   | RefinementDraftView
   | FeaturePlanDraftView
-  | ProjectVisionDraftView;
+  | ProjectVisionDraftView
+  | TaskTemplateDraftView;
 
 interface Props {
   draft: AnyDraftView;
@@ -91,6 +110,8 @@ export function PlanDraftViewer({ draft, planId = "anon" }: Props) {
       return <FeaturePlanView draft={draft} planId={planId} />;
     case "project_vision":
       return <ProjectVisionView draft={draft} planId={planId} />;
+    case "task_template":
+      return <TaskTemplateView draft={draft} />;
   }
 }
 
@@ -519,4 +540,94 @@ function estimateTone(estimate: "small" | "medium" | "large"): string {
     case "large":
       return "chip-trashed";
   }
+}
+
+function TaskTemplateView({ draft }: { draft: TaskTemplateDraftView }) {
+  const empty =
+    draft.name.length === 0 &&
+    draft.description.length === 0 &&
+    draft.variables.length === 0 &&
+    draft.sections.length === 0;
+  if (empty) {
+    return (
+      <DraftEmpty hint="the agent will draft the template — open the thread and reply with any clarifications." />
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <Section title="template">
+        <div className="surface px-4 py-3 space-y-1">
+          <div className="flex items-baseline gap-2">
+            <span className="display text-[15px] text-[var(--color-fg)]">
+              {draft.name || "(unnamed)"}
+            </span>
+            <span className={`chip text-[10.5px] ${estimateTone(draft.estimate)}`}>
+              {draft.estimate}
+            </span>
+            <span className="chip text-[10.5px]">{draft.priority}</span>
+          </div>
+          {draft.description ? (
+            <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
+              {draft.description}
+            </p>
+          ) : null}
+          <p className="mono text-[11px] text-[var(--color-fg-3)]">
+            title: <span className="text-[var(--color-fg-1)]">{draft.titlePattern}</span>
+          </p>
+        </div>
+      </Section>
+      <Section title="variables" count={draft.variables.length}>
+        {draft.variables.length === 0 ? (
+          <DraftEmpty hint="no variables — operator instantiates with project context only." />
+        ) : (
+          <ul className="surface divide-y divide-[var(--color-line)]">
+            {draft.variables.map((v) => (
+              <li key={v.key} className="px-4 py-2 space-y-0.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="mono text-[12px] text-[var(--color-fg-1)]">{v.key}</span>
+                  <span className="text-[12px] text-[var(--color-fg-2)]">{v.label}</span>
+                  {v.required ? null : (
+                    <span className="mono text-[10.5px] text-[var(--color-fg-3)]">optional</span>
+                  )}
+                  {v.default ? (
+                    <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                      default: {v.default}
+                    </span>
+                  ) : null}
+                </div>
+                {v.description ? (
+                  <p className="mono text-[10.5px] text-[var(--color-fg-3)]">{v.description}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+      <Section title="sections" count={draft.sections.length}>
+        {draft.sections.length === 0 ? (
+          <DraftEmpty hint="no sections — template would produce an empty task." />
+        ) : (
+          <ul className="surface divide-y divide-[var(--color-line)]">
+            {draft.sections.map((s, i) => (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: sections are positional
+                key={`section-${i}`}
+                className="px-4 py-3 space-y-1"
+              >
+                <div className="flex items-baseline gap-2">
+                  <span className="display text-[13.5px] text-[var(--color-fg)]">{s.heading}</span>
+                  <span className={`chip text-[10.5px] ${s.kind === "agent" ? "chip-accent" : ""}`}>
+                    {s.kind}
+                  </span>
+                </div>
+                <pre className="mono text-[11px] text-[var(--color-fg-2)] leading-relaxed whitespace-pre-wrap">
+                  {s.body}
+                </pre>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+    </div>
+  );
 }

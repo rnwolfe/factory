@@ -13,6 +13,7 @@ import {
   type RefinementDraft,
   schema,
   type TaskPlanDraft,
+  type TaskTemplateDraft,
 } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { and, asc, eq } from "drizzle-orm";
@@ -306,6 +307,47 @@ function coerceDraft(kind: PlanKind, raw: unknown): PlanDraft | null {
     return draft;
   }
 
+  if (kind === "task_template") {
+    const variables = Array.isArray(obj.variables) ? obj.variables : [];
+    const sections = Array.isArray(obj.sections) ? obj.sections : [];
+    const draft: TaskTemplateDraft = {
+      kind: "task_template",
+      name: typeof obj.name === "string" ? obj.name : "",
+      description: typeof obj.description === "string" ? obj.description : "",
+      titlePattern: typeof obj.titlePattern === "string" ? obj.titlePattern : "",
+      labels: Array.isArray(obj.labels)
+        ? obj.labels.filter((l): l is string => typeof l === "string")
+        : [],
+      priority:
+        obj.priority === "low" || obj.priority === "high" || obj.priority === "med"
+          ? obj.priority
+          : "med",
+      estimate:
+        obj.estimate === "small" || obj.estimate === "medium" || obj.estimate === "large"
+          ? obj.estimate
+          : "medium",
+      variables: variables
+        .filter((v): v is Record<string, unknown> => Boolean(v) && typeof v === "object")
+        .map((v) => ({
+          key: typeof v.key === "string" ? v.key : "",
+          label: typeof v.label === "string" ? v.label : "",
+          description: typeof v.description === "string" ? v.description : "",
+          required: v.required !== false,
+          default: typeof v.default === "string" ? v.default : null,
+        }))
+        .filter((v) => v.key.length > 0),
+      sections: sections
+        .filter((s): s is Record<string, unknown> => Boolean(s) && typeof s === "object")
+        .map((s) => ({
+          heading: typeof s.heading === "string" ? s.heading : "",
+          kind: (s.kind === "agent" ? "agent" : "static") as "agent" | "static",
+          body: typeof s.body === "string" ? s.body : "",
+        }))
+        .filter((s) => s.heading.length > 0),
+    };
+    return draft;
+  }
+
   return null;
 }
 
@@ -478,6 +520,18 @@ async function buildPromptForKind(
       PROJECT_AGENTS_MD: agentsMd,
       EXISTING_VISION: existingVision,
       RECENT_COMMITS: recentCommits,
+      CURRENT_DRAFT_JSON: draftJson,
+      THREAD: formatThread(thread),
+    });
+  }
+
+  if (plan.kind === "task_template") {
+    // Cross-project templates have no projectId — the goal (stored on the
+    // plan's `goal` column when it was created) carries the operator's
+    // stated intent. No project context is fed in; the template itself
+    // must remain project-agnostic.
+    return renderPrompt(template, {
+      TEMPLATE_GOAL: plan.goal ?? "(operator's goal unset)",
       CURRENT_DRAFT_JSON: draftJson,
       THREAD: formatThread(thread),
     });

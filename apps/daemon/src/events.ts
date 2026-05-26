@@ -71,7 +71,13 @@ export type DaemonEvent =
       channel: "inbox";
       kind: "plan_created";
       planId: string;
-      planKind: "project_spec" | "task_plan" | "refinement" | "feature_plan" | "project_vision";
+      planKind:
+        | "project_spec"
+        | "task_plan"
+        | "refinement"
+        | "feature_plan"
+        | "project_vision"
+        | "task_template";
       projectId?: string | null;
     }
   | {

@@ -34,6 +34,7 @@ import { ScriptPane } from "./routes/script-pane.tsx";
 import { SessionPane } from "./routes/session-pane.tsx";
 import { Settings } from "./routes/settings.tsx";
 import { TaskDetail } from "./routes/task-detail.tsx";
+import { TaskTemplateEditorRoute, TaskTemplates } from "./routes/task-templates.tsx";
 import { WorktreesAdmin } from "./routes/worktrees.tsx";
 
 /**
@@ -250,6 +251,22 @@ export function App() {
             element={
               <RouteBoundary label="worktrees">
                 <WorktreesAdmin />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/task-templates"
+            element={
+              <RouteBoundary label="task-templates">
+                <TaskTemplates />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/task-templates/:slug"
+            element={
+              <RouteBoundary label="task-template-editor">
+                <TaskTemplateEditorRoute />
               </RouteBoundary>
             }
           />

@@ -180,6 +180,16 @@ export function Settings() {
         </Link>
       </Section>
 
+      <Section title="library">
+        <Link
+          to="/settings/task-templates"
+          className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
+        >
+          <span className="text-[13px] text-[var(--color-fg-1)]">task templates</span>
+          <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
+        </Link>
+      </Section>
+
       <Section title="about">
         <Link
           to="/settings/release-notes"

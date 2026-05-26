@@ -10,6 +10,7 @@ export const PLAN_PROMPT_KEYS = {
   refinement: "plan-refinement-v1",
   feature_plan: "plan-feature-plan-v1",
   project_vision: "plan-project-vision-v1",
+  task_template: "plan-task-template-v1",
 } as const satisfies Record<PlanKind, string>;
 
 export function planPromptKey(kind: PlanKind): string {

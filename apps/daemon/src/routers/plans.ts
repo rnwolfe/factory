@@ -6,6 +6,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { applyFeaturePlanFreeze } from "../plans/apply-feature-plan.ts";
 import { applyProjectVisionFreeze } from "../plans/apply-project-vision.ts";
+import { applyTaskTemplateFreeze, seedTaskTemplateDraft } from "../plans/apply-task-template.ts";
 import { bootstrapFromPlan } from "../plans/bootstrap-from-plan.ts";
 import {
   parseStoredDraft,
@@ -344,6 +345,74 @@ export const plansRouter = router({
       return { planId };
     }),
 
+  /**
+   * Start a task_template draft. Templates have no `projectId` — they live
+   * outside any single project. Multiple drafts can coexist (in contrast
+   * to vision/spec where we reuse a drafting plan) since each template
+   * addresses a different operator-stated use case.
+   */
+  startTaskTemplate: protectedProcedure
+    .input(
+      z.object({
+        /** Operator's stated intent — e.g. "add release-notes flow to a web project". */
+        goal: z.string().min(4).max(2000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const planId = createId();
+      const now = Date.now();
+      const seed = seedTaskTemplateDraft();
+      await ctx.db.insert(schema.plans).values({
+        id: planId,
+        kind: "task_template",
+        status: "drafting",
+        projectId: null,
+        goal: input.goal,
+        draft: JSON.stringify(seed),
+        ceremony: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "plan_created",
+        planId,
+        planKind: "task_template",
+        projectId: null,
+      });
+      // Kick off the agent's first turn so the draft is already partly
+      // filled when the operator opens the plan-detail page.
+      void (async () => {
+        try {
+          const result = await runPlanIteration(ctx.db, planId);
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_comment_added",
+            planId,
+            role: "agent",
+          });
+          if (result.draftUpdated) {
+            ctx.events.publish({ channel: "inbox", kind: "plan_updated", planId });
+          }
+        } catch (err) {
+          await ctx.db.insert(schema.planComments).values({
+            id: createId(),
+            planId,
+            role: "agent",
+            body: `(initial iteration failed: ${err instanceof Error ? err.message : String(err)})`,
+            createdAt: Date.now(),
+          });
+          ctx.events.publish({
+            channel: "inbox",
+            kind: "plan_comment_added",
+            planId,
+            role: "agent",
+          });
+        }
+      })();
+      return { planId };
+    }),
+
   startRefinement: protectedProcedure
     .input(z.object({ projectId: z.string(), taskId: z.string(), runId: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
@@ -640,6 +709,21 @@ export const plansRouter = router({
           projectId: plan.projectId,
           draft,
           planId: plan.id,
+        });
+      } else if (plan.kind === "task_template") {
+        // Task templates are Factory-canonical, not per-project. There's
+        // no projectId precondition — the frozen draft lands in the
+        // task_templates table where the picker on any project page can
+        // see it.
+        const draft = parseStoredDraft(plan.draft);
+        if (draft.kind !== "task_template") {
+          throw new Error(`task_template ${plan.id} draft kind mismatch: ${draft.kind}`);
+        }
+        await applyTaskTemplateFreeze({
+          db: ctx.db,
+          draft,
+          planId: plan.id,
+          now,
         });
       }
 

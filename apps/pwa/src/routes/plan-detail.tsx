@@ -28,7 +28,13 @@ interface PlanComment {
 
 interface PlanRow {
   id: string;
-  kind: "project_spec" | "task_plan" | "refinement" | "feature_plan" | "project_vision";
+  kind:
+    | "project_spec"
+    | "task_plan"
+    | "refinement"
+    | "feature_plan"
+    | "project_vision"
+    | "task_template";
   status: "drafting" | "frozen" | "abandoned" | "superseded";
   decisionId: string | null;
   projectId: string | null;
@@ -43,6 +49,24 @@ interface PlanRow {
   tier?: "tinker" | "personal" | "share" | "productize" | null;
 }
 
+interface TaskTemplateDraftView {
+  kind: "task_template";
+  name: string;
+  description: string;
+  titlePattern: string;
+  labels: string[];
+  priority: "low" | "med" | "high";
+  estimate: "small" | "medium" | "large";
+  variables: Array<{
+    key: string;
+    label: string;
+    description: string;
+    required: boolean;
+    default: string | null;
+  }>;
+  sections: Array<{ heading: string; kind: "static" | "agent"; body: string }>;
+}
+
 function safeParseDraft(raw: string, kind: PlanRow["kind"]): AnyDraftView | null {
   try {
     const obj = JSON.parse(raw) as unknown;
@@ -51,6 +75,7 @@ function safeParseDraft(raw: string, kind: PlanRow["kind"]): AnyDraftView | null
     if (kind === "refinement") return obj as RefinementDraftView;
     if (kind === "feature_plan") return obj as FeaturePlanDraftView;
     if (kind === "project_vision") return obj as ProjectVisionDraftView;
+    if (kind === "task_template") return obj as TaskTemplateDraftView;
     return null;
   } catch {
     return null;
@@ -69,6 +94,8 @@ function kindLabel(kind: PlanRow["kind"]): string {
       return "feature plan";
     case "project_vision":
       return "project vision";
+    case "task_template":
+      return "task template";
   }
 }
 
@@ -84,6 +111,8 @@ function freezeConsumerHint(kind: PlanRow["kind"]): string {
       return "freeze emits the planned tasks into the project.";
     case "project_vision":
       return "freeze writes docs/internal/VISION.md and supersedes any prior vision plan.";
+    case "task_template":
+      return "freeze persists the template into the cross-project library — instantiate from any project's header.";
   }
 }
 

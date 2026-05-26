@@ -45,6 +45,19 @@ export const planKindEnum = [
   "refinement",
   "feature_plan",
   "project_vision",
+  /**
+   * Cross-project task templates — frozen drafts become rows in the
+   * `task_templates` table and can be instantiated against any project to
+   * produce a real task file in `.factory/work/`. Templates carry static
+   * sections (string-substituted with operator-supplied variables) and
+   * optionally "agent-rendered" sections (model reads the target's
+   * AGENTS.md/README/recent commits and tailors the section body).
+   *
+   * Templates have no `projectId` while drafting — they're Factory-canonical
+   * the way rubrics and prompts are, not repo-canonical. The discriminator
+   * `projectId IS NULL AND kind = 'task_template'` is the inbox filter.
+   */
+  "task_template",
 ] as const;
 export const planStatusEnum = ["drafting", "frozen", "abandoned", "superseded"] as const;
 export const planCommentRoleEnum = ["operator", "agent"] as const;
@@ -174,12 +187,55 @@ export interface ProjectVisionDraft {
   priorArt: string[];
 }
 
+/**
+ * A single variable the operator supplies at instantiate-time. The
+ * template's body interpolates `{key}` against `value`; agent-rendered
+ * sections see the same values surfaced in their context block.
+ */
+export interface TaskTemplateVariable {
+  key: string;
+  label: string;
+  description: string;
+  required: boolean;
+  default: string | null;
+}
+
+/**
+ * One section of a template's body. `static` sections are pure string-
+ * substitution with the operator's variable values. `agent` sections are
+ * passed to a Claude turn at instantiate-time along with the target
+ * project's context (AGENTS.md excerpt, README, recent commits) and the
+ * variable values — the agent rewrites the section to fit that project's
+ * stack, aesthetic, and conventions.
+ */
+export interface TaskTemplateSection {
+  heading: string;
+  kind: "static" | "agent";
+  body: string;
+}
+
+export interface TaskTemplateDraft {
+  kind: "task_template";
+  /** Operator-facing name; unique within Factory (slugified for the URL). */
+  name: string;
+  /** One-line intent — surfaced on the templates list and the picker chips. */
+  description: string;
+  /** Title pattern for the instantiated task; `{var}` substitutions allowed. */
+  titlePattern: string;
+  labels: string[];
+  priority: "low" | "med" | "high";
+  estimate: "small" | "medium" | "large";
+  variables: TaskTemplateVariable[];
+  sections: TaskTemplateSection[];
+}
+
 export type PlanDraft =
   | ProjectSpecDraft
   | TaskPlanDraft
   | RefinementDraft
   | FeaturePlanDraft
-  | ProjectVisionDraft;
+  | ProjectVisionDraft
+  | TaskTemplateDraft;
 
 export interface AuditFinding {
   /** cuid2, stable across promote calls. */
@@ -905,3 +961,44 @@ export const pushSubscriptions = sqliteTable("push_subscriptions", {
 
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
+
+/**
+ * Cross-project task templates. Frozen `task_template` plans persist into
+ * this table; the templates picker on the project page lets operators
+ * instantiate any of them against the current project to produce a real
+ * task file in `.factory/work/`.
+ *
+ * Templates are Factory-canonical (not repo-canonical) — they exist
+ * outside any single project the same way rubrics and prompts do. The
+ * "Per-project artifacts are repo-canonical" doctrine doesn't apply
+ * because templates by definition aren't per-project.
+ *
+ * `draft` is the JSON-serialized `TaskTemplateDraft`. Updating happens
+ * either via re-iterating the source plan (which freezes a new version)
+ * or via direct form-edit through the settings page.
+ */
+export const taskTemplates = sqliteTable(
+  "task_templates",
+  {
+    id: text("id").primaryKey(),
+    /** Slug for URL routing — derived from `name` at create time, stable thereafter. */
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** JSON-encoded `TaskTemplateDraft`. */
+    draft: text("draft").notNull(),
+    /** Plan id this template was frozen from (or last refined via). Nullable for direct form authoring. */
+    sourcePlanId: text("source_plan_id"),
+    /** Soft-delete via `archived_at`; archived templates are hidden from the picker but kept for audit. */
+    archivedAt: integer("archived_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("task_templates_slug_uniq").on(t.slug),
+    index("task_templates_archived_idx").on(t.archivedAt),
+  ],
+);
+
+export type TaskTemplate = typeof taskTemplates.$inferSelect;
+export type NewTaskTemplate = typeof taskTemplates.$inferInsert;

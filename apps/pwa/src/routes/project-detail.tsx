@@ -18,6 +18,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { AuditsSection } from "../components/audits-section.tsx";
 import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
+import { InstantiateTemplateModal } from "../components/instantiate-template-modal.tsx";
 import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { AgentModelPicker, type AgentName } from "../components/model-picker.tsx";
 import { NewTaskModal } from "../components/new-task-modal.tsx";
@@ -83,6 +84,7 @@ export function ProjectDetail() {
   const qc = useQueryClient();
   const [showPublish, setShowPublish] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showArchivedTasks, setShowArchivedTasks] = useState(false);
   const [showAllRuns, setShowAllRuns] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -258,6 +260,9 @@ export function ProjectDetail() {
         />
       ) : null}
       {showNewTask ? <NewTaskModal projectId={p.id} onClose={() => setShowNewTask(false)} /> : null}
+      {showTemplatePicker ? (
+        <InstantiateTemplateModal projectId={p.id} onClose={() => setShowTemplatePicker(false)} />
+      ) : null}
       <header className="surface p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -332,6 +337,14 @@ export function ProjectDetail() {
             title="capture a bug or feature for this project"
           >
             <Plus size={12} /> task
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTemplatePicker(true)}
+            className="btn btn-ghost text-[12px]"
+            title="instantiate a saved task template against this project"
+          >
+            from template
           </button>
           <FeaturePlanLaunch projectId={id} />
           <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">
