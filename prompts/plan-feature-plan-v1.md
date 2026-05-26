@@ -12,7 +12,8 @@ on personal+ projects.
 - `{{PROJECT_CEREMONY}}` — `tinker` | `personal` | `shared` | `production`.
   Vision-filter enforcement applies for `personal` or higher.
 - `{{PROJECT_README}}` — the project's README, if present.
-- `{{PROJECT_CLAUDE_MD}}` — the project's CLAUDE.md, if present.
+- `{{PROJECT_AGENTS_MD}}` — the project's AGENTS.md (or legacy CLAUDE.md),
+  if present. This is the agent operating manual.
 - `{{PROJECT_VISION}}` — the project's `docs/internal/VISION.md`, if present.
   Drives the vision filter; absent on `tinker`.
 - `{{FEATURE_GOAL}}` — the operator-stated goal. Immutable across iterations.

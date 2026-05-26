@@ -12,6 +12,7 @@ import { recordClaudeMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { extractJsonObject } from "../plans/json-extract.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
+import { agentsMdPath, ensureClaudeMdSymlink } from "./agents-md.ts";
 import { type BootstrapResult, bootstrapProject } from "./bootstrap.ts";
 
 export type Ceremony = "tinker" | "personal" | "shared" | "production";
@@ -182,8 +183,9 @@ export interface ConfirmImportSpecResult extends BootstrapResult {
  * (greenlit, no rubric) idea + decision pair so downstream code that
  * expects projects to carry an `ideaId` works uniformly. Then writes
  * `docs/internal/SPEC.md` verbatim into the project repo, references it
- * from a bootstrap CLAUDE.md, and amends the bootstrap commit so all the
- * onboarding artifacts land together.
+ * from a bootstrap AGENTS.md (with CLAUDE.md as a symlink so Claude
+ * Code's auto-loader still finds it), and amends the bootstrap commit
+ * so all the onboarding artifacts land together.
  *
  * Auto-advance is on by default for fresh projects (matches existing
  * bootstrap behavior). The first ready task starts as soon as the
@@ -261,10 +263,10 @@ export async function confirmImportSpec(
     model: input.model,
   });
 
-  // 4. Write the spec verbatim + a CLAUDE.md reference, then commit on
-  // top of the bootstrap commit. Bootstrap already created CLAUDE.md
-  // is *not* present yet — bootstrap doesn't generate one — so we
-  // write a small one that points at the spec.
+  // 4. Write the spec verbatim + an AGENTS.md reference, then commit on
+  // top of the bootstrap commit. Bootstrap doesn't generate either
+  // instruction file, so we write AGENTS.md from scratch and drop a
+  // CLAUDE.md symlink pointing at it for Claude Code's auto-loader.
   const specRelPath = path.posix.join("docs", "internal", "SPEC.md");
   const specAbsDir = path.join(bootstrap.workdirPath, "docs", "internal");
   await mkdir(specAbsDir, { recursive: true });
@@ -274,12 +276,13 @@ export async function confirmImportSpec(
     "utf8",
   );
 
-  await ensureClaudeMdReferences({
+  await ensureAgentsMdReferences({
     workdirPath: bootstrap.workdirPath,
     projectName: titleSuggestion,
     specPath: specRelPath,
     firstTaskNote: input.decomposition.firstTaskNote,
   });
+  await ensureClaudeMdSymlink(bootstrap.workdirPath);
 
   await commitAllChanges(
     bootstrap.workdirPath,
@@ -290,7 +293,7 @@ export async function confirmImportSpec(
   return { ...bootstrap, specPath: specRelPath };
 }
 
-const CLAUDE_MD_HEADER = (projectName: string, specPath: string, firstTaskNote: string): string =>
+const AGENTS_MD_HEADER = (projectName: string, specPath: string, firstTaskNote: string): string =>
   `# ${projectName} — agent operating manual
 
 This project was bootstrapped from an operator-supplied spec via Factory's
@@ -315,28 +318,28 @@ ${firstTaskNote ? `## First-task orientation\n\n${firstTaskNote}\n\n` : ""}## Do
   prompt's footer) to communicate — never block on stdin.
 `;
 
-async function ensureClaudeMdReferences(args: {
+async function ensureAgentsMdReferences(args: {
   workdirPath: string;
   projectName: string;
   specPath: string;
   firstTaskNote: string;
 }): Promise<void> {
-  const claudeMdPath = path.join(args.workdirPath, "CLAUDE.md");
-  if (!existsSync(claudeMdPath)) {
+  const filePath = agentsMdPath(args.workdirPath);
+  if (!existsSync(filePath)) {
     await writeFile(
-      claudeMdPath,
-      CLAUDE_MD_HEADER(args.projectName, args.specPath, args.firstTaskNote),
+      filePath,
+      AGENTS_MD_HEADER(args.projectName, args.specPath, args.firstTaskNote),
       "utf8",
     );
     return;
   }
-  // CLAUDE.md exists (rare on a fresh bootstrap, but possible if the
+  // AGENTS.md exists (rare on a fresh bootstrap, but possible if the
   // operator's flow changes) — append a SPEC.md reference if missing.
-  const existing = await readFile(claudeMdPath, "utf8");
+  const existing = await readFile(filePath, "utf8");
   if (!existing.includes(args.specPath)) {
     const note = `\n## Spec\n\n- **${args.specPath}** — the operator-supplied spec for this project.\n`;
     const next = existing.endsWith("\n") ? `${existing}${note}` : `${existing}\n${note}`;
-    await writeFile(claudeMdPath, next, "utf8");
+    await writeFile(filePath, next, "utf8");
   }
 }
 

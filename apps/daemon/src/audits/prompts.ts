@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn as bunSpawn } from "bun";
+import { readAgentInstructions } from "../projects/agents-md.ts";
 import type { AuditSkillFile } from "../projects/audit-skills.ts";
 
 /**
@@ -70,7 +71,7 @@ interface BuildAuditPromptInput {
   skill: AuditSkillFile;
   projectName: string;
   visionExcerpt: string;
-  claudeMdExcerpt: string;
+  agentsMdExcerpt: string;
   recentCommits: string;
   priorAudits: string;
 }
@@ -83,7 +84,7 @@ interface BuildAuditPromptInput {
  * the framework owns that surface so per-skill drift is impossible.
  */
 export function buildAuditPrompt(input: BuildAuditPromptInput): string {
-  const { skill, projectName, visionExcerpt, claudeMdExcerpt, recentCommits, priorAudits } = input;
+  const { skill, projectName, visionExcerpt, agentsMdExcerpt, recentCommits, priorAudits } = input;
 
   const header = [
     `# ${skill.frontmatter.name} — ${projectName}`,
@@ -96,9 +97,9 @@ export function buildAuditPrompt(input: BuildAuditPromptInput): string {
     "",
     visionExcerpt,
     "",
-    `### CLAUDE.md (excerpt)`,
+    `### AGENTS.md (excerpt)`,
     "",
-    claudeMdExcerpt,
+    agentsMdExcerpt,
     "",
     `### Recent commits`,
     "",
@@ -155,25 +156,25 @@ export interface ProjectContextSources {
 
 /**
  * Gather the project-context sources to feed into the audit prompt:
- * VISION.md excerpt, CLAUDE.md excerpt, recent git log.
+ * VISION.md excerpt, AGENTS.md (or legacy CLAUDE.md) excerpt, recent git log.
  *
  * Approved-audit summaries are intentionally minimal — the spec leaves
  * cross-audit awareness to the docs-audit skill flagging stale references.
  */
 export async function gatherProjectContext(src: ProjectContextSources): Promise<{
   visionExcerpt: string;
-  claudeMdExcerpt: string;
+  agentsMdExcerpt: string;
   recentCommits: string;
   priorAudits: string;
 }> {
-  const [vision, claudeMd, log] = await Promise.all([
+  const [vision, agentsMd, log] = await Promise.all([
     readIfPresent(path.join(src.workdirPath, "docs", "internal", "VISION.md")),
-    readIfPresent(path.join(src.workdirPath, "CLAUDE.md")),
+    readAgentInstructions(src.workdirPath).then((v) => v ?? "(none)"),
     gitLogTail(src.workdirPath),
   ]);
   return {
     visionExcerpt: excerpt(vision),
-    claudeMdExcerpt: excerpt(claudeMd),
+    agentsMdExcerpt: excerpt(agentsMd),
     recentCommits: log,
     priorAudits: "(see docs/internal/audits/ in the project repo)",
   };

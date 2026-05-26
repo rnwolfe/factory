@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
@@ -204,7 +204,7 @@ describe("proposeImportSpec", () => {
 });
 
 describe("confirmImportSpec", () => {
-  test("happy path: bootstraps project, writes SPEC.md, seeds CLAUDE.md, creates tasks", async () => {
+  test("happy path: bootstraps project, writes SPEC.md, seeds AGENTS.md (with CLAUDE.md symlink), creates tasks", async () => {
     const { config, cleanup } = makeTempConfig();
     try {
       runMigrations(config.dbPath);
@@ -252,10 +252,16 @@ describe("confirmImportSpec", () => {
       expect(specOnDisk).toContain("my-tracker — spec");
       expect(specOnDisk).toContain("SQLite schema for time entries");
 
-      // CLAUDE.md was seeded with a SPEC reference.
-      const claudeMd = readFileSync(path.join(result.workdirPath, "CLAUDE.md"), "utf8");
-      expect(claudeMd).toContain("docs/internal/SPEC.md");
-      expect(claudeMd).toContain("First-task orientation");
+      // AGENTS.md was seeded with a SPEC reference. CLAUDE.md is a symlink
+      // to AGENTS.md so Claude Code's auto-loader still finds it; both paths
+      // resolve to the same bytes.
+      const agentsMd = readFileSync(path.join(result.workdirPath, "AGENTS.md"), "utf8");
+      expect(agentsMd).toContain("docs/internal/SPEC.md");
+      expect(agentsMd).toContain("First-task orientation");
+      const claudeMdLstat = lstatSync(path.join(result.workdirPath, "CLAUDE.md"));
+      expect(claudeMdLstat.isSymbolicLink()).toBe(true);
+      const claudeMdResolved = readFileSync(path.join(result.workdirPath, "CLAUDE.md"), "utf8");
+      expect(claudeMdResolved).toBe(agentsMd);
 
       // Project row exists with auto-advance on, ceremony=personal.
       const project = await db

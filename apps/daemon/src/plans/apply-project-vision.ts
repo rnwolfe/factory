@@ -6,6 +6,7 @@ import { schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
+import { agentsMdPath, ensureClaudeMdSymlink, legacyClaudeMdPath } from "../projects/agents-md.ts";
 
 export interface ApplyProjectVisionInput {
   config: FactoryConfig;
@@ -17,17 +18,20 @@ export interface ApplyProjectVisionInput {
 
 export interface ApplyProjectVisionResult {
   visionPath: string;
-  claudeMdUpdated: boolean;
+  /** True when the agent-instruction file (AGENTS.md, or legacy CLAUDE.md) gained a VISION.md reference. */
+  agentsMdUpdated: boolean;
 }
 
 /**
  * Apply a frozen project_vision plan: write `docs/internal/VISION.md` and
- * (on first authoring) drop a small reference into CLAUDE.md so the agent
+ * (on first authoring) drop a small reference into AGENTS.md so the agent
  * knows where to look.
  *
- * The reference in CLAUDE.md is small and self-explanatory — Factory does
- * not auto-prepend VISION.md to run prompts. The agent reads CLAUDE.md as
- * its operating manual and follows the reference there.
+ * The reference in AGENTS.md is small and self-explanatory — Factory does
+ * not auto-prepend VISION.md to run prompts. The agent reads AGENTS.md as
+ * its operating manual and follows the reference there. Legacy projects
+ * that still have a regular CLAUDE.md (instead of a symlink to AGENTS.md)
+ * get the reference written there.
  */
 export async function applyProjectVisionFreeze(
   input: ApplyProjectVisionInput,
@@ -49,25 +53,37 @@ export async function applyProjectVisionFreeze(
   const md = renderVisionMarkdown(draft, project.name, planId);
   await writeFile(visionPath, md, "utf8");
 
-  const claudeMdPath = path.join(project.workdirPath, "CLAUDE.md");
   const reference =
     "- **VISION.md** lives at `docs/internal/VISION.md` — read it before any non-trivial change. It states identity, principles, phases, and out-of-scope items.";
-  let claudeMdUpdated = false;
-  if (existsSync(claudeMdPath)) {
-    const existing = await readFile(claudeMdPath, "utf8");
+  const agentsPath = agentsMdPath(project.workdirPath);
+  const claudePath = legacyClaudeMdPath(project.workdirPath);
+  // Prefer AGENTS.md; fall back to a legacy regular-file CLAUDE.md only when
+  // AGENTS.md is missing. If both are absent we bootstrap a minimal AGENTS.md.
+  const writePath = existsSync(agentsPath)
+    ? agentsPath
+    : existsSync(claudePath)
+      ? claudePath
+      : agentsPath;
+  let agentsMdUpdated = false;
+  if (existsSync(writePath)) {
+    const existing = await readFile(writePath, "utf8");
     if (!existing.includes("docs/internal/VISION.md")) {
       const next = existing.endsWith("\n")
         ? `${existing}\n${reference}\n`
         : `${existing}\n\n${reference}\n`;
-      await writeFile(claudeMdPath, next, "utf8");
-      claudeMdUpdated = true;
+      await writeFile(writePath, next, "utf8");
+      agentsMdUpdated = true;
     }
   } else {
-    // Bootstrap a minimal CLAUDE.md if missing (rare — bootstrap usually
-    // creates it). Operator can flesh it out later.
-    await writeFile(claudeMdPath, `# ${project.name}\n\n## Doctrine\n\n${reference}\n`, "utf8");
-    claudeMdUpdated = true;
+    // Neither file exists — bootstrap a minimal AGENTS.md.
+    await writeFile(writePath, `# ${project.name}\n\n## Doctrine\n\n${reference}\n`, "utf8");
+    agentsMdUpdated = true;
   }
+  // Make sure CLAUDE.md is a symlink to AGENTS.md so both harnesses see the
+  // same content. No-op when CLAUDE.md is already a symlink, or when the
+  // project is mid-migration with both files as regular files (operator
+  // intervention required in that case).
+  await ensureClaudeMdSymlink(project.workdirPath);
 
   await commitAllChanges(
     project.workdirPath,
@@ -75,7 +91,7 @@ export async function applyProjectVisionFreeze(
     config.gitAuthor,
   );
 
-  return { visionPath: "docs/internal/VISION.md", claudeMdUpdated };
+  return { visionPath: "docs/internal/VISION.md", agentsMdUpdated };
 }
 
 function renderVisionMarkdown(

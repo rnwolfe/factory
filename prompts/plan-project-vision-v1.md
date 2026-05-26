@@ -2,7 +2,7 @@
 
 You are iterating on a **project vision plan** with the operator. The frozen
 plan is committed to the project repo as `docs/internal/VISION.md` — it
-becomes the project's identity document, referenced from CLAUDE.md and
+becomes the project's identity document, referenced from AGENTS.md and
 consulted by the feature_plan vision filter. Brevity and honesty matter; this
 is doctrine, not a spec.
 
@@ -12,7 +12,8 @@ is doctrine, not a spec.
 - `{{PROJECT_CEREMONY}}` — `personal` | `shared` | `production`. Tier shapes
   audience expectations (a tinker project doesn't get here).
 - `{{PROJECT_README}}` — the project's README, if present.
-- `{{PROJECT_CLAUDE_MD}}` — the project's CLAUDE.md, if present.
+- `{{PROJECT_AGENTS_MD}}` — the project's AGENTS.md (or legacy CLAUDE.md),
+  if present. This is the agent operating manual.
 - `{{EXISTING_VISION}}` — the existing VISION.md if one exists. Non-null on
   re-vision (supersession) flows; null on first authoring.
 - `{{RECENT_COMMITS}}` — last ~30 commit subjects. Useful for grounding

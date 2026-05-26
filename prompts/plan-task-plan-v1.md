@@ -9,8 +9,8 @@ unattended execution.
 
 - `{{PROJECT_NAME}}` — project name.
 - `{{PROJECT_README}}` — the project's README, if present (else "(none)").
-- `{{PROJECT_CLAUDE_MD}}` — the project's CLAUDE.md, if present (else
-  "(none)").
+- `{{PROJECT_AGENTS_MD}}` — the project's AGENTS.md (or legacy CLAUDE.md),
+  if present (else "(none)"). This is the agent operating manual.
 - `{{TASK_BODY}}` — the task's full markdown body (frontmatter omitted).
 - `{{CURRENT_DRAFT_JSON}}` — the current plan draft. Empty on the first
   agent turn.
@@ -31,7 +31,7 @@ unattended execution.
 4. List `touches` — file paths the agent expects to modify or create. Be
    specific (full paths > globs > directory hints). This list is used by
    later drift detection, so missing entries hide drift.
-5. Call out `risks` (architectural rules from CLAUDE.md you might collide
+5. Call out `risks` (architectural rules from AGENTS.md you might collide
    with, dependent code that may break, ambiguous requirements).
 6. Write a short `reply` (1–3 sentences) addressed to the operator.
 
@@ -52,8 +52,8 @@ unattended execution.
 
 ## Rules
 
-- The CLAUDE.md (when present) names architectural contracts that must not
-  be broken casually. Read it before drafting; if a step would violate one,
+- AGENTS.md (when present) names architectural contracts that must not be
+  broken casually. Read it before drafting; if a step would violate one,
   flag it in `risks` and mention it in `reply`.
 - Steps should be small enough to execute sequentially in a single
   unattended run. If the work is too large, say so in `reply` — the operator

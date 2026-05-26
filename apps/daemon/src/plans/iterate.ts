@@ -19,6 +19,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
 import { recordClaudeMetrics } from "../metrics/record.ts";
+import { readAgentInstructions } from "../projects/agents-md.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { agentSupportsResume, type InvokeClaudeResult, invokeClaudeJson } from "./invoke-claude.ts";
@@ -367,14 +368,14 @@ async function buildPromptForKind(
       .get();
     if (!project) throw new Error(`project ${plan.projectId} not found`);
     const task = await readTaskFile(project.workdirPath, plan.taskId);
-    const [readme, claudeMd] = await Promise.all([
+    const [readme, agentsMd] = await Promise.all([
       readIfPresent(path.join(project.workdirPath, "README.md")),
-      readIfPresent(path.join(project.workdirPath, "CLAUDE.md")),
+      readAgentInstructions(project.workdirPath).then((v) => v ?? "(none)"),
     ]);
     return renderPrompt(template, {
       PROJECT_NAME: project.name,
       PROJECT_README: readme,
-      PROJECT_CLAUDE_MD: claudeMd,
+      PROJECT_AGENTS_MD: agentsMd,
       TASK_BODY: task?.body ?? "(task body unavailable)",
       CURRENT_DRAFT_JSON: draftJson,
       THREAD: formatThread(thread),
@@ -423,16 +424,16 @@ async function buildPromptForKind(
       .where(eq(schema.projects.id, plan.projectId))
       .get();
     if (!project) throw new Error(`project ${plan.projectId} not found`);
-    const [readme, claudeMd, vision] = await Promise.all([
+    const [readme, agentsMd, vision] = await Promise.all([
       readIfPresent(path.join(project.workdirPath, "README.md")),
-      readIfPresent(path.join(project.workdirPath, "CLAUDE.md")),
+      readAgentInstructions(project.workdirPath).then((v) => v ?? "(none)"),
       readIfPresent(path.join(project.workdirPath, "docs", "internal", "VISION.md")),
     ]);
     return renderPrompt(template, {
       PROJECT_NAME: project.name,
       PROJECT_CEREMONY: plan.ceremony ?? project.ceremony ?? "tinker",
       PROJECT_README: readme,
-      PROJECT_CLAUDE_MD: claudeMd,
+      PROJECT_AGENTS_MD: agentsMd,
       PROJECT_VISION: vision,
       FEATURE_GOAL: plan.goal,
       CURRENT_DRAFT_JSON: draftJson,
@@ -448,9 +449,9 @@ async function buildPromptForKind(
       .where(eq(schema.projects.id, plan.projectId))
       .get();
     if (!project) throw new Error(`project ${plan.projectId} not found`);
-    const [readme, claudeMd, existingVision] = await Promise.all([
+    const [readme, agentsMd, existingVision] = await Promise.all([
       readIfPresent(path.join(project.workdirPath, "README.md")),
-      readIfPresent(path.join(project.workdirPath, "CLAUDE.md")),
+      readAgentInstructions(project.workdirPath).then((v) => v ?? "(none)"),
       readIfPresent(path.join(project.workdirPath, "docs", "internal", "VISION.md")),
     ]);
     // Recent commit log is grounding for the agent's identity statement —
@@ -474,7 +475,7 @@ async function buildPromptForKind(
       PROJECT_NAME: project.name,
       PROJECT_CEREMONY: plan.ceremony ?? project.ceremony ?? "tinker",
       PROJECT_README: readme,
-      PROJECT_CLAUDE_MD: claudeMd,
+      PROJECT_AGENTS_MD: agentsMd,
       EXISTING_VISION: existingVision,
       RECENT_COMMITS: recentCommits,
       CURRENT_DRAFT_JSON: draftJson,
