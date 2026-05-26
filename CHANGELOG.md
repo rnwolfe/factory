@@ -4,6 +4,15 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.18.0 — 2026-05-26
+
+### Added
+- **Task templates in the Ctrl+K command palette.** New "Task templates"
+  nav entry jumps to the library; each individual template shows up as
+  its own palette item with the description as the hint and navigates
+  straight into its editor route. Library is queried lazily on palette
+  open. Search the palette by template name or description.
+
 ## v0.17.0 — 2026-05-26
 
 Cross-project task templates. Author a reusable blueprint once (release-
