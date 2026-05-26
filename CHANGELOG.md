@@ -4,6 +4,40 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.11.0 — 2026-05-25
+
+Retry-in-worktree affordance for blocked/failed runs, codex agent harness
+spike (subscription-auth CLI wired through every headless invocation path),
+and a 30-day spend sparkline on the project detail view. Two run-page
+empty-events fixes that surfaced after the May 23 pane refactor.
+
+### Added
+- **Retry-in-worktree on blocked/failed runs.** Run detail view has a
+  retry button that re-spawns the agent on the prior worktree (preserving
+  any auto-committed partial work). Backend mutation `runs.retryInWorktree`
+  enforces failed-or-blocked only, verifies the source worktree still
+  exists, and stamps the new run with `retry_of_run_id` so the chain is
+  queryable. Runtime gains a `requireExistingWorktree` guard on `spawn`
+  so the retry path attaches to the existing branch instead of trying to
+  recreate it.
+- **Codex agent harness.** New `codex` agent provider in
+  `packages/runtime/src/agents/` wraps the codex CLI under ChatGPT
+  subscription auth (no API key needed). Agent dispatch is wired through
+  every headless invocation site — runner, plans, audits, triage,
+  deferred-tasks — so any code-changing path can run on either claude or
+  codex. Five follow-up tasks from the parent feature plan are queued.
+- **30-day spend sparkline.** Project detail page shows a collapsible
+  strip with daily cost/tokens trends.
+- **Metrics URL state.** `range` and `groupBy` controls on the metrics
+  view persist via URL params — reload-friendly and shareable.
+
+### Fixed
+- **Run-page empty events on revisit.** Two related bugs in
+  `apps/pwa/src/routes/run.tsx`: react-query was serving a stale empty
+  array via `gcTime: 0` mishandling, and the tRPC `runs.diff` payload
+  shape change wasn't being unwrapped. Now uses an `isFetching` guard and
+  the corrected diff payload.
+
 ## v0.10.6 — 2026-05-24
 
 Session-pane fixes. Three real bugs that all trace back to the same
