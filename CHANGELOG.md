@@ -4,6 +4,46 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.13.0 — 2026-05-26
+
+One AgentDescriptor registry collapses every "which harness?" call site
+into a single drop-in spec. Codex becomes a session mode along the way.
+
+### Added
+- **Codex as an ad-hoc session mode.** The session picker on the project
+  page now offers `claude`, `codex`, and `shell` — codex sessions launch
+  an interactive codex pane in the worktree. The previous "claude or
+  shell only" surface was the smoking gun motivating the registry
+  consolidation.
+- **`agents.list` tRPC route.** Serves the registry's serializable view
+  (id, label, hint, models, supports) so the PWA picker, retry-agent
+  chips, and any future agent UI all read from a single source of truth.
+
+### Changed
+- **AgentDescriptor registry** at `apps/daemon/src/agents/registry.ts`
+  is now the single source of truth for every agent Factory dispatches
+  to. Each descriptor carries id, label, hint, model list, support flags
+  (`resume`, `interactiveSession`), the runtime spec, an optional auth
+  probe, and the interactive launch command. Adding a new harness is one
+  registry-entry edit; every consumer (run submission auth probe, parity
+  guards, session launch, PWA model picker, retry-agent chips) refreshes
+  automatically.
+- **Session modes renamed.** The canonical mode set is now
+  `shell | claude-code | codex`. The legacy `claude` value is accepted at
+  the API boundary for back-compat with older PWA builds; stored rows are
+  migrated in place to `claude-code` (migration 0026).
+- **`workers/submit.ts` auth probe is registry-driven.** The hardcoded
+  `probeCodexAuth()` call is replaced by `descriptor.probeAuth?.()` so
+  any future agent with auth requirements wires in by adding the probe
+  to its descriptor.
+
+### Known gap
+- `apps/cli/src/commands/doctor.ts` still embeds a hardcoded codex auth
+  check rather than iterating the registry — the CLI is a separate
+  workspace and importing from `apps/daemon` would require lifting the
+  registry into a `packages/` module. Filed as a follow-up for when a
+  third harness lands.
+
 ## v0.12.4 — 2026-05-26
 
 ### Fixed
