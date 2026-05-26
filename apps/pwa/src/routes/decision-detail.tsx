@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
+import { AGENT_OPTIONS, type AgentName } from "../components/model-picker.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -111,8 +112,12 @@ export function DecisionDetail() {
   });
 
   const action = useMutation({
-    mutationFn: (vars: { action: Action }) =>
-      trpc.decisions.action.mutate({ decisionId: id, action: vars.action }),
+    mutationFn: (vars: { action: Action; agent?: AgentName }) =>
+      trpc.decisions.action.mutate({
+        decisionId: id,
+        action: vars.action,
+        agent: vars.agent,
+      }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
       qc.invalidateQueries({ queryKey: ["plans.inbox"] });
@@ -185,6 +190,10 @@ export function DecisionDetail() {
   });
 
   const [draft, setDraft] = useState("");
+  // null = inherit (task → project → settings). Otherwise pin this retry to
+  // the named agent. Reset whenever the decision-detail view mounts; the
+  // operator opts in per-retry.
+  const [retryAgent, setRetryAgent] = useState<AgentName | null>(null);
 
   // /ws/inbox carries comment_added and decision_updated. Filter to this
   // decisionId and invalidate so the thread + header pick up agent replies
@@ -679,6 +688,42 @@ export function DecisionDetail() {
             retry resumes from this run's branch tip — partial work and the auto-commit ride
             forward. operator replies in the thread fold into the new run's prompt.
           </p>
+          {isPending ? (
+            <Section title="retry agent">
+              <div className="px-4 py-3 space-y-2">
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setRetryAgent(null)}
+                    className={cn(
+                      "chip mono cursor-pointer",
+                      retryAgent === null ? "chip-accent" : "",
+                    )}
+                    title="use the task / project / settings default"
+                  >
+                    inherit
+                  </button>
+                  {AGENT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setRetryAgent(opt.id)}
+                      className={cn(
+                        "chip mono cursor-pointer",
+                        retryAgent === opt.id ? "chip-accent" : "",
+                      )}
+                      title={opt.hint}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                  override the retry's agent. model still inherits from the task / project.
+                </p>
+              </div>
+            </Section>
+          ) : null}
           {isPending &&
           (comments.data?.filter((c) => c.role === "operator").length ?? 0) === 0 &&
           payload.questions &&
@@ -820,7 +865,12 @@ export function DecisionDetail() {
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => action.mutate({ action: "approve" })}
+              onClick={() =>
+                action.mutate({
+                  action: "approve",
+                  ...(isBlockedRun && retryAgent ? { agent: retryAgent } : {}),
+                })
+              }
               disabled={action.isPending || startIntervention.isPending}
             >
               {isBlockedRun ? "retry" : "retry merge"}
