@@ -4,6 +4,32 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.12.0 — 2026-05-25
+
+In-app release notes. The next upgrade greets the operator with a
+bottom-sheet showing what's new; settings gains a permanent entry point
+to the full history.
+
+### Added
+- **Auto-opening release-notes sheet.** Once per release, on the first
+  authenticated view after an upgrade, a dismissible bottom-sheet
+  renders the latest `CHANGELOG.md` entry (bold lead-ins styled, sections
+  preserved). localStorage tracks the last-seen version so fresh installs
+  silently record the current version instead of opening against an
+  empty history. Esc, the "got it" button, or backdrop dismissal closes
+  it and writes the current version back.
+- **Release-notes history viewer** at `/settings/release-notes`. The
+  full parsed `CHANGELOG.md` rendered as stacked cards, newest-first.
+- **Settings → about → release notes** entry, showing the build's
+  `__FACTORY_VERSION__` next to a link to the history viewer — re-open
+  path for anyone who dismissed the sheet too quickly.
+- **`changelog.latest` / `changelog.all` tRPC queries.** Backed by a
+  pure markdown parser (5 unit tests pinning bold-lead bullets,
+  multi-entry, no-date, continuation lines, empty file). The loader
+  walks up from cwd to find `CHANGELOG.md` — `bun run --filter` chdirs
+  into the workspace dir before invoking, so `process.cwd()` isn't the
+  repo root.
+
 ## v0.11.0 — 2026-05-25
 
 Retry-in-worktree affordance for blocked/failed runs, codex agent harness
