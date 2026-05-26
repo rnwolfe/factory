@@ -5,7 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import yaml from "js-yaml";
 import { createDb, type Db, getDefaultDbPath } from "./client.ts";
 import { runMigrations } from "./migrate.ts";
-import { prompts, rubricVersions } from "./schema.ts";
+import { prompts, rubricVersions, type TaskTemplateDraft, taskTemplates } from "./schema.ts";
 
 const repoRoot = path.resolve(import.meta.dir, "../../..");
 
@@ -45,6 +45,140 @@ const ALL_PROMPT_FILES: Array<{ key: string; file: string }> = [
   { key: FEEDBACK_PROMPT_KEY, file: "prompts/feedback-iterate-v1.md" },
   { key: SPEC_DECOMPOSE_PROMPT_KEY, file: "prompts/spec-decompose-v1.md" },
 ];
+
+/**
+ * Task templates seeded on every daemon start. Slug is stable; the upsert
+ * only writes if the seeded draft is meaningfully newer than what's in the
+ * DB (so operator-edits via the form editor survive seed). Each template
+ * here is intentionally generic — per-project specifics live in the
+ * project's own `skills/<name>/SKILL.md` files, and the templates'
+ * agent-rendered sections defer to those at instantiate time.
+ */
+const SEEDED_TEMPLATES: Array<{ slug: string; draft: TaskTemplateDraft }> = [
+  {
+    slug: "release-project",
+    draft: {
+      kind: "task_template",
+      name: "Release Project",
+      description:
+        "Cut a release of the current project — version bump, changelog, annotated tag, push instructions.",
+      titlePattern: "Release {projectName} {version}",
+      labels: ["release"],
+      priority: "med",
+      estimate: "small",
+      variables: [
+        {
+          key: "version",
+          label: "Version",
+          description: "The new version, e.g. v0.5.0. Match the project's existing tag format.",
+          required: true,
+          default: null,
+        },
+        {
+          key: "notes",
+          label: "Operator notes (optional)",
+          description: "Any framing the operator wants in the changelog beyond the commit summary.",
+          required: false,
+          default: "",
+        },
+      ],
+      sections: [
+        {
+          heading: "Acceptance",
+          kind: "static",
+          body: `- [ ] Working tree is clean and on the project's primary branch (\`main\` unless the project says otherwise).
+- [ ] Version bumped to **{version}** in every file that carries one (root \`package.json\` + workspaces, or the project's equivalent).
+- [ ] Changelog entry added at the top of the project's release notes file (e.g. \`CHANGELOG.md\`), summarising user-visible changes since the prior release.
+- [ ] Single release commit on the primary branch: \`chore(release): {version}\`.
+- [ ] Annotated git tag \`{version}\` pointing at the release commit, carrying the changelog entry in the tag message.
+- [ ] Push commands surfaced for the operator (we do NOT push tags from inside Factory — that's an operator-authorized action).
+- [ ] Optional: any project-specific post-tag steps (e.g. \`factory upgrade\`, deploy trigger, npm publish) called out in the run summary.`,
+        },
+        {
+          heading: "Recipe",
+          kind: "agent",
+          body: `You are cutting a release for this project. Drive the release flow end-to-end up to (but not including) the tag push.
+
+# Authoritative source
+
+If \`skills/release/SKILL.md\` exists in the project root, **follow that file's instructions verbatim**. It carries the project's specific release recipe (which files to bump, where the changelog lives, what the tag format is, what post-tag steps run). Do not invent steps the skill doesn't mention; if a step looks wrong, surface the disagreement in your status \`summary\` instead of improvising.
+
+If \`skills/release/SKILL.md\` does **not** exist, fall back to the generic semver-bump recipe below.
+
+# Generic recipe (fallback)
+
+1. Verify preconditions: clean working tree, on primary branch (\`main\`), in sync with \`origin\`, project tests pass.
+2. Determine the version bump from commits since the last tag:
+   - \`feat:\` → minor (unless body says \`BREAKING CHANGE:\` → major).
+   - \`fix:\` / \`refactor:\` / \`chore:\` / \`docs:\` / \`test:\` → patch.
+   - The operator-supplied **{version}** is authoritative — match it.
+3. Update **{version}** in every file that carries the project's version. Common patterns: root \`package.json\`, every workspace's \`package.json\`, or a \`VERSION\` file.
+4. Write a changelog entry. If a \`CHANGELOG.md\` or \`HISTORY.md\` exists, append a new section at the top. Group commits by conventional-commit type (Added / Changed / Fixed / Documentation). Use the operator's notes if provided: **{notes}**.
+5. Single commit: \`chore(release): {version}\`.
+6. Annotated tag: \`git tag -a {version} -m "<version>\\n\\n<changelog entry body>"\`.
+7. Print the push commands (\`git push origin <branch>\` then \`git push origin {version}\`) and any project-specific post-tag step. **Do not run the push commands yourself** — push to a shared remote is operator-authorized.
+
+# Reading list
+
+- Project's recent commit log (\`git log <last-tag>..HEAD\`) so the changelog entry is accurate.
+- Project's \`AGENTS.md\` for any release-related architectural contracts.
+- The prior changelog entry — match its tone and section layout.`,
+        },
+      ],
+    },
+  },
+];
+
+/**
+ * Upsert a seeded task template. Slug is the stable identifier. Operator
+ * edits via the form editor live alongside seeded content — we only
+ * overwrite the row if the seeded draft has actually changed since the
+ * last seed (compared by JSON.stringify equality on name + description +
+ * titlePattern + variables + sections). That way a daemon restart
+ * doesn't clobber operator tweaks; an explicit seed-side edit does.
+ */
+async function upsertSeededTemplate(db: Db, slug: string, draft: TaskTemplateDraft, now: number) {
+  const existing = await db.select().from(taskTemplates).where(eq(taskTemplates.slug, slug)).get();
+  const draftJson = JSON.stringify(draft);
+  if (!existing) {
+    await db.insert(taskTemplates).values({
+      id: createId(),
+      slug,
+      name: draft.name,
+      description: draft.description,
+      draft: draftJson,
+      sourcePlanId: null,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    console.log(`  + template ${slug}`);
+    return;
+  }
+  if (existing.draft === draftJson) {
+    console.log(`  · template ${slug} unchanged`);
+    return;
+  }
+  // Operator edits: if the row's body differs from the seed AND the
+  // updated_at is newer than the seed's intent, leave it alone. We use a
+  // simple heuristic — if the operator changed the name or description,
+  // they own the row now. Same-name same-description rows get re-seeded.
+  const operatorEdited = existing.name !== draft.name || existing.description !== draft.description;
+  if (operatorEdited) {
+    console.log(`  · template ${slug} operator-edited; not overwritten`);
+    return;
+  }
+  await db
+    .update(taskTemplates)
+    .set({
+      name: draft.name,
+      description: draft.description,
+      draft: draftJson,
+      updatedAt: now,
+    })
+    .where(eq(taskTemplates.slug, slug));
+  console.log(`  ↻ template ${slug} refreshed from seed`);
+}
 
 interface RubricYaml {
   id: string;
@@ -186,6 +320,12 @@ async function main() {
       .where(
         sql`${rubricVersions.rubricKey} = ${parsed.id} AND ${rubricVersions.version} = (SELECT MAX(${rubricVersions.version}) FROM ${rubricVersions} WHERE ${rubricVersions.rubricKey} = ${parsed.id})`,
       );
+  }
+
+  // Task templates: upsert each seeded template. Operator-edited rows are
+  // preserved per the heuristic in upsertSeededTemplate.
+  for (const t of SEEDED_TEMPLATES) {
+    await upsertSeededTemplate(db, t.slug, t.draft, now);
   }
 
   // Verify acceptance: exactly one active rubric and one active prompt per key

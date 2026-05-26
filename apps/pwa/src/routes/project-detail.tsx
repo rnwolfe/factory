@@ -85,6 +85,7 @@ export function ProjectDetail() {
   const [showPublish, setShowPublish] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showReleasePicker, setShowReleasePicker] = useState(false);
   const [showArchivedTasks, setShowArchivedTasks] = useState(false);
   const [showAllRuns, setShowAllRuns] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -263,6 +264,13 @@ export function ProjectDetail() {
       {showTemplatePicker ? (
         <InstantiateTemplateModal projectId={p.id} onClose={() => setShowTemplatePicker(false)} />
       ) : null}
+      {showReleasePicker ? (
+        <InstantiateTemplateModal
+          projectId={p.id}
+          preselectSlug="release-project"
+          onClose={() => setShowReleasePicker(false)}
+        />
+      ) : null}
       <header className="surface p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -345,6 +353,14 @@ export function ProjectDetail() {
             title="instantiate a saved task template against this project"
           >
             from template
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowReleasePicker(true)}
+            className="btn btn-ghost text-[12px]"
+            title="cut a release — uses skills/release/SKILL.md if present, generic semver otherwise"
+          >
+            release
           </button>
           <FeaturePlanLaunch projectId={id} />
           <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">

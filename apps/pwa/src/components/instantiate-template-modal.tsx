@@ -45,11 +45,32 @@ interface TemplateView {
 export function InstantiateTemplateModal({
   projectId,
   onClose,
+  /**
+   * When set, the modal opens directly into the variable form for this
+   * template's slug — bypassing the picker. Used by the project-header
+   * "release" button which always wants the release-project template.
+   */
+  preselectSlug,
 }: {
   projectId: string;
   onClose: () => void;
+  preselectSlug?: string;
 }) {
   const [selected, setSelected] = useState<TemplateView | null>(null);
+
+  // Pre-load the preselected template, then auto-advance to the form.
+  const preload = useQuery({
+    queryKey: ["taskTemplates.bySlug", preselectSlug ?? "_skip"],
+    queryFn: () =>
+      trpc.taskTemplates.bySlug.query({
+        slug: preselectSlug ?? "",
+      }) as Promise<TemplateView | null>,
+    enabled: !!preselectSlug && !selected,
+    staleTime: 30_000,
+  });
+  if (preselectSlug && !selected && preload.data) {
+    setSelected(preload.data);
+  }
 
   return (
     <div

@@ -120,6 +120,7 @@ export async function instantiateTaskTemplate(
         agent,
         projectId: project.id,
         projectName: project.name,
+        projectWorkdir: project.workdirPath,
         projectContext,
         templateName: template.draft.name,
       }),
@@ -167,6 +168,8 @@ interface SectionRenderInput {
   agent: string;
   projectId: string;
   projectName: string;
+  /** Project workdir — passed as cwd to the model so it can read project files via Read/Bash. */
+  projectWorkdir: string;
   projectContext: ProjectContext;
   templateName: string;
 }
@@ -211,6 +214,7 @@ async function renderSection(input: SectionRenderInput): Promise<SectionRenderRe
     const inv = await invokeClaudeJson(prompt, {
       budgetSeconds: getAgentBudgetSeconds(),
       agent: input.agent as "claude-code" | "codex",
+      cwd: input.projectWorkdir,
     });
     if (inv.metrics) {
       await recordAgentMetrics({
