@@ -11,7 +11,11 @@ export interface ModelOption {
 /**
  * Models selectable per agent. The `null` entry lets the agent's CLI pick its
  * own default. Keep claude entries in sync with what `claude --model` accepts;
- * codex entries with `codex --model`.
+ * codex entries should mirror the visible, API-supported models in codex's
+ * own `~/.codex/models_cache.json`. The cache lives next to the codex CLI's
+ * config and is the most authoritative list — run `codex doctor` to see the
+ * active model, or `cat ~/.codex/models_cache.json` for the full lineup
+ * with priorities and visibility flags.
  */
 export const MODELS_BY_AGENT: Record<AgentName, ReadonlyArray<ModelOption>> = {
   "claude-code": [
@@ -22,8 +26,10 @@ export const MODELS_BY_AGENT: Record<AgentName, ReadonlyArray<ModelOption>> = {
   ],
   codex: [
     { id: null, label: "default", hint: "codex cli's choice" },
-    { id: "gpt-5", label: "gpt-5", hint: "max capability" },
-    { id: "gpt-5-codex", label: "gpt-5-codex", hint: "codex-tuned" },
+    { id: "gpt-5.5", label: "gpt-5.5", hint: "frontier · complex coding" },
+    { id: "gpt-5.4", label: "gpt-5.4", hint: "everyday coding" },
+    { id: "gpt-5.4-mini", label: "5.4 mini", hint: "fast / cheap" },
+    { id: "gpt-5.3-codex", label: "5.3 codex", hint: "codex-tuned" },
   ],
 } as const;
 
