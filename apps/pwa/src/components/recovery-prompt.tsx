@@ -1,13 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
-import { Check, ClipboardCopy, LifeBuoy } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Check, ClipboardCopy, LifeBuoy, Loader2, Terminal } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 
 interface InterventionContextView {
   scenario: string;
   title: string;
   prompt: string;
+  runId: string | null;
+  projectId: string | null;
+  agent: string | null;
 }
+
+/** The agent ids the session orchestrator accepts as interactive modes. */
+const INTERACTIVE_MODES = new Set(["claude-code", "codex"]);
 
 /**
  * Copy-pastable operator-intervention prompt rendered inside a decision card.
@@ -45,6 +52,9 @@ export function RecoveryPrompt({ decisionId }: { decisionId: string }) {
 
 function PromptBlock({ entry }: { entry: InterventionContextView }) {
   const [copied, setCopied] = useState(false);
+  const nav = useNavigate();
+  const canOpenInSession =
+    !!entry.projectId && !!entry.runId && !!entry.agent && INTERACTIVE_MODES.has(entry.agent);
 
   const copy = async () => {
     try {
@@ -67,6 +77,25 @@ function PromptBlock({ entry }: { entry: InterventionContextView }) {
     }
   };
 
+  const openInSession = useMutation({
+    mutationFn: async () => {
+      if (!entry.projectId || !entry.runId || !entry.agent) {
+        throw new Error("missing run / project / agent context");
+      }
+      const res = (await trpc.sessions.start.mutate({
+        projectId: entry.projectId,
+        mode: entry.agent as "claude-code" | "codex",
+        description: `recovery: ${entry.title}`,
+        fromRunId: entry.runId,
+        initialPrompt: entry.prompt,
+      } as never)) as { id: string };
+      return res.id;
+    },
+    onSuccess: (sessionId) => {
+      if (entry.projectId) nav(`/projects/${entry.projectId}/sessions/${sessionId}`);
+    },
+  });
+
   return (
     <div className="surface px-3 py-3 space-y-2">
       <div className="flex items-center gap-2">
@@ -86,7 +115,7 @@ function PromptBlock({ entry }: { entry: InterventionContextView }) {
       >
         {entry.prompt}
       </pre>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           type="button"
           onClick={copy}
@@ -96,11 +125,32 @@ function PromptBlock({ entry }: { entry: InterventionContextView }) {
           {copied ? <Check size={11} /> : <ClipboardCopy size={11} />}
           {copied ? "copied" : "copy prompt"}
         </button>
+        {canOpenInSession ? (
+          <button
+            type="button"
+            onClick={() => openInSession.mutate()}
+            disabled={openInSession.isPending}
+            className="btn text-[11px] !h-7 flex items-center gap-1.5"
+            title={`opens an interactive ${entry.agent === "codex" ? "codex" : "claude"} session attached to the run's worktree, with this prompt pre-typed`}
+          >
+            {openInSession.isPending ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <Terminal size={11} />
+            )}
+            open in {entry.agent === "codex" ? "codex" : "claude"} session
+          </button>
+        ) : null}
         <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
           {entry.prompt.length.toLocaleString()} chars · scenario:{" "}
           <span className="text-[var(--color-fg-2)]">{entry.scenario}</span>
         </span>
       </div>
+      {openInSession.isError ? (
+        <p className="mono text-[10.5px] text-[var(--color-verdict-trashed)] leading-relaxed">
+          {(openInSession.error as Error).message}
+        </p>
+      ) : null}
     </div>
   );
 }

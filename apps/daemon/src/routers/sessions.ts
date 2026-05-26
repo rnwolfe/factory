@@ -41,6 +41,14 @@ export const sessionsRouter = router({
         projectId: z.string(),
         mode: ModeEnum.optional(),
         description: z.string().max(200).nullable().optional(),
+        /** Attach to an existing run's worktree+branch instead of forking a fresh adhoc tree. */
+        fromRunId: z.string().optional(),
+        /**
+         * Optional text auto-typed into the agent ~1.5s after boot. No
+         * trailing Enter — the operator submits. Cap is generous so the
+         * full recovery-prompt body (several KB) fits.
+         */
+        initialPrompt: z.string().max(16_000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -49,6 +57,8 @@ export const sessionsRouter = router({
           projectId: input.projectId,
           mode: input.mode,
           description: input.description ?? null,
+          fromRunId: input.fromRunId,
+          initialPrompt: input.initialPrompt,
         });
       } catch (err) {
         throw mapError(err);

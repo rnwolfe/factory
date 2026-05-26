@@ -2,10 +2,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type Db, schema } from "@factory/db";
 import {
+  attachExistingWorktree,
   ensureWorktree,
   followFileBytes,
   mergeIntoMain,
   removeWorktree,
+  sendKeysToTmux,
   shellQuote,
   startTmuxSession,
   type TailHandle,
@@ -101,6 +103,21 @@ interface StartInput {
   /** `SessionMode` or the legacy `"claude"` alias. Normalized inside. */
   mode?: SessionMode | "claude";
   description?: string | null;
+  /**
+   * When set, the session attaches to the existing run's worktree+branch
+   * instead of creating a fresh `factory/adhoc-*` worktree off main. Used
+   * by the recovery-prompt "open in agent session" path so the operator
+   * lands directly in the half-done work, not in a clean slate.
+   */
+  fromRunId?: string;
+  /**
+   * When set, the agent receives this text via `tmux send-keys` ~1.5s after
+   * the session boots. We do NOT auto-submit (no trailing Enter) — the
+   * operator reviews and submits when ready. Best-effort; failure to send
+   * keys doesn't fail the session start (the prompt is recoverable via the
+   * decision card's copy button).
+   */
+  initialPrompt?: string;
 }
 
 /**
@@ -167,12 +184,45 @@ export async function startSession(
   }
 
   const sessionId = createId();
-  const branchName = `factory/adhoc-${sessionId.slice(0, 12)}`;
-  const wt = await ensureWorktree({
-    projectPath: project.workdirPath,
-    branch: branchName,
-    worktreePath: path.join(config.worktreesRoot, project.slug, sessionId),
-  });
+  let branchName: string;
+  let wt: { worktreePath: string; branch: string };
+  let attachedFromRunId: string | null = null;
+  if (input.fromRunId) {
+    // Recovery path: attach to an existing run's worktree. The branch and
+    // worktree are pre-staged by the runtime; we just take them as-is.
+    const run = await db
+      .select()
+      .from(schema.runs)
+      .where(eq(schema.runs.id, input.fromRunId))
+      .get();
+    if (!run) {
+      throw new SessionError("invalid_input", `fromRunId ${input.fromRunId} not found`);
+    }
+    if (run.projectId !== project.id) {
+      throw new SessionError(
+        "invalid_input",
+        `fromRunId ${input.fromRunId} belongs to a different project`,
+      );
+    }
+    try {
+      wt = await attachExistingWorktree({
+        projectPath: project.workdirPath,
+        worktreePath: run.worktreePath,
+        branch: run.branch,
+      });
+    } catch (err) {
+      throw new SessionError("invalid_input", (err as Error).message);
+    }
+    branchName = run.branch;
+    attachedFromRunId = run.id;
+  } else {
+    branchName = `factory/adhoc-${sessionId.slice(0, 12)}`;
+    wt = await ensureWorktree({
+      projectPath: project.workdirPath,
+      branch: branchName,
+      worktreePath: path.join(config.worktreesRoot, project.slug, sessionId),
+    });
+  }
 
   // Log file for tmux pipe-pane → followFileLines → events bus.
   const logsDir = path.join(config.worktreesRoot, project.slug, "_session-logs");
@@ -199,12 +249,16 @@ export async function startSession(
       env: { TERM: "xterm-256color" },
     });
   } catch (err) {
-    // Worktree was created but tmux failed — best-effort cleanup.
-    await removeWorktree({
-      projectPath: project.workdirPath,
-      worktreePath: wt.worktreePath,
-      force: true,
-    }).catch(() => {});
+    // Worktree was created but tmux failed — best-effort cleanup. Skip for
+    // attach-to-existing flows since the worktree belongs to a run, not to
+    // this session; we must not delete the run's working tree.
+    if (!attachedFromRunId) {
+      await removeWorktree({
+        projectPath: project.workdirPath,
+        worktreePath: wt.worktreePath,
+        force: true,
+      }).catch(() => {});
+    }
     throw new SessionError("tmux_failed", (err as Error).message);
   }
 
@@ -245,6 +299,24 @@ export async function startSession(
     sessionId,
     projectId: project.id,
   });
+
+  // Best-effort initial-prompt injection. Runs async so the session-start
+  // tRPC call returns immediately; if anything goes wrong (agent slow to
+  // boot, send-keys fails) the operator can fall back to copy-pasting from
+  // the decision card. Delay leaves the agent enough time to render its
+  // boot UI before keystrokes arrive — claude takes ~1s to show its prompt.
+  if (input.initialPrompt && input.initialPrompt.length > 0 && mode !== "shell") {
+    const promptText = input.initialPrompt;
+    void (async () => {
+      try {
+        await Bun.sleep(1500);
+        await sendKeysToTmux(sessionName, new TextEncoder().encode(promptText));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[sessions] initial-prompt inject failed for ${sessionId}: ${msg}`);
+      }
+    })();
+  }
 
   return { id: sessionId, branchName, worktreePath: wt.worktreePath };
 }

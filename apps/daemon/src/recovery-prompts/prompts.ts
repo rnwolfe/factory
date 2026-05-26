@@ -35,6 +35,16 @@ export interface InterventionContext {
   title: string;
   /** The actual prompt body to paste into the interactive agent. */
   prompt: string;
+  /**
+   * Run that the decision references, if any. Surfaced so the PWA can
+   * offer "open in agent session" wired straight at the existing
+   * worktree (sessions.start with fromRunId) — no operator lookup needed.
+   */
+  runId: string | null;
+  /** Project the recovery happens on; null when the decision isn't tied to one. */
+  projectId: string | null;
+  /** Canonical agent id of the original run — used to pick the session mode. */
+  agent: string | null;
 }
 
 /**
@@ -118,42 +128,53 @@ function renderPromptForScenario(
   scenario: InterventionScenario,
   ctx: RenderContext,
 ): InterventionContext {
+  const meta = {
+    runId: ctx.run?.id ?? null,
+    projectId: ctx.project?.id ?? null,
+    agent: ctx.run?.agentName ?? null,
+  };
   switch (scenario) {
     case "blocked_run_failed":
       return {
         scenario,
         title: "Continue a run that died without a status block",
         prompt: renderBlockedRunFailed(ctx),
+        ...meta,
       };
     case "blocked_run_questions":
       return {
         scenario,
         title: "Resolve a blocked run's questions and continue",
         prompt: renderBlockedRunQuestions(ctx),
+        ...meta,
       };
     case "blocked_run_usage_capped":
       return {
         scenario,
         title: "Resume a run after a usage-cap pause",
         prompt: renderBlockedRunUsageCapped(ctx),
+        ...meta,
       };
     case "merge_failure_dirty":
       return {
         scenario,
         title: "Land a run's commits when the target tree is dirty",
         prompt: renderMergeFailureDirty(ctx),
+        ...meta,
       };
     case "merge_failure_conflict":
       return {
         scenario,
         title: "Resolve a merge conflict between a run branch and main",
         prompt: renderMergeFailureConflict(ctx),
+        ...meta,
       };
     case "merge_failure_other":
       return {
         scenario,
         title: "Investigate a merge failure",
         prompt: renderMergeFailureOther(ctx),
+        ...meta,
       };
   }
 }

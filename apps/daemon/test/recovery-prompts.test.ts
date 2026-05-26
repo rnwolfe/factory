@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createDb, runMigrations } from "@factory/db";
-import { schema } from "@factory/db";
-import { createId } from "@paralleldrive/cuid2";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createDb, runMigrations, schema } from "@factory/db";
+import { createId } from "@paralleldrive/cuid2";
 import { buildInterventionPrompt } from "../src/recovery-prompts/prompts.ts";
 
 interface Harness {
@@ -36,6 +35,8 @@ async function seedProjectAndRun(
     workdirPath,
     createdAt: now,
     lastActivityAt: now,
+    ceremony: "tinker",
+    role: "owner",
   });
   const runId = createId();
   await db.insert(schema.runs).values({
@@ -77,6 +78,10 @@ describe("buildInterventionPrompt", () => {
       expect(result?.prompt).toContain(runId);
       expect(result?.prompt).toContain(`factory/run-${runId}`);
       expect(result?.prompt).toContain("Test Project");
+      // Metadata for the "open in session" path on the PWA.
+      expect(result?.runId).toBe(runId);
+      expect(result?.projectId).toBe(projectId);
+      expect(result?.agent).toBe("claude-code");
     } finally {
       h.cleanup();
     }
