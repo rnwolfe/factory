@@ -4,6 +4,23 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.12.2 — 2026-05-26
+
+### Changed
+- **AGENTS.md is now the canonical agent-instruction file.** Standardizing
+  on the [agents.md](https://agents.md) open convention so Codex (and any
+  other harness following it) reads the same operating manual as Claude
+  Code. `CLAUDE.md` lives on as a symlink to `AGENTS.md` so Claude Code's
+  automatic loader still finds it — one source of truth, both harnesses
+  see identical content, no duplication or drift. Writers (spec-import
+  bootstrap, project_vision freeze) now lay down `AGENTS.md` + the
+  `CLAUDE.md` symlink for new projects; readers (plan iteration, audit
+  context-gathering) prefer `AGENTS.md` and transparently fall back to a
+  legacy regular-file `CLAUDE.md` for projects bootstrapped before this
+  convention. Existing managed projects keep their `CLAUDE.md` — the new
+  reader handles them, and the symlink helper will migrate them safely on
+  the next vision-freeze.
+
 ## v0.12.1 — 2026-05-25
 
 ### Changed
