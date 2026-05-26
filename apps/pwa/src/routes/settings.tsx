@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Loader2, Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ModelPicker } from "../components/model-picker.tsx";
+import { AgentModelPicker, type AgentName } from "../components/model-picker.tsx";
 import { useAuth } from "../lib/auth.ts";
 import * as notifications from "../lib/notifications.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -18,6 +18,7 @@ interface SettingsSnapshot {
   ops: {
     landingRoute: "inbox" | "ops";
     defaultModel: string | null;
+    defaultAgent: string | null;
   };
   overridden: Record<string, boolean>;
 }
@@ -946,6 +947,14 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
       qc.invalidateQueries({ queryKey: ["settings.get"] });
     },
   });
+  const setDefaultAgent = useMutation({
+    mutationFn: (agent: AgentName) =>
+      trpc.settings.set.mutate({ key: "default-agent" as never, value: agent }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+    },
+  });
+  const saving = setDefaultModel.isPending || setDefaultAgent.isPending;
   return (
     <>
       <div className="px-3 py-2 border-b border-[var(--color-line)]">
@@ -972,18 +981,26 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
 
       <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
         <div className="flex items-center justify-between gap-2 mb-2">
-          <span className="text-[13px] text-[var(--color-fg-1)]">default model</span>
+          <span className="text-[13px] text-[var(--color-fg-1)]">default agent + model</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
             system default · projects + tasks override
           </span>
         </div>
-        <ModelPicker
-          value={snap.ops.defaultModel}
-          onChange={(id) => setDefaultModel.mutate(id)}
-          disabled={setDefaultModel.isPending}
+        <AgentModelPicker
+          agent={(snap.ops.defaultAgent as AgentName | null) ?? null}
+          model={snap.ops.defaultModel}
+          onAgentChange={(agent) => {
+            // Switching agent invalidates the current model selection — codex
+            // and claude have disjoint model ids. Reset model to "default" so
+            // the next layer down picks for the new agent.
+            setDefaultAgent.mutate(agent);
+            if (snap.ops.defaultModel !== null) setDefaultModel.mutate(null);
+          }}
+          onModelChange={(id) => setDefaultModel.mutate(id)}
+          disabled={saving}
         />
         <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
-          inheritance: task.model → project.model → this → CLI default
+          inheritance: task → project → this → claude-code (CLI default)
         </p>
       </div>
     </>
