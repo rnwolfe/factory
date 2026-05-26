@@ -535,7 +535,18 @@ export async function runPlanIteration(
   // resume branch and always send the full prompt — buildPromptForKind
   // re-renders the entire thread into the template, so correctness is
   // preserved (at the cost of more tokens per turn). See codex-parity §3b.
-  const agentName = resolveAgent(db);
+  // Plans that target a project (everything except triage-stage project_spec
+  // before the project materializes) honor that project's agent column. The
+  // outer `buildPromptForKind` already loaded the project for plan kinds that
+  // need it; for the remaining cases we look it up here when projectId is set.
+  const planProject = plan.projectId
+    ? await db
+        .select({ agent: schema.projects.agent })
+        .from(schema.projects)
+        .where(eq(schema.projects.id, plan.projectId))
+        .get()
+    : null;
+  const agentName = resolveAgent(db, { projectAgent: planProject?.agent });
   const lastOperatorComment = [...thread].reverse().find((c) => c.role === "operator");
   const hasPriorAgentTurn = thread.some((c) => c.role === "agent");
   const canResume =

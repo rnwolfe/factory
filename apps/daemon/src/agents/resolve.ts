@@ -10,24 +10,21 @@ import { readAllSettings, readOpsSettings } from "../settings/store.ts";
  * Single source of truth for "which headless agent should this code path
  * dispatch to". The chain is:
  *
- *   explicit override → task.frontmatter.agent → settings.default-agent
- *     → "claude-code"
- *
- * Per-project agent selection (a `projects.agent_name` column wired into
- * the chain between task-frontmatter and settings.default-agent) is the
- * follow-up in task-020 — until then, the chain skips that layer.
+ *   explicit override → task.frontmatter.agent → projects.agent
+ *     → settings.default-agent → "claude-code"
  *
  * Callers pass whichever inputs they have (most non-run sites only have
- * the db reference and fall through to settings). Run submission (the
- * one site that already had partial wiring) has its own combined logic
- * in `workers/submit.ts` — this helper covers the daemon's
- * non-`runtime.spawn` invocations.
+ * the db reference and fall through to settings). Run submission has its
+ * own combined logic in `workers/submit.ts` — this helper covers the
+ * daemon's non-`runtime.spawn` invocations.
  */
 export interface ResolveAgentInput {
   /** Explicit override from request input (PWA picker, etc.). */
   override?: string | null;
   /** Task frontmatter value when invocation is task-bound. */
   taskFrontmatterAgent?: string | null;
+  /** Per-project agent column. */
+  projectAgent?: string | null;
 }
 
 /**
@@ -38,7 +35,11 @@ export interface ResolveAgentInput {
  * match the sync settings reader.
  */
 export function resolveAgent(db: Db, input: ResolveAgentInput = {}): AgentName {
-  const candidates: Array<string | null | undefined> = [input.override, input.taskFrontmatterAgent];
+  const candidates: Array<string | null | undefined> = [
+    input.override,
+    input.taskFrontmatterAgent,
+    input.projectAgent,
+  ];
 
   for (const c of candidates) {
     const norm = normalizeAgent(c);

@@ -77,7 +77,7 @@ export async function runAuditIteration(
   const prompt = buildAuditPrompt({ skill, projectName: project.name, ...context });
 
   const budget = opts.budgetSeconds ?? getAgentBudgetSeconds();
-  const agent = resolveAgent(db);
+  const agent = resolveAgent(db, { projectAgent: project.agent });
   let invocation: InvokeClaudeResult;
   try {
     if (opts.agentInvoker) {

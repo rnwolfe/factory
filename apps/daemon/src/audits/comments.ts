@@ -98,7 +98,10 @@ export async function runAgentReply(
   // submit-time guard at run-spawn handles the runs surface; this is the
   // belt-and-suspenders guard for the iteration code path itself. See
   // docs/internal/codex-parity.md §4d.
-  const agent = resolveAgent(db);
+  const project = audit.projectId
+    ? await db.select().from(schema.projects).where(eq(schema.projects.id, audit.projectId)).get()
+    : null;
+  const agent = resolveAgent(db, { projectAgent: project?.agent });
   if (!agentSupportsResume(agent)) {
     const row = await persistAgentRow(
       db,

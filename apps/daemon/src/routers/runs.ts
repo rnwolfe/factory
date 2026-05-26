@@ -61,6 +61,14 @@ export const runsRouter = router({
         taskId: z.string().optional(),
         prompt: z.string().optional(),
         budgetSeconds: z.number().int().nonnegative().optional(),
+        /**
+         * Per-run override of the fused {agent, model} selection. When set,
+         * beats the task-frontmatter / project / settings defaults. Used by
+         * the PWA's start button when the operator wants this one run on a
+         * different provider — see the AgentModelPicker on the project
+         * header.
+         */
+        agent: z.enum(["claude-code", "codex"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

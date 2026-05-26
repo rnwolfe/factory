@@ -165,8 +165,14 @@ export const decisionsRouter = router({
         decisionId: z.string(),
         action: ActionEnum,
         note: z.string().optional(),
-        /** Claude model id for the project's runs. Approve-only; ignored otherwise. */
+        /** Model id for the project's runs. Approve-only; ignored otherwise. */
         model: z.string().nullable().optional(),
+        /**
+         * Headless agent for this run / project. On blocked_run approve, scoped
+         * to the retry run only. On triage approve, persists onto the bootstrapped
+         * project. Ignored otherwise.
+         */
+        agent: z.enum(["claude-code", "codex"]).optional(),
         /** Ceremony level carried into the project_spec plan and on into bootstrap. */
         ceremony: z.enum(["tinker", "personal", "shared", "production"]).optional(),
         /** Owner vs contributor — determines whether bootstrap creates a vision plan. */
@@ -291,12 +297,14 @@ export const decisionsRouter = router({
                 taskId: source.taskId ?? undefined,
                 reuseFromRunId: payload.runId,
                 operatorContext,
+                agent: input.agent,
               }
             : {
                 projectId: source.projectId,
                 taskId: source.taskId ?? undefined,
                 baseRef: source.branch,
                 operatorContext,
+                agent: input.agent,
               },
         );
         retryRunId = result.runId;

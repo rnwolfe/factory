@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
-import { ModelPicker } from "./model-picker.tsx";
+import { AgentModelPicker, type AgentName } from "./model-picker.tsx";
 
 interface Props {
   projectId: string;
@@ -33,6 +33,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
   const [priority, setPriority] = useState<Priority>("med");
   const [body, setBody] = useState("");
   const [model, setModel] = useState<string | null>(null);
+  const [agent, setAgent] = useState<AgentName | null>(null);
   const [runNow, setRunNow] = useState(false);
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -46,12 +47,14 @@ export function NewTaskModal({ projectId, onClose }: Props) {
         priority,
         body: body.trim() || undefined,
         model: model ?? undefined,
+        agent: agent ?? undefined,
       });
       const taskId = created.task.frontmatter.id;
       if (runNow) {
         const run = (await trpc.runs.start.mutate({
           projectId,
           taskId,
+          agent: agent ?? undefined,
         })) as { runId: string };
         return { taskId, runId: run.runId };
       }
@@ -179,10 +182,16 @@ export function NewTaskModal({ projectId, onClose }: Props) {
 
           <div>
             <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] block mb-1">
-              model{" "}
+              agent · model{" "}
               <span className="normal-case text-[var(--color-fg-3)]">(optional override)</span>
             </span>
-            <ModelPicker value={model} onChange={setModel} disabled={create.isPending} />
+            <AgentModelPicker
+              agent={agent}
+              model={model}
+              onAgentChange={(a) => setAgent(a)}
+              onModelChange={(m) => setModel(m)}
+              disabled={create.isPending}
+            />
             <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
               empty = inherit project default
             </p>

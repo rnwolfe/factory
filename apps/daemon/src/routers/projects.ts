@@ -165,6 +165,7 @@ const tasksRouter = router({
         estimate: TaskEstimateEnum.optional(),
         priority: TaskPriorityEnum.optional(),
         model: z.string().max(120).optional(),
+        agent: z.enum(["claude-code", "codex"]).optional(),
         acceptance: z.array(z.string().max(500)).max(50).optional(),
       }),
     )
@@ -186,6 +187,7 @@ const tasksRouter = router({
         estimate: input.estimate,
         priority: input.priority,
         model: input.model,
+        agent: input.agent,
       });
       await commitAllChanges(
         project.workdirPath,
@@ -327,6 +329,21 @@ export const projectsRouter = router({
         .set({ model: input.model })
         .where(eq(schema.projects.id, input.id));
       return { ok: true, model: input.model };
+    }),
+
+  setAgent: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        agent: z.enum(["claude-code", "codex"]).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(schema.projects)
+        .set({ agent: input.agent })
+        .where(eq(schema.projects.id, input.id));
+      return { ok: true, agent: input.agent };
     }),
 
   setCeremony: protectedProcedure
