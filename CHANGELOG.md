@@ -4,6 +4,30 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.16.0 — 2026-05-26
+
+The "open in agent session" affordance on recovery-prompt blocks. Stuck
+runs now have a one-click path from decision card to interactive agent
+attached at the run's worktree, with the recovery prompt pre-typed.
+
+### Added
+- **`sessions.start` attaches to existing run worktrees.** New optional
+  `fromRunId` field reuses the run's branch + worktree via the runtime's
+  `attachExistingWorktree` helper instead of forking a fresh
+  `factory/adhoc-*` tree off main. The operator lands directly in the
+  half-done work where the run left off.
+- **`sessions.start` injects an initial prompt.** New optional
+  `initialPrompt` field auto-types into the agent ~1.5s after boot via
+  `tmux send-keys` (no trailing Enter — operator reviews and submits).
+  Best-effort; failure logs but doesn't fail session-start, so copy-
+  paste remains a fallback.
+- **'open in claude/codex session' button** on the recovery-prompt block.
+  Picks the original run's agent (so a codex-produced failure opens a
+  codex session, claude → claude), starts a session attached to the
+  run's worktree, navigates the operator straight into the session pane
+  with the recovery prompt pre-typed. The previous copy-button stays as
+  the always-works fallback.
+
 ## v0.15.0 — 2026-05-26
 
 Scenario-specific operator-intervention prompts on every decision card
