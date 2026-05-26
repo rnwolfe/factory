@@ -1,5 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { Archive, ArrowRight, Cog, Folder, Inbox, LineChart, PenLine, Search } from "lucide-react";
+import {
+  Archive,
+  ArrowRight,
+  Cog,
+  Folder,
+  Inbox,
+  Layers,
+  LineChart,
+  PenLine,
+  Search,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
@@ -12,7 +22,14 @@ interface ProjectRow {
   name: string;
 }
 
-type ItemKind = "nav" | "project";
+interface TaskTemplateRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+}
+
+type ItemKind = "nav" | "project" | "template";
 
 interface PaletteItem {
   kind: ItemKind;
@@ -27,6 +44,12 @@ const NAV_ITEMS: PaletteItem[] = [
   { kind: "nav", label: "Projects", hint: "/projects", href: "/projects" },
   { kind: "nav", label: "History", hint: "/history", href: "/history" },
   { kind: "nav", label: "Metrics", hint: "/metrics", href: "/metrics" },
+  {
+    kind: "nav",
+    label: "Task templates",
+    hint: "/settings/task-templates",
+    href: "/settings/task-templates",
+  },
   { kind: "nav", label: "Settings", hint: "/settings", href: "/settings" },
 ];
 
@@ -43,6 +66,13 @@ export function CommandPalette() {
     queryKey: ["projects.list"],
     queryFn: () => trpc.projects.list.query() as unknown as Promise<ProjectRow[]>,
     staleTime: 30_000,
+    enabled: open,
+  });
+
+  const templates = useQuery({
+    queryKey: ["taskTemplates.list"],
+    queryFn: () => trpc.taskTemplates.list.query() as unknown as Promise<TaskTemplateRow[]>,
+    staleTime: 60_000,
     enabled: open,
   });
 
@@ -65,6 +95,14 @@ export function CommandPalette() {
         label: p.name,
         hint: `project · ${p.slug}`,
         href: `/projects/${p.id}`,
+      }),
+    ),
+    ...(templates.data ?? []).map(
+      (t): PaletteItem => ({
+        kind: "template",
+        label: t.name,
+        hint: t.description ? `template · ${t.description}` : `template · ${t.slug}`,
+        href: `/settings/task-templates/${t.slug}`,
       }),
     ),
   ];
@@ -129,7 +167,7 @@ export function CommandPalette() {
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
-            placeholder="search projects, navigate…"
+            placeholder="search projects, templates, navigate…"
             className="flex-1 bg-transparent text-[14px] focus:outline-none placeholder:text-[var(--color-fg-3)]"
             autoCorrect="off"
             spellCheck={false}
@@ -197,6 +235,9 @@ function ItemIcon({ kind, label }: { kind: ItemKind; label: string }) {
   if (kind === "project") {
     return <Folder size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   }
+  if (kind === "template") {
+    return <Layers size={13} className="text-[var(--color-fg-3)] shrink-0" />;
+  }
   // Nav items get a subtly distinct icon per route.
   if (label === "Inbox") return <Inbox size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Capture idea")
@@ -207,6 +248,8 @@ function ItemIcon({ kind, label }: { kind: ItemKind; label: string }) {
     return <Archive size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Metrics")
     return <LineChart size={13} className="text-[var(--color-fg-3)] shrink-0" />;
+  if (label === "Task templates")
+    return <Layers size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Settings") return <Cog size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   return <Search size={13} className="text-[var(--color-fg-3)] shrink-0" />;
 }
