@@ -4,6 +4,26 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.20.0 — 2026-06-10
+
+### Added
+- **Opus 4.8 model.** `claude-opus-4-8` ("opus 4.8", most capable) joins
+  the claude-code model lineup, available to every project. `opus 4.7`
+  stays selectable, relabeled "prior flagship".
+- **Fable 5 behind a feature flag.** `claude-fable-5` ("fable 5") appears
+  in the claude-code model picker only when the new `experimental-fable-5`
+  user setting is on (off by default). The model is appended by
+  `agents.list` at request time rather than baked into the registry, so
+  opted-out operators never see it; a settings toggle flips it and
+  refreshes the picker immediately. Run submission treats model ids as
+  opaque, so a selected Fable 5 run still dispatches if the flag is later
+  toggled off.
+
+### Fixed
+- **`settings.get` now returns `ops.defaultAgent`.** The settings UI
+  already read it; the router never sent it, so the default-agent picker
+  read `undefined` until changed.
+
 ## v0.19.0 — 2026-05-26
 
 ### Added
