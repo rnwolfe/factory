@@ -5,9 +5,10 @@ status: ready
 priority: med
 estimate: small
 created: 2026-06-11T12:20:04.051Z
-updated: 2026-06-11T12:20:04.051Z
+updated: 2026-06-11T12:20:29.716Z
 labels:
   - feedback
+model: claude-sonnet-4-6
 ---
 
 ## Source
@@ -25,3 +26,4 @@ In the agent event stream, tool events (Read/Edit/Write) render the full absolut
 ## Acceptance
 
 - [ ] (TBD)
+
