@@ -35,7 +35,8 @@ const FALLBACK_AGENTS: ReadonlyArray<AgentDescriptorView> = [
     hint: "anthropic claude code",
     models: [
       { id: null, label: "default", hint: "claude cli's choice" },
-      { id: "claude-opus-4-7", label: "opus 4.7", hint: "max capability" },
+      { id: "claude-opus-4-8", label: "opus 4.8", hint: "most capable" },
+      { id: "claude-opus-4-7", label: "opus 4.7", hint: "prior flagship" },
       { id: "claude-sonnet-4-6", label: "sonnet 4.6", hint: "balanced" },
       { id: "claude-haiku-4-5-20251001", label: "haiku 4.5", hint: "fast / cheap" },
     ],

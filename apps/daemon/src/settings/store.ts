@@ -38,6 +38,11 @@ export const SETTING_KEYS = [
   // task-020 will add a per-project agent picker; until then this is how
   // operators select codex as the default for new runs without per-task overrides.
   "default-agent",
+  // Feature flag: surface the experimental Fable 5 model in the claude-code
+  // model picker. "true" | "false" (default false). Display/registry-side only —
+  // `agents.list` reads it to conditionally append the model; nothing in
+  // FactoryConfig depends on it.
+  "experimental-fable-5",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -181,6 +186,11 @@ export interface OpsSettings {
    * "claude-code".
    */
   defaultAgent: string | null;
+  /**
+   * Feature flag — when true the claude-code model picker offers the
+   * experimental Fable 5 model. Off by default.
+   */
+  experimentalFable5: boolean;
 }
 
 export interface SettingsView {
@@ -231,5 +241,6 @@ export function readOpsSettings(map: Map<SettingKey, string>): OpsSettings {
     landingRoute,
     defaultModel: defaultModelRaw && defaultModelRaw.length > 0 ? defaultModelRaw : null,
     defaultAgent: defaultAgentRaw && defaultAgentRaw.length > 0 ? defaultAgentRaw : null,
+    experimentalFable5: map.get("experimental-fable-5") === "true",
   };
 }

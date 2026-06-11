@@ -96,7 +96,8 @@ const claudeCodeDescriptor: AgentDescriptor = {
   hint: "anthropic claude code",
   models: [
     { id: null, label: "default", hint: "claude cli's choice" },
-    { id: "claude-opus-4-7", label: "opus 4.7", hint: "max capability" },
+    { id: "claude-opus-4-8", label: "opus 4.8", hint: "most capable" },
+    { id: "claude-opus-4-7", label: "opus 4.7", hint: "prior flagship" },
     { id: "claude-sonnet-4-6", label: "sonnet 4.6", hint: "balanced" },
     { id: "claude-haiku-4-5-20251001", label: "haiku 4.5", hint: "fast / cheap" },
   ],
@@ -141,6 +142,20 @@ const codexDescriptor: AgentDescriptor = {
 export const AGENT_REGISTRY: Record<AgentName, AgentDescriptor> = {
   "claude-code": claudeCodeDescriptor,
   codex: codexDescriptor,
+};
+
+/**
+ * Experimental claude-code model, gated behind the `experimental-fable-5` user
+ * setting. It is *not* baked into {@link claudeCodeDescriptor} because the model
+ * picker should only offer it to operators who opted in — `agents.list` appends
+ * it to the claude-code model list when the flag is on (see `routers/agents.ts`).
+ * Run submission treats model ids as opaque, so a selected Fable 5 run still
+ * dispatches even if the operator later toggles the flag back off.
+ */
+export const FABLE_5_MODEL: AgentModel = {
+  id: "claude-fable-5",
+  label: "fable 5",
+  hint: "experimental",
 };
 
 /** Cheap typed lookup. Returns `null` for unknown ids — callers should guard. */

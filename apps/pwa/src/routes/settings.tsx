@@ -19,6 +19,7 @@ interface SettingsSnapshot {
     landingRoute: "inbox" | "ops";
     defaultModel: string | null;
     defaultAgent: string | null;
+    experimentalFable5: boolean;
   };
   overridden: Record<string, boolean>;
 }
@@ -964,6 +965,18 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
       qc.invalidateQueries({ queryKey: ["settings.get"] });
     },
   });
+  const setFable5 = useMutation({
+    mutationFn: (on: boolean) =>
+      trpc.settings.set.mutate({
+        key: "experimental-fable-5" as never,
+        value: on ? "true" : "false",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      // Refresh the model picker so Fable 5 appears/disappears immediately.
+      qc.invalidateQueries({ queryKey: ["agents.list"] });
+    },
+  });
   const saving = setDefaultModel.isPending || setDefaultAgent.isPending;
   return (
     <>
@@ -1012,6 +1025,28 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
         <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
           inheritance: task → project → this → claude-code (CLI default)
         </p>
+      </div>
+
+      <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-[13px] text-[var(--color-fg-1)]">experimental: fable 5</span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            adds fable 5 to the claude model picker
+          </span>
+        </div>
+        <div className="flex gap-1">
+          {([true, false] as const).map((on) => (
+            <button
+              key={String(on)}
+              type="button"
+              onClick={() => setFable5.mutate(on)}
+              disabled={setFable5.isPending}
+              className={`chip ${snap.ops.experimentalFable5 === on ? "chip-accent" : ""}`}
+            >
+              {on ? "on" : "off"}
+            </button>
+          ))}
+        </div>
       </div>
     </>
   );
