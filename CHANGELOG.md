@@ -4,6 +4,22 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.20.1 — 2026-06-11
+
+### Added
+- **Auto-triage feedback on inbox arrival.** Feedback items are triaged
+  automatically the moment they land in the inbox, instead of waiting for
+  an explicit triage step.
+
+### Fixed
+- **New-task modal no longer steals focus on re-render.** The title input
+  focuses once on mount rather than on every render, so it stops yanking
+  focus mid-interaction.
+- **iOS PWA bottom-nav gap on scroll bounce.** The bottom navigation no
+  longer opens a gap when the page rubber-bands during scroll.
+- **Run event log shows project-relative paths.** Tool event paths are
+  relativized against the worktree root, stripping the worktree prefix.
+
 ## v0.20.0 — 2026-06-10
 
 ### Added
