@@ -57,6 +57,7 @@ body,
   font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
+  overscroll-behavior: none;
 }
 
 body {

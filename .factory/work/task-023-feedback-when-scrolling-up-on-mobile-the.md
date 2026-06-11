@@ -1,11 +1,11 @@
 ---
 id: task-023
 title: "feedback: When scrolling up on mobile, the button navbar has a gap bet"
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-11T12:20:41.380Z
-updated: 2026-06-11T12:20:47.688Z
+updated: 2026-06-11T12:27:35.444Z
 labels:
   - feedback
 model: claude-sonnet-4-6
@@ -23,4 +23,5 @@ When scrolling up on mobile, the button navbar has a gap between its bottom and 
 ## Acceptance
 
 - [ ] (TBD)
+
 
