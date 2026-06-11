@@ -123,9 +123,17 @@ function buildMetrics(parsed: ClaudeStreamLine): AgentMetrics {
   };
 }
 
-function summarizeToolInput(input: unknown): string {
+function relativize(str: string, worktreeRoot?: string): string {
+  if (worktreeRoot) {
+    const prefix = worktreeRoot.endsWith("/") ? worktreeRoot : `${worktreeRoot}/`;
+    if (str.startsWith(prefix)) return str.slice(prefix.length).slice(0, 80);
+  }
+  return str.slice(0, 80);
+}
+
+function summarizeToolInput(input: unknown, worktreeRoot?: string): string {
   if (input == null) return "";
-  if (typeof input === "string") return input.slice(0, 80);
+  if (typeof input === "string") return relativize(input, worktreeRoot);
   if (typeof input !== "object") return String(input).slice(0, 80);
   const obj = input as Record<string, unknown>;
   // Cheap heuristic: pick a likely "primary" field, else stringify.
@@ -137,7 +145,7 @@ function summarizeToolInput(input: unknown): string {
     obj.pattern ??
     obj.query ??
     obj.description;
-  if (typeof primary === "string") return primary.slice(0, 80);
+  if (typeof primary === "string") return relativize(primary, worktreeRoot);
   try {
     return JSON.stringify(obj).slice(0, 80);
   } catch {
@@ -145,93 +153,97 @@ function summarizeToolInput(input: unknown): string {
   }
 }
 
-export const claudeCodeAgent: AgentSpec = {
-  name: "claude-code",
+export function createClaudeCodeAgent(worktreeRoot?: string): AgentSpec {
+  return {
+    name: "claude-code",
 
-  buildArgv(prompt, opts) {
-    // --dangerously-skip-permissions: code-changing runs are non-interactive, so
-    // there is no human to approve Write/Edit/Bash prompts. The factory's
-    // isolation comes from the per-run worktree, not from CLI permission
-    // gates. Real sandboxing arrives with a container provider; until then this
-    // is the supported way to keep runs unblocked. See docs/vision.md §5.
-    const argv: string[] = [
-      "claude",
-      "--print",
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--dangerously-skip-permissions",
-    ];
-    if (opts.resumeSessionId) {
-      argv.push("--resume", opts.resumeSessionId);
-    }
-    if (opts.model) {
-      argv.push("--model", opts.model);
-    }
-    return { argv, stdin: prompt };
-  },
-
-  parseLine(line) {
-    const trimmed = line.trim();
-    if (!trimmed) return [];
-
-    let parsed: ClaudeStreamLine;
-    try {
-      parsed = JSON.parse(trimmed) as ClaudeStreamLine;
-    } catch {
-      return [];
-    }
-
-    const events: StreamEvent[] = [];
-
-    if (parsed.type === "system" && parsed.session_id) {
-      events.push({ kind: "session", id: parsed.session_id });
-    }
-
-    if (parsed.type === "assistant" && parsed.message?.content) {
-      for (const c of parsed.message.content) {
-        if (c.type === "text" && typeof c.text === "string" && c.text.length > 0) {
-          events.push({ kind: "text", text: c.text });
-        } else if (c.type === "tool_use") {
-          events.push({
-            kind: "tool",
-            name: typeof c.name === "string" ? c.name : "tool",
-            argSummary: summarizeToolInput(c.input),
-          });
-        }
+    buildArgv(prompt, opts) {
+      // --dangerously-skip-permissions: code-changing runs are non-interactive, so
+      // there is no human to approve Write/Edit/Bash prompts. The factory's
+      // isolation comes from the per-run worktree, not from CLI permission
+      // gates. Real sandboxing arrives with a container provider; until then this
+      // is the supported way to keep runs unblocked. See docs/vision.md §5.
+      const argv: string[] = [
+        "claude",
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--dangerously-skip-permissions",
+      ];
+      if (opts.resumeSessionId) {
+        argv.push("--resume", opts.resumeSessionId);
       }
-    }
-
-    if (parsed.type === "result") {
-      // Surface the final assistant text once if present (some flows skip the
-      // assistant turn and only deliver text via the result envelope).
-      if (typeof parsed.result === "string" && parsed.result.length > 0) {
-        events.push({ kind: "text", text: parsed.result });
-        // A usage-cap exit is an external quota stop, not a failure — surface
-        // it as a distinct signal so the runner can resume rather than fail.
-        if (parsed.is_error === true && USAGE_LIMIT_RE.test(parsed.result)) {
-          events.push({
-            kind: "usage_limit",
-            resetsAt: parseUsageResetTime(parsed.result),
-            message: parsed.result.trim(),
-          });
-        }
+      if (opts.model) {
+        argv.push("--model", opts.model);
       }
-      events.push({ kind: "metrics", metrics: buildMetrics(parsed) });
-      events.push({
-        kind: "agent_exit",
-        exitCode: parsed.is_error ? 1 : 0,
-        ts: Date.now(),
-      });
-      if (parsed.session_id) {
+      return { argv, stdin: prompt };
+    },
+
+    parseLine(line) {
+      const trimmed = line.trim();
+      if (!trimmed) return [];
+
+      let parsed: ClaudeStreamLine;
+      try {
+        parsed = JSON.parse(trimmed) as ClaudeStreamLine;
+      } catch {
+        return [];
+      }
+
+      const events: StreamEvent[] = [];
+
+      if (parsed.type === "system" && parsed.session_id) {
         events.push({ kind: "session", id: parsed.session_id });
       }
-    }
 
-    return events;
-  },
+      if (parsed.type === "assistant" && parsed.message?.content) {
+        for (const c of parsed.message.content) {
+          if (c.type === "text" && typeof c.text === "string" && c.text.length > 0) {
+            events.push({ kind: "text", text: c.text });
+          } else if (c.type === "tool_use") {
+            events.push({
+              kind: "tool",
+              name: typeof c.name === "string" ? c.name : "tool",
+              argSummary: summarizeToolInput(c.input, worktreeRoot),
+            });
+          }
+        }
+      }
 
-  detectStaleness(line) {
-    return STALENESS_PATTERNS.some((re) => re.test(line));
-  },
-};
+      if (parsed.type === "result") {
+        // Surface the final assistant text once if present (some flows skip the
+        // assistant turn and only delivers text via the result envelope).
+        if (typeof parsed.result === "string" && parsed.result.length > 0) {
+          events.push({ kind: "text", text: parsed.result });
+          // A usage-cap exit is an external quota stop, not a failure — surface
+          // it as a distinct signal so the runner can resume rather than fail.
+          if (parsed.is_error === true && USAGE_LIMIT_RE.test(parsed.result)) {
+            events.push({
+              kind: "usage_limit",
+              resetsAt: parseUsageResetTime(parsed.result),
+              message: parsed.result.trim(),
+            });
+          }
+        }
+        events.push({ kind: "metrics", metrics: buildMetrics(parsed) });
+        events.push({
+          kind: "agent_exit",
+          exitCode: parsed.is_error ? 1 : 0,
+          ts: Date.now(),
+        });
+        if (parsed.session_id) {
+          events.push({ kind: "session", id: parsed.session_id });
+        }
+      }
+
+      return events;
+    },
+
+    detectStaleness(line) {
+      return STALENESS_PATTERNS.some((re) => re.test(line));
+    },
+  };
+}
+
+export const claudeCodeAgent: AgentSpec = createClaudeCodeAgent();

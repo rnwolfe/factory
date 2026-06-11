@@ -5,6 +5,7 @@ import {
   type AgentSpec,
   claudeCodeAgent,
   commitAllChanges,
+  createClaudeCodeAgent,
   hostSandbox,
   mergeIntoMain,
   type RuntimeEvent,
@@ -136,13 +137,14 @@ function buildMergeMessage(opts: {
  * claude-code so a typo in a task frontmatter or a future provider removal
  * never strands a queued run; the daemon logs the fallback for visibility.
  */
-function agentForRow(agentName: string): AgentSpec {
+function agentForRow(agentName: string, worktreePath?: string | null): AgentSpec {
+  if (agentName === "claude-code") return createClaudeCodeAgent(worktreePath ?? undefined);
   const descriptor = getAgentDescriptor(agentName);
   if (descriptor) return descriptor.runtimeSpec;
   console.warn(
     `[runner] unknown agentName "${agentName}" on run row — falling back to claude-code`,
   );
-  return claudeCodeAgent;
+  return worktreePath ? createClaudeCodeAgent(worktreePath) : claudeCodeAgent;
 }
 
 export interface ExecuteRunOpts {
@@ -299,7 +301,7 @@ export async function executeRun(
       // predate the runs.model column.
       model: row.model ?? project.model,
       task: { id: row.taskId ?? "ad-hoc", prompt },
-      agent: agentForRow(row.agentName),
+      agent: agentForRow(row.agentName, row.worktreePath),
       sandbox: hostSandbox,
       strategy: runStrategy,
       // row.budgetSeconds is NOT NULL; preserve 0 (= infinite) instead of
