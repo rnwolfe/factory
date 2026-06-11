@@ -1,4 +1,4 @@
-export { claudeCodeAgent } from "./agents/claude-code.ts";
+export { claudeCodeAgent, createClaudeCodeAgent } from "./agents/claude-code.ts";
 export { codexAgent } from "./agents/codex.ts";
 export { runtime } from "./runtime.ts";
 export { hostSandbox } from "./sandboxes/host.ts";
