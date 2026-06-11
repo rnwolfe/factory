@@ -1,11 +1,11 @@
 ---
 id: task-025
 title: Auto-triage feedback items on inbox arrival instead of requiring a reply
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-11T12:35:48.963Z
-updated: 2026-06-11T12:35:48.963Z
+updated: 2026-06-11T12:40:39.305Z
 labels:
   - feedback
 ---
@@ -27,3 +27,4 @@ Reuse the current triage path — don't fork it. Add an idempotency guard so an 
 ## Acceptance
 
 - [ ] (TBD)
+
