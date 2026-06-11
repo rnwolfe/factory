@@ -30,6 +30,30 @@ export const feedbackRouter = router({
         kind: "feedback_created",
         feedbackId: row.id,
       });
+
+      // Fire-and-forget initial agent triage. Same pattern as ideas.create —
+      // the mutation returns immediately; the agent's comment row appears later
+      // via the inbox WS event. Idempotency: only fires while status is still
+      // "open" — if the item is somehow already resolved/dismissed this is a no-op.
+      const feedbackId = row.id;
+      void (async () => {
+        const cur = getFeedback(ctx.db, feedbackId);
+        if (!cur || cur.status !== "open") return;
+        await runAgentReply(ctx.db, feedbackId);
+        ctx.events.publish({
+          channel: "inbox",
+          kind: "feedback_comment_added",
+          feedbackId,
+          role: "agent",
+        });
+        // Transition open → in_progress to reflect that engagement has started.
+        const after = getFeedback(ctx.db, feedbackId);
+        if (after?.status === "open") {
+          setFeedbackStatus(ctx.db, feedbackId, "in_progress");
+          ctx.events.publish({ channel: "inbox", kind: "feedback_updated", feedbackId });
+        }
+      })();
+
       return row;
     }),
 
@@ -102,7 +126,9 @@ export const feedbackRouter = router({
       });
       // Fire the agent reply asynchronously — the mutation returns as soon
       // as the operator's row is persisted; the agent's row appears later
-      // via the inbox WS event.
+      // via the inbox WS event. Skip if the item has already been routed
+      // (resolved/dismissed) to prevent re-triaging closed items.
+      if (fb?.status === "resolved" || fb?.status === "dismissed") return operator;
       runAgentReply(ctx.db, input.feedbackId)
         .then((res) => {
           ctx.events.publish({
