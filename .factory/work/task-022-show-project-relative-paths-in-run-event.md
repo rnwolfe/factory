@@ -1,11 +1,11 @@
 ---
 id: task-022
 title: Show project-relative paths in run event log (strip worktree prefix)
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-11T12:20:04.051Z
-updated: 2026-06-11T12:20:29.716Z
+updated: 2026-06-11T12:27:20.310Z
 labels:
   - feedback
 model: claude-sonnet-4-6
@@ -26,4 +26,5 @@ In the agent event stream, tool events (Read/Edit/Write) render the full absolut
 ## Acceptance
 
 - [ ] (TBD)
+
 
