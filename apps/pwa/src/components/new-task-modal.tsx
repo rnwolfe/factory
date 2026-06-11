@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -35,8 +35,13 @@ export function NewTaskModal({ projectId, onClose }: Props) {
   const [model, setModel] = useState<string | null>(null);
   const [agent, setAgent] = useState<AgentName | null>(null);
   const [runNow, setRunNow] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const nav = useNavigate();
+
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -117,9 +122,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
               placeholder="e.g. fix the paste handler in the recipe editor"
               className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)]"
               disabled={create.isPending}
-              ref={(el) => {
-                if (el) el.focus();
-              }}
+              ref={titleRef}
             />
           </div>
 
