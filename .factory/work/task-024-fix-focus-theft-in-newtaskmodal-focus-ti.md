@@ -1,11 +1,11 @@
 ---
 id: task-024
 title: "Fix focus theft in NewTaskModal: focus title once on mount, not every render"
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-11T12:35:30.855Z
-updated: 2026-06-11T12:35:30.855Z
+updated: 2026-06-11T12:36:45.933Z
 labels:
   - feedback
 ---
@@ -27,3 +27,4 @@ Replace the per-render focus with a mount-only focus — native `autoFocus`, or 
 ## Acceptance
 
 - [ ] (TBD)
+
