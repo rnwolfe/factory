@@ -6,6 +6,8 @@ non-trivial change; come back here for conventions. For v0.2 work, also read
 read `docs/spec-v0.3.md` and `docs/adr/003-audit-primitive.md`. For v0.4 work,
 also read `docs/spec-v0.4.md` and `docs/adr/004-audit-cadence.md`. For desktop
 UX work, also read `docs/desktop-spec.md` and `docs/adr/005-responsive-shell.md`.
+For GitHub Issue backend / bot-identity work, also read
+`docs/spec-github-issues.md` and `docs/adr/007-github-issue-backend.md`.
 
 - **v0.1 spec:** [`docs/spec.md`](./docs/spec.md) — frozen.
 - **v0.2 spec:** [`docs/spec-v0.2.md`](./docs/spec-v0.2.md) — implementation-ready delta. Plan primitive + quality signal. Shipped.
