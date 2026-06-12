@@ -512,7 +512,7 @@ export async function executeRun(
           const committed = await commitAllChanges(
             result.worktreePath,
             `chore: ${row.taskId} status -> ${updated.frontmatter.status}`,
-            config.gitAuthor,
+            botAuthor ?? config.gitAuthor,
           );
           // We just wrote the task file; if the commit produced nothing,
           // .factory/work/ is gitignored. The merge will bring no task-
@@ -644,7 +644,7 @@ export async function executeRun(
         projectPath: project.workdirPath,
         branch: result.branch,
         message: buildMergeMessage({ taskId, taskTitle, runId, summary, finalStatus }),
-        author: config.gitAuthor,
+        author: botAuthor ?? config.gitAuthor,
       });
       if (merge.ok) {
         if (!merge.alreadyMerged) {
