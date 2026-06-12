@@ -199,3 +199,31 @@ Concretely:
   replicating the typing-input bug on dev. The factory upgrade
   restart killed the operator's in-flight shell session. The user
   correctly called this out as a violation of the principle.
+
+## iOS PWA bottom-nav drift: fix the layout, not the fixed-position CSS
+
+Symptom: the mobile bottom nav (and the feedback FAB) drift up into
+mid-content as you scroll on an installed iOS PWA, instead of anchoring to
+the screen bottom. The nav and FAB drift *together* — the tell that they
+share a broken fixed-positioning context, not that one element is mis-styled.
+
+What does NOT work (chased twice — task-023's scroll-bounce tweak and the
+v0.20.1 `overscroll-behavior: none` line): incremental CSS patches on a
+`position: fixed; bottom: 0` element. The root problem is reliance on
+viewport-fixed positioning under an iOS *body-scroll* model. iOS standalone
+Safari resolves `fixed` against a context that drifts with momentum scroll,
+and `background-attachment: fixed` on `body` is a documented aggravator.
+
+The fix that holds (v0.20.2): make the shell a `100dvh` flex column where
+`main` is the *sole* scroll container (`flex-1 min-h-0 overflow-y-auto`) and
+the nav is a normal flex child (`shrink-0`) — no `position: fixed` at all, so
+there is nothing for iOS to mis-resolve. Body no longer scrolls, so also drop
+`background-attachment: fixed` (becomes a visual no-op). Retarget any route
+that hardcoded the old overlay geometry (live-pane's
+`calc(100vh - 56px - 72px - insets)` → `min-h-full`).
+
+General rule: when a `position: fixed` element misbehaves on iOS and you
+can't find a transformed/contained ancestor in the source, stop patching the
+fixed element. Convert to a flex/grid layout where the element's position is
+structural and cannot escape. Correct-by-construction beats fighting WebKit's
+fixed-positioning quirks you can't reproduce off-device.
