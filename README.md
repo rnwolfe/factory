@@ -70,6 +70,42 @@ The token is a long-lived credential stored at `~/.codex/auth.json`. The factory
 
 Override the credentials directory with `CODEX_HOME` (the codex CLI honors it). To rotate: `codex logout` then `codex login` again — the next codex run picks up the new token.
 
+### GitHub App ("Factory") — bot identity for machine actions
+
+Optional. When configured, runs commit as a real `factory[bot]` GitHub identity
+instead of the dangling `Factory <factory@localhost>` string author, and the
+GitHub Issue backend / webhook features (later phases) authorize against it. See
+[`docs/adr/007-github-issue-backend.md`](./docs/adr/007-github-issue-backend.md)
+and [`docs/spec-github-issues.md`](./docs/spec-github-issues.md).
+
+One-time, operator-side:
+
+1. Register a GitHub App named **Factory** (org or personal). Repository
+   permissions: Metadata `read`, Contents `read/write`, Issues `read/write`,
+   Pull requests `read/write`. Subscribe to: Issues, Issue comment, Installation.
+2. Generate a private key (PEM); note the numeric **App id** and the URL **slug**.
+3. **Install** the App on the repos Factory should act on.
+4. Provide the credentials to the daemon, either in `~/.factory/config.yaml`:
+
+   ```yaml
+   auth:
+     githubApp:
+       appId: "123456"
+       slug: factory
+       privateKey: |
+         -----BEGIN PRIVATE KEY-----
+         ...
+         -----END PRIVATE KEY-----
+       webhookSecret: "…"   # optional until webhooks (Phase 3)
+   ```
+
+   …or via the `github-app-id` / `github-app-slug` / `github-app-private-key` /
+   `github-app-webhook-secret` settings (DB-backed; the private key is never
+   returned raw). `factory doctor` reports the App once an id + key are set.
+
+Until configured, everything falls back to the string author and no issue
+features are available — `tinker`/local projects are unaffected.
+
 Caveats (see [`docs/adr/006-codex-harness.md`](./docs/adr/006-codex-harness.md)):
 
 - **No session resume.** Codex runs that hit a usage cap fail instead of parking-and-resuming. The PWA refuses intervene-resume / reuse-worktree paths under `agent=codex` with an actionable error at submit time, before a worktree is created.

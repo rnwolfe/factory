@@ -55,6 +55,7 @@ async function setup(): Promise<Harness> {
     agentBudgetSeconds: 0,
     gitAuthor: { name: "t", email: "t@t" },
     githubToken: null,
+    githubApp: null,
     factoryProjectId: null,
     notifyOnRunComplete: false,
     vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },

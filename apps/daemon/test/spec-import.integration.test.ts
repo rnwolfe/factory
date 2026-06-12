@@ -28,6 +28,7 @@ function makeTempConfig(): { config: FactoryConfig; cleanup: () => void } {
       agentBudgetSeconds: 0,
       gitAuthor: { name: "Factory Test", email: "test@factory" },
       githubToken: null,
+      githubApp: null,
       factoryProjectId: null,
       notifyOnRunComplete: false,
       vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },

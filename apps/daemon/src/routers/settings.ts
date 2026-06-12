@@ -26,6 +26,7 @@ export const settingsRouter = router({
       defaultRunBudgetSeconds: snap.defaultRunBudgetSeconds,
       agentBudgetSeconds: snap.agentBudgetSeconds,
       githubToken: { has: snap.githubToken !== null && snap.githubToken.length > 0 },
+      githubApp: snap.githubApp,
       factoryProjectId: snap.factoryProjectId,
       notifyOnRunComplete: snap.notifyOnRunComplete,
       ops: {
@@ -78,6 +79,9 @@ export const settingsRouter = router({
       }
       if (input.key === "git-author-email" && input.value && !/.+@.+/.test(input.value)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "git-author-email looks malformed" });
+      }
+      if (input.key === "github-app-id" && input.value && !/^\d+$/.test(input.value)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "github-app-id must be numeric" });
       }
       if (
         input.key === "notify-on-run-complete" &&

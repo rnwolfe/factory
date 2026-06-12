@@ -17,6 +17,7 @@ import { and, eq, gt } from "drizzle-orm";
 import { getAgentDescriptor } from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import { resolveBotGitAuthor } from "../github/app-auth.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
 import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
@@ -288,13 +289,20 @@ export async function executeRun(
     ? { type: "branch" as const, name: row.branch, baseRef: row.baseRef ?? undefined }
     : { type: "head" as const, baseRef: row.baseRef ?? undefined };
 
+  // Bot identity (ADR-007 §D2): when the Factory App is configured AND installed
+  // on this project's repo, commits attribute to `factory[bot]`. Defensive and
+  // inert otherwise — `resolveBotGitAuthor` returns null (no network) when the
+  // App is unconfigured, so this is exactly today's behaviour until credentials
+  // are provided.
+  const botAuthor = await resolveBotGitAuthor(config, project.githubRemote ?? null);
+
   try {
     const result = await runtime.spawn({
       runId,
       projectPath: project.workdirPath,
       worktreePath: row.worktreePath,
       requireExistingWorktree: isReusedWorktree,
-      gitAuthor: config.gitAuthor,
+      gitAuthor: botAuthor ?? config.gitAuthor,
       // The effective model was resolved at submit time per the
       // task → project → system-default inheritance chain. Falling back
       // to project.model here is a safety net for legacy rows that

@@ -75,6 +75,7 @@ function setupHarness(): Harness {
     agentBudgetSeconds: 0,
     gitAuthor: { name: "Test", email: "test@test" },
     githubToken: null,
+    githubApp: null,
     factoryProjectId: null,
     notifyOnRunComplete: false,
     vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },

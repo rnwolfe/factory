@@ -32,6 +32,7 @@ function setup(): {
     agentBudgetSeconds: 0,
     gitAuthor: { name: "yaml-name", email: "yaml@example.com" },
     githubToken: null,
+    githubApp: null,
     factoryProjectId: null,
     notifyOnRunComplete: false,
     vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },

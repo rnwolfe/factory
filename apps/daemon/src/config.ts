@@ -36,6 +36,22 @@ export interface FactoryConfig {
    */
   githubToken: string | null;
   /**
+   * GitHub App ("Factory") credentials for the bot identity used by machine
+   * actions — commits/pushes today (ADR-007 Phase 1), issues/comments in later
+   * phases. Loaded from `auth.githubApp` in config.yaml or the `github-app-*`
+   * settings. Null when unconfigured: runs fall back to the string `gitAuthor`
+   * and no issue/webhook features are available. See
+   * docs/adr/007-github-issue-backend.md.
+   */
+  githubApp: {
+    appId: string;
+    slug: string;
+    /** PEM private key. */
+    privateKey: string;
+    /** HMAC secret for webhook verification (Phase 3). Null until set. */
+    webhookSecret: string | null;
+  } | null;
+  /**
    * v0.4 cut 6 — id of the project that holds Factory's own meta-work. When
    * set, "promote to plan / promote to task" on a feedback row creates a
    * feature_plan / task on this project. Set the operator-edits-config-yaml
@@ -85,7 +101,16 @@ function generateToken(): string {
 interface PartialConfig {
   port?: number;
   host?: string;
-  auth?: { token?: string; githubToken?: string | null };
+  auth?: {
+    token?: string;
+    githubToken?: string | null;
+    githubApp?: {
+      appId?: string | number;
+      slug?: string;
+      privateKey?: string;
+      webhookSecret?: string | null;
+    } | null;
+  };
   workdir?: string;
   worktreesRoot?: string;
   dbPath?: string;
@@ -116,6 +141,21 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
       email: p.gitAuthor?.email ?? process.env.FACTORY_GIT_EMAIL ?? "factory@localhost",
     },
     githubToken: p.auth?.githubToken ?? process.env.FACTORY_GITHUB_TOKEN ?? null,
+    githubApp: ((): FactoryConfig["githubApp"] => {
+      const a = p.auth?.githubApp;
+      // All three core fields must be present for the App to be usable. The
+      // webhook secret is optional until Phase 3. Settings-DB overrides (the
+      // `github-app-*` keys) are layered on top of this default at boot.
+      if (a?.appId && a.slug && a.privateKey) {
+        return {
+          appId: String(a.appId),
+          slug: a.slug,
+          privateKey: a.privateKey,
+          webhookSecret: a.webhookSecret ?? null,
+        };
+      }
+      return null;
+    })(),
     factoryProjectId: p.factoryProjectId ?? process.env.FACTORY_META_PROJECT_ID ?? null,
     notifyOnRunComplete: false,
     // VAPID is filled in by `ensureVapid` after first load — the keypair is

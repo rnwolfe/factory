@@ -19,6 +19,7 @@ const cfg: FactoryConfig = {
   agentBudgetSeconds: 0,
   gitAuthor: { name: "t", email: "t@t" },
   githubToken: null,
+  githubApp: null,
   factoryProjectId: null,
   notifyOnRunComplete: false,
   vapid: { publicKey: "", privateKey: "", subject: "mailto:t@t" },

@@ -24,6 +24,14 @@ export const SETTING_KEYS = [
   "default-run-budget-seconds",
   "agent-budget-seconds",
   "github-token",
+  // GitHub App ("Factory") credentials — the bot identity for machine actions
+  // (ADR-007). Assembled into FactoryConfig.githubApp; the private key and
+  // webhook secret are never returned raw (snapshotSettings exposes presence
+  // only). DB rows override the `auth.githubApp` yaml block.
+  "github-app-id",
+  "github-app-slug",
+  "github-app-private-key",
+  "github-app-webhook-secret",
   "factory-project-id",
   "notify-on-run-complete",
   // Ops dashboard + model defaults — display-side, not wired through FactoryConfig.
@@ -57,6 +65,7 @@ interface ConfigDefaults {
   defaultRunBudgetSeconds: number;
   agentBudgetSeconds: number;
   githubToken: string | null;
+  githubApp: FactoryConfig["githubApp"];
   factoryProjectId: string | null;
   notifyOnRunComplete: boolean;
 }
@@ -73,6 +82,7 @@ function captureDefaults(config: FactoryConfig): ConfigDefaults {
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,
     agentBudgetSeconds: config.agentBudgetSeconds,
     githubToken: config.githubToken,
+    githubApp: config.githubApp ? { ...config.githubApp } : null,
     factoryProjectId: config.factoryProjectId,
     notifyOnRunComplete: config.notifyOnRunComplete,
   };
@@ -104,6 +114,7 @@ export function applySettingsFromDb(db: Db, config: FactoryConfig): void {
   config.defaultRunBudgetSeconds = defaults.defaultRunBudgetSeconds;
   config.agentBudgetSeconds = defaults.agentBudgetSeconds;
   config.githubToken = defaults.githubToken;
+  config.githubApp = defaults.githubApp ? { ...defaults.githubApp } : null;
   config.factoryProjectId = defaults.factoryProjectId;
   config.notifyOnRunComplete = defaults.notifyOnRunComplete;
   const map = readAllSettings(db);
@@ -136,6 +147,29 @@ function applySettingsMap(map: Map<SettingKey, string>, config: FactoryConfig): 
   const token = map.get("github-token");
   if (token !== undefined) {
     config.githubToken = token === "" ? null : token;
+  }
+  // GitHub App credentials — assembled from up to four keys; any DB row
+  // overrides the yaml value. Clearing the app id (empty string) disables it.
+  {
+    const idRow = map.get("github-app-id");
+    const slugRow = map.get("github-app-slug");
+    const keyRow = map.get("github-app-private-key");
+    const secretRow = map.get("github-app-webhook-secret");
+    if (
+      idRow !== undefined ||
+      slugRow !== undefined ||
+      keyRow !== undefined ||
+      secretRow !== undefined
+    ) {
+      const base = config.githubApp ?? { appId: "", slug: "", privateKey: "", webhookSecret: null };
+      const appId = idRow !== undefined ? idRow : base.appId;
+      const slug = slugRow !== undefined ? slugRow : base.slug;
+      const privateKey = keyRow !== undefined ? keyRow : base.privateKey;
+      const webhookSecret =
+        secretRow !== undefined ? (secretRow === "" ? null : secretRow) : base.webhookSecret;
+      config.githubApp =
+        appId && slug && privateKey ? { appId, slug, privateKey, webhookSecret } : null;
+    }
   }
   const projectId = map.get("factory-project-id");
   if (projectId !== undefined) {
@@ -199,6 +233,18 @@ export interface SettingsView {
   defaultRunBudgetSeconds: number;
   agentBudgetSeconds: number;
   githubToken: string | null;
+  /**
+   * GitHub App presence — secrets (private key, webhook secret) are redacted to
+   * booleans here; the raw PEM never leaves the daemon. `appId`/`slug` are not
+   * secret and surface so the PWA can show which App is wired.
+   */
+  githubApp: {
+    configured: boolean;
+    appId: string | null;
+    slug: string | null;
+    hasPrivateKey: boolean;
+    hasWebhookSecret: boolean;
+  };
   factoryProjectId: string | null;
   notifyOnRunComplete: boolean;
   /** Ops dashboard settings — live in the DB-settings layer only (no yaml backstop). */
@@ -224,6 +270,13 @@ export function snapshotSettings(db: Db, config: FactoryConfig): SettingsView {
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,
     agentBudgetSeconds: config.agentBudgetSeconds,
     githubToken: config.githubToken,
+    githubApp: {
+      configured: config.githubApp !== null,
+      appId: config.githubApp?.appId ?? null,
+      slug: config.githubApp?.slug ?? null,
+      hasPrivateKey: Boolean(config.githubApp?.privateKey),
+      hasWebhookSecret: Boolean(config.githubApp?.webhookSecret),
+    },
     factoryProjectId: config.factoryProjectId,
     notifyOnRunComplete: config.notifyOnRunComplete,
     ops: readOpsSettings(map),

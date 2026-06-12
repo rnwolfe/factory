@@ -9,7 +9,8 @@ export class GithubError extends Error {
       | "network"
       | "push_failed"
       | "no_token"
-      | "bad_owner",
+      | "bad_owner"
+      | "not_installed",
     message: string,
   ) {
     super(message);

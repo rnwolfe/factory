@@ -248,6 +248,46 @@ async function checkCodexAuth(): Promise<CheckResult | null> {
   return { name: "codex", status: "pass", detail: `authed (${authPath})` };
 }
 
+/**
+ * Surfaces whether the Factory GitHub App (ADR-007) is configured. Silent when
+ * unconfigured. Reads the settings DB — the path the PWA / `settings.set`
+ * writes; App credentials provided only via `config.yaml` won't show here.
+ */
+async function checkGithubApp(): Promise<CheckResult | null> {
+  const home = process.env.FACTORY_HOME || path.join(os.homedir(), ".factory");
+  const dbPath = path.join(home, "data.db");
+  if (!existsSync(dbPath)) return null;
+  let appId: string | undefined;
+  let hasKey = false;
+  try {
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const idRow = db
+        .prepare("SELECT value FROM settings WHERE key = 'github-app-id' LIMIT 1")
+        .get() as { value: string } | undefined;
+      appId = idRow?.value;
+      const keyRow = db
+        .prepare("SELECT value FROM settings WHERE key = 'github-app-private-key' LIMIT 1")
+        .get() as { value: string } | undefined;
+      hasKey = Boolean(keyRow?.value);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null; // db unreadable — checkDb already surfaces it
+  }
+  if (!appId) return null; // not configured — stay silent
+  if (!hasKey) {
+    return {
+      name: "github-app",
+      status: "warn",
+      detail: `App id ${appId} set but no private key — set 'github-app-private-key'`,
+    };
+  }
+  return { name: "github-app", status: "pass", detail: `App ${appId} configured` };
+}
+
 function fmt(c: CheckResult): string {
   const sym = c.status === "pass" ? "✓" : c.status === "warn" ? "!" : "✗";
   const padName = c.name.padEnd(14);
@@ -269,6 +309,8 @@ export async function runDoctor(args: DoctorArgs): Promise<number> {
   ];
   const codex = await checkCodexAuth();
   if (codex) checks.push(codex);
+  const ghApp = await checkGithubApp();
+  if (ghApp) checks.push(ghApp);
   for (const c of checks) process.stdout.write(`${fmt(c)}\n`);
 
   const failed = checks.some((c) => c.status === "fail");
