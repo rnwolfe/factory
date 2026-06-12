@@ -27,13 +27,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const inboxCount = useInboxCount(true);
 
   return (
-    <div className="min-h-screen flex">
+    <div className="h-[100dvh] flex overflow-hidden">
       <Sidebar inboxCount={inboxCount} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <DesktopTopBar />
         <header
-          className="md:hidden sticky top-0 z-20 border-b border-[var(--color-line)] bg-[var(--color-bg)]/95 backdrop-blur"
+          className="md:hidden shrink-0 z-20 border-b border-[var(--color-line)] bg-[var(--color-bg)]/95 backdrop-blur"
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
           <div className="flex items-center justify-between px-4 h-12">
@@ -50,42 +50,42 @@ export function Shell({ children }: { children: ReactNode }) {
           <DashboardTickerMobile />
         </header>
 
-        <main className="flex-1 px-3 pt-3 pb-[calc(72px+env(safe-area-inset-bottom))] md:px-6 md:pt-5 md:pb-6 md:max-w-[1400px] md:w-full md:mx-auto">
+        <main className="flex-1 min-h-0 overflow-y-auto px-3 pt-3 pb-3 md:px-6 md:pt-5 md:pb-6 md:max-w-[1400px] md:w-full md:mx-auto">
           {children}
         </main>
+
+        <nav
+          className="md:hidden shrink-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
+          <div className="grid grid-cols-4 h-14">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  cn(
+                    "flex flex-col items-center justify-center gap-1 text-[10.5px] uppercase tracking-[0.18em]",
+                    isActive
+                      ? "text-[var(--color-accent)]"
+                      : "text-[var(--color-fg-2)] active:bg-[var(--color-bg-2)]",
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <item.icon size={18} strokeWidth={isActive ? 2.2 : 1.6} />
+                    <span className="mono">{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </div>
+        </nav>
       </div>
 
       <FeedbackFab />
-
-      <nav
-        className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
-        <div className="grid grid-cols-4 h-14">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                cn(
-                  "flex flex-col items-center justify-center gap-1 text-[10.5px] uppercase tracking-[0.18em]",
-                  isActive
-                    ? "text-[var(--color-accent)]"
-                    : "text-[var(--color-fg-2)] active:bg-[var(--color-bg-2)]",
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <item.icon size={18} strokeWidth={isActive ? 2.2 : 1.6} />
-                  <span className="mono">{item.label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
-      </nav>
     </div>
   );
 }

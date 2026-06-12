@@ -368,13 +368,7 @@ export function LivePane() {
   }, [run.data?.acceptanceResults]);
 
   return (
-    <div
-      className="flex flex-col"
-      style={{
-        minHeight:
-          "calc(100vh - 56px - 72px - env(safe-area-inset-top) - env(safe-area-inset-bottom))",
-      }}
-    >
+    <div className="flex flex-col min-h-full">
       <div className="surface p-3 mb-2">
         <div className="flex items-center justify-between gap-2">
           <Link

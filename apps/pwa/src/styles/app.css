@@ -71,7 +71,6 @@ body {
       hsl(30 5% 9% / 0.5) 27px,
       hsl(30 5% 9% / 0.5) 28px
     );
-  background-attachment: fixed;
 }
 
 /* selection */
