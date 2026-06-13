@@ -1,5 +1,5 @@
 import { Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { useInboxCount } from "../lib/use-inbox-count.ts";
@@ -26,32 +26,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const title = titleByRoute[loc.pathname] ?? "Heimdall";
   const inboxCount = useInboxCount(true);
 
-  // TEMP DEBUG (ADR-007 nav-height investigation) — remove after diagnosis.
-  const [dbg, setDbg] = useState("measuring…");
-  useEffect(() => {
-    const measure = () => {
-      const navEl = document.getElementById("mobile-nav");
-      const cs = navEl ? getComputedStyle(navEl) : null;
-      const r = navEl?.getBoundingClientRect();
-      setDbg(
-        `win${window.innerHeight} navH${r ? Math.round(r.height) : "?"} ` +
-          `navTop${r ? Math.round(r.top) : "?"} navBot${r ? Math.round(r.bottom) : "?"} ` +
-          `padB${cs ? cs.paddingBottom : "?"} gapBelow${r ? Math.round(window.innerHeight - r.bottom) : "?"}`,
-      );
-    };
-    const t = setTimeout(measure, 250);
-    window.addEventListener("resize", measure);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener("resize", measure);
-    };
-  }, []);
-
   return (
     <div className="h-[100dvh] flex overflow-hidden">
-      <div className="fixed top-14 inset-x-0 z-[60] bg-black/90 text-[9px] leading-tight text-[#5f5] mono px-1 py-0.5 text-center pointer-events-none">
-        {dbg}
-      </div>
       <Sidebar inboxCount={inboxCount} />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -79,7 +55,6 @@ export function Shell({ children }: { children: ReactNode }) {
         </main>
 
         <nav
-          id="mobile-nav"
           className="md:hidden shrink-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"
           // Cap the home-indicator clearance: the full env(safe-area-inset-bottom)
           // reserved a large dead band below the icons. 0.5rem keeps a little

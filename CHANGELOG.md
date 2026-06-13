@@ -4,6 +4,15 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.21.5 — 2026-06-13
+
+### Fixed
+- **Removed the temporary nav diagnostic overlay** (added v0.21.3–v0.21.4).
+  On-device measurement confirmed the mobile bottom nav is compact (~57px, flush
+  at the viewport bottom, `padding-bottom` capped at `0.5rem`); the earlier
+  oversized appearance was the uncapped `env(safe-area-inset-bottom)` band still
+  being served from the service-worker cache.
+
 ## v0.21.3 — 2026-06-13
 
 ### Changed
