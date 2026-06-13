@@ -4,6 +4,47 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.21.0 — 2026-06-13
+
+GitHub integration beyond repo publish: Issues become a per-project canonical
+task backend, with a first-class `factory[bot]` identity for machine actions,
+the issue comment thread as first-class run context, and inbound sync via the
+App webhook. Opt-in per project — `file`-backed (incl. `tinker`/local) projects
+are unchanged. See [`docs/adr/007-github-issue-backend.md`](./docs/adr/007-github-issue-backend.md)
+and [`docs/spec-github-issues.md`](./docs/spec-github-issues.md).
+
+### Added
+- **Factory GitHub App identity (`factory[bot]`).** On App-installed repos, run
+  commits + pushes attribute to the bot (via the App's noreply email +
+  installation-token auth) instead of a dangling string author — consistent
+  identity across commits and issues/comments. Configured via `auth.githubApp`
+  / the `github-app-*` settings; `factory doctor` reports it.
+- **GitHub Issues as a canonical task backend (per-project opt-in).** A project
+  can flip to `task_backend = github-issues`: existing tasks backfill into
+  issues (status round-tripped via `status:*` labels + a hidden `factory:task`
+  frontmatter block; old ids preserved as `legacy_id`), local `.factory/work`
+  files are archived, and from then on the issue *is* the task.
+- **Issue thread as first-class run context.** For github-backed tasks the issue
+  comment thread is folded into the run prompt (delimited, marked untrusted,
+  all authors), and each run writes its outcome back to the thread as the bot
+  (completion summary + merged sha + quality, blocked-run questions).
+- **External-issue intake.** An issue filed outside Factory on an integrated
+  repo surfaces as an `issue_intake` inbox decision; approve adopts it as a
+  task, dismiss leaves it untracked — external input never silently runs.
+- **App webhook** (`POST /webhooks/github`, HMAC-verified) for live inbound
+  sync. The app-level hook receives events for every installed repo, so each
+  delivery is gated to a github-issues-backed project and unmatched repos are a
+  fast no-op.
+- **PWA:** a task-page issue thread + reply (authored as the operator via their
+  PAT), the `issue_intake` decision card (promote/dismiss), and a per-project
+  "use github issues" opt-in button. Both mobile and desktop layouts.
+
+### Changed
+- **Task IO is now a pluggable `TaskStore` seam** behind `apps/daemon/src/projects/tasks.ts`
+  (`file` + `github-issues` providers); every task-creation/update flow routes
+  through `taskStoreFor(project)` unchanged. Migration `0029` adds
+  `projects.task_backend` + `projects.github_installation_id`.
+
 ## v0.20.2 — 2026-06-11
 
 ### Fixed
