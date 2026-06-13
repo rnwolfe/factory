@@ -7,7 +7,9 @@ import {
   postIssueComment,
   renderDiscussion,
   renderTaskIssueBody,
+  replyAsOperator,
   statusToGithub,
+  taskThread,
 } from "../src/projects/github-task-store.ts";
 
 const { privateKey } = generateKeyPairSync("rsa", {
@@ -402,5 +404,80 @@ describe("postIssueComment", () => {
     );
     expect(ok).toBe(true);
     expect(posted?.body).toBe("the comment");
+  });
+});
+
+describe("taskThread", () => {
+  test("returns [] for file-backed projects (no network)", async () => {
+    let called = false;
+    const out = await taskThread(
+      appConfig,
+      { taskBackend: "file" },
+      "1",
+      asFetch(async () => {
+        called = true;
+        return json([]);
+      }),
+    );
+    expect(out).toEqual([]);
+    expect(called).toBe(false);
+  });
+
+  test("returns comments for github-backed projects", async () => {
+    const out = await taskThread(
+      appConfig,
+      {
+        taskBackend: "github-issues",
+        githubRemote: "https://github.com/o/r.git",
+        githubInstallationId: 1,
+      },
+      "7",
+      asFetch(async (url) => {
+        const u = String(url);
+        const t = tokenRoute(u);
+        if (t) return t;
+        if (u.includes("/comments")) {
+          return json([
+            { user: { login: "bob" }, author_association: "NONE", body: "hey", created_at: "x" },
+          ]);
+        }
+        throw new Error(`unexpected ${u}`);
+      }),
+    );
+    expect(out).toEqual([
+      { author: "bob", authorAssociation: "NONE", body: "hey", createdAt: "x" },
+    ]);
+  });
+});
+
+describe("replyAsOperator", () => {
+  test("posts with token (operator) auth", async () => {
+    let auth: string | undefined;
+    let posted: { body: string } | undefined;
+    await replyAsOperator(
+      "ghp_xyz",
+      { githubRemote: "https://github.com/o/r.git" },
+      "7",
+      "my reply",
+      asFetch(async (_url, init) => {
+        auth = (init?.headers as Record<string, string>)?.Authorization;
+        posted = JSON.parse(String(init?.body));
+        return json({}, 201);
+      }),
+    );
+    expect(auth).toBe("token ghp_xyz");
+    expect(posted?.body).toBe("my reply");
+  });
+
+  test("throws on an unparseable remote", async () => {
+    await expect(
+      replyAsOperator(
+        "t",
+        { githubRemote: null },
+        "1",
+        "x",
+        asFetch(async () => json({})),
+      ),
+    ).rejects.toThrow();
   });
 });

@@ -6,6 +6,7 @@ import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { enableGithubIssuesBackend } from "../projects/enable-github-backend.ts";
 import { createRepo, GithubError, pushToNewRemote } from "../projects/github.ts";
+import { replyAsOperator, taskThread } from "../projects/github-task-store.ts";
 import {
   ImportError,
   importFromPath,
@@ -201,6 +202,47 @@ const tasksRouter = router({
         .set({ lastActivityAt: Date.now() })
         .where(eq(schema.projects.id, project.id));
       return { task: { frontmatter: created.frontmatter, body: created.body } };
+    }),
+
+  /** Issue comment thread for a github-backed task (read). Empty for file-backed. */
+  thread: protectedProcedure
+    .input(z.object({ projectId: z.string(), taskId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project || project.taskBackend !== "github-issues") {
+        return { backend: project?.taskBackend ?? "file", comments: [] };
+      }
+      const comments = await taskThread(ctx.config, project, input.taskId);
+      return { backend: "github-issues" as const, comments };
+    }),
+
+  /** Reply to a github-backed task's thread, authored as the operator (PAT). */
+  reply: protectedProcedure
+    .input(
+      z.object({ projectId: z.string(), taskId: z.string(), body: z.string().min(1).max(50_000) }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      if (project.taskBackend !== "github-issues") {
+        throw new Error("project is not github-issues backed");
+      }
+      if (!ctx.config.githubToken) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Set a GitHub token in Settings to reply as yourself.",
+        });
+      }
+      await replyAsOperator(ctx.config.githubToken, project, input.taskId, input.body);
+      return { ok: true };
     }),
 });
 

@@ -508,3 +508,66 @@ export async function adoptIssue(
   );
   return store.adopt(taskId);
 }
+
+/**
+ * Fetch a github-backed task's issue thread (structured) for the PWA. Returns
+ * [] for file-backed projects, when the App isn't configured, or on error.
+ */
+export async function taskThread(
+  config: Pick<FactoryConfig, "githubApp">,
+  project: {
+    taskBackend?: string | null;
+    githubRemote?: string | null;
+    githubInstallationId?: number | null;
+  },
+  taskId: string,
+  fetchFn: FetchFn = globalThis.fetch,
+): Promise<IssueComment[]> {
+  if (project.taskBackend !== "github-issues" || !project.githubRemote) return [];
+  const client = githubAppClientFromConfig(config, fetchFn);
+  if (!client) return [];
+  const repo = parseGithubRepo(project.githubRemote);
+  if (!repo) return [];
+  const store = new GithubIssuesStore(
+    client,
+    repo.owner,
+    repo.repo,
+    project.githubInstallationId ?? null,
+    fetchFn,
+  );
+  try {
+    return await store.listComments(taskId);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Post a comment to a task's issue thread authored as the OPERATOR (their
+ * github-token PAT), not the bot — operator replies should look like the
+ * operator on GitHub (ADR-007 §D2). Throws on a missing remote or API error.
+ */
+export async function replyAsOperator(
+  token: string,
+  project: { githubRemote?: string | null },
+  taskId: string,
+  body: string,
+  fetchFn: FetchFn = globalThis.fetch,
+): Promise<void> {
+  const repo = project.githubRemote ? parseGithubRepo(project.githubRemote) : null;
+  if (!repo) throw new GithubError("bad_owner", "project has no parseable github remote");
+  const res = await fetchFn(`${API}/repos/${repo.owner}/${repo.repo}/issues/${taskId}/comments`, {
+    method: "POST",
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": UA,
+      "X-GitHub-Api-Version": API_VERSION,
+    },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) {
+    const code = res.status === 401 || res.status === 403 ? "bad_token" : "network";
+    throw new GithubError(code, `reply failed (${res.status}): ${await res.text()}`);
+  }
+}
