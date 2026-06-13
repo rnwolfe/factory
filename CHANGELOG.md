@@ -4,6 +4,13 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.21.1 — 2026-06-13
+
+### Fixed
+- **Mobile bottom-nav height.** Trimmed the nav content row from `h-14` to
+  `h-12` (≈ the iOS-standard tab-bar height) so it matches the header and no
+  longer reads chunky above the home-indicator safe-area band.
+
 ## v0.21.0 — 2026-06-13
 
 GitHub integration beyond repo publish: Issues become a per-project canonical
