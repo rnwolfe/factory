@@ -56,7 +56,10 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <nav
           className="md:hidden shrink-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+          // Cap the home-indicator clearance: the full env(safe-area-inset-bottom)
+          // reserved a large dead band below the icons. 0.5rem keeps a little
+          // breathing room while letting the bar sit closer to the screen edge.
+          style={{ paddingBottom: "min(env(safe-area-inset-bottom), 0.5rem)" }}
         >
           <div className="grid grid-cols-4 h-12">
             {NAV.map((item) => (
