@@ -1,0 +1,132 @@
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createDb, type PlanStatus, runMigrations, schema } from "@factory/db";
+import { createId } from "@paralleldrive/cuid2";
+import { eq } from "drizzle-orm";
+import type { FactoryConfig } from "../src/config.ts";
+import type { DaemonContext } from "../src/context.ts";
+import { type DaemonEvent, EventBus } from "../src/events.ts";
+import { plansRouter } from "../src/routers/plans.ts";
+import { ScriptRegistry } from "../src/scripts/registry.ts";
+import { createCallerFactory } from "../src/trpc.ts";
+import { WorkerPool } from "../src/workers/pool.ts";
+import { RunRegistry } from "../src/workers/registry.ts";
+
+const createCaller = createCallerFactory(plansRouter);
+
+interface Harness {
+  db: ReturnType<typeof createDb>;
+  published: DaemonEvent[];
+  caller: ReturnType<typeof createCaller>;
+  cleanup: () => void;
+}
+
+function setupHarness(): Harness {
+  const root = mkdtempSync(path.join(tmpdir(), "factory-plans-router-"));
+  const dbPath = path.join(root, "data.db");
+  const projectsRoot = path.join(root, "projects");
+  const worktreesRoot = path.join(root, "worktrees");
+  mkdirSync(projectsRoot, { recursive: true });
+  mkdirSync(worktreesRoot, { recursive: true });
+  runMigrations(dbPath);
+  const db = createDb(dbPath);
+  const events = new EventBus();
+  const published: DaemonEvent[] = [];
+  events.subscribe((e) => published.push(e));
+  const config: FactoryConfig = {
+    port: 0,
+    host: "127.0.0.1",
+    auth: { token: "t" },
+    workdir: projectsRoot,
+    worktreesRoot,
+    dbPath,
+    maxConcurrentRuns: 1,
+    defaultRunBudgetSeconds: 60,
+    agentBudgetSeconds: 0,
+    gitAuthor: { name: "Test", email: "test@test" },
+    githubToken: null,
+    githubApp: null,
+    factoryProjectId: null,
+    notifyOnRunComplete: false,
+    vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },
+  };
+  const ctx: DaemonContext = {
+    db,
+    events,
+    runs: new RunRegistry(),
+    pool: new WorkerPool(1),
+    config,
+    scripts: new ScriptRegistry(events),
+    authorized: true,
+  };
+  return {
+    db,
+    published,
+    caller: createCaller(ctx),
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+async function seedPlan(h: Harness, status: PlanStatus): Promise<string> {
+  const id = createId();
+  const now = Date.now();
+  await h.db.insert(schema.plans).values({
+    id,
+    kind: "task_plan",
+    status,
+    goal: `${status} plan`,
+    draft: JSON.stringify({
+      kind: "task_plan",
+      goal: "",
+      steps: [],
+      acceptance: [],
+      touches: [],
+      risks: [],
+    }),
+    createdAt: now,
+    updatedAt: now,
+    frozenAt: status === "frozen" || status === "superseded" ? now - 1 : null,
+    abandonedAt: status === "abandoned" ? now - 1 : null,
+  });
+  return id;
+}
+
+describe("plans router", () => {
+  test.each([
+    "drafting",
+    "frozen",
+    "superseded",
+  ] as const)("abandon archives a %s plan", async (status) => {
+    const h = setupHarness();
+    try {
+      const planId = await seedPlan(h, status);
+
+      await h.caller.abandon({ planId });
+
+      const row = await h.db.select().from(schema.plans).where(eq(schema.plans.id, planId)).get();
+      expect(row?.status).toBe("abandoned");
+      expect(row?.abandonedAt).toBeNumber();
+      expect(h.published).toContainEqual({
+        channel: "inbox",
+        kind: "plan_abandoned",
+        planId,
+        projectId: null,
+      });
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("abandon rejects an already-abandoned plan", async () => {
+    const h = setupHarness();
+    try {
+      const planId = await seedPlan(h, "abandoned");
+
+      await expect(h.caller.abandon({ planId })).rejects.toThrow("plan already abandoned");
+    } finally {
+      h.cleanup();
+    }
+  });
+});
