@@ -8,12 +8,14 @@ import { ensureVapid, type FactoryConfig, loadConfig, writeInitialConfig } from 
 import type { DaemonContext } from "./context.ts";
 import { recoverOrphanedDeferredTasks } from "./deferred-tasks/orchestrate.ts";
 import { EventBus } from "./events.ts";
+import { githubAppClientFromConfig } from "./github/app-auth.ts";
 import { buildHealth } from "./health.ts";
 import {
   recoverOrphanedInterventions,
   tmuxNameForIntervention,
 } from "./interventions/orchestrate.ts";
 import { migrateQualityConfigs } from "./projects/quality-config.ts";
+import { configureGithubTaskBackend } from "./projects/tasks.ts";
 import { startPushDispatcher } from "./push/dispatcher.ts";
 import { appRouter } from "./router.ts";
 import { ScriptRegistry } from "./scripts/registry.ts";
@@ -112,6 +114,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // place so all DaemonContext.config readers see the right values without
   // any rewiring.
   applySettingsFromDb(db, config);
+
+  // Wire the GitHub App client for `github-issues`-backed projects (ADR-007).
+  // Null when the App isn't configured; opted-in projects then error clearly
+  // rather than silently falling back to an empty local task dir.
+  configureGithubTaskBackend(githubAppClientFromConfig(config));
 
   // Bind the live config to the agent-budget singleton. Triage / plan /
   // audit / feedback invocations read from this; mutations through the

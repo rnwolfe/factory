@@ -19,6 +19,7 @@ export const decisionKindEnum = [
   "agent_decision",
 ] as const;
 export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
+export const taskBackendEnum = ["file", "github-issues"] as const;
 export const decisionStatusEnum = ["pending", "actioned", "dismissed"] as const;
 export const decisionCommentRoleEnum = ["operator", "agent"] as const;
 export const runStatusEnum = [
@@ -353,6 +354,15 @@ export const projects = sqliteTable("projects", {
    * the operator publishes.
    */
   githubRemote: text("github_remote"),
+  /**
+   * ADR-007 — task storage backend. `file` (default) keeps tasks as
+   * `.factory/work/*.md`; `github-issues` makes GitHub Issues the canonical
+   * store. Selectable only when `githubRemote` is set and the Factory App is
+   * installed on the repo.
+   */
+  taskBackend: text("task_backend", { enum: taskBackendEnum }).notNull().default("file"),
+  /** Cached GitHub App installation id for this repo; resolved lazily. */
+  githubInstallationId: integer("github_installation_id"),
 });
 
 export const rubricVersions = sqliteTable(

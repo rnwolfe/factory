@@ -2,6 +2,9 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
+import type { GithubAppClient } from "../github/app-auth.ts";
+import { parseGithubRepo } from "../github/app-auth.ts";
+import { GithubIssuesStore } from "./github-task-store.ts";
 
 export interface TaskFile {
   id: string;
@@ -245,12 +248,40 @@ export class FileTaskStore implements TaskStore {
   }
 }
 
+let sharedGithubClient: GithubAppClient | null = null;
+
 /**
- * Resolve the task store for a target. Single dispatch point — the GitHub
- * Issues backend (ADR-007 Phase 2) branches here on `target.taskBackend`.
- * Today every project is `file`-backed.
+ * Wire the GitHub App client used by `github-issues`-backed projects. Called
+ * once at daemon boot from the resolved config; null leaves the backend
+ * unconfigured (projects opted into github-issues then error clearly rather
+ * than silently reading an empty local `.factory/work`).
+ */
+export function configureGithubTaskBackend(client: GithubAppClient | null): void {
+  sharedGithubClient = client;
+}
+
+/**
+ * Resolve the task store for a target. Single dispatch point — `github-issues`
+ * projects get a `GithubIssuesStore`; everything else stays file-backed.
  */
 export function taskStoreFor(target: TaskTarget): TaskStore {
+  if (target.taskBackend === "github-issues") {
+    if (!sharedGithubClient) {
+      throw new Error(
+        "project uses the github-issues task backend but the Factory App is not configured",
+      );
+    }
+    const repo = target.githubRemote ? parseGithubRepo(target.githubRemote) : null;
+    if (!repo) {
+      throw new Error("github-issues task backend requires a parseable github remote");
+    }
+    return new GithubIssuesStore(
+      sharedGithubClient,
+      repo.owner,
+      repo.repo,
+      target.githubInstallationId ?? null,
+    );
+  }
   return new FileTaskStore(target.workdirPath);
 }
 

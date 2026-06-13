@@ -1,0 +1,199 @@
+import { describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
+import { GithubAppClient } from "../src/github/app-auth.ts";
+import {
+  GithubIssuesStore,
+  parseTaskIssueBody,
+  renderTaskIssueBody,
+  statusToGithub,
+} from "../src/projects/github-task-store.ts";
+
+const { privateKey } = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
+const creds = { appId: "1", slug: "wolfefactory", privateKey };
+
+type FakeFetch = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
+const asFetch = (f: FakeFetch) => f as unknown as typeof fetch;
+const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status });
+
+describe("issue body frontmatter", () => {
+  test("round-trips metadata + body through the hidden comment", () => {
+    const rendered = renderTaskIssueBody(
+      { status: "in_progress", priority: "high", model: "claude-opus-4-8", legacy_id: "task-007" },
+      "Do the thing.\n",
+    );
+    expect(rendered).toContain("<!-- factory:task");
+    expect(rendered).toContain("status: in_progress");
+    expect(rendered).toContain("legacy_id: task-007");
+    const { meta, body } = parseTaskIssueBody(rendered);
+    expect(meta.status).toBe("in_progress");
+    expect(meta.priority).toBe("high");
+    expect(meta.model).toBe("claude-opus-4-8");
+    expect(meta.legacy_id).toBe("task-007");
+    expect(body.trim()).toBe("Do the thing.");
+  });
+
+  test("a body with no factory comment parses as plain body", () => {
+    const { meta, body } = parseTaskIssueBody("just text");
+    expect(meta).toEqual({});
+    expect(body).toBe("just text");
+  });
+});
+
+describe("statusToGithub", () => {
+  test("maps terminal statuses to closed with a reason", () => {
+    expect(statusToGithub("done")).toEqual({ state: "closed", stateReason: "completed" });
+    expect(statusToGithub("dropped")).toEqual({ state: "closed", stateReason: "not_planned" });
+    expect(statusToGithub("ready")).toEqual({ state: "open", stateReason: null });
+    expect(statusToGithub("blocked")).toEqual({ state: "open", stateReason: null });
+  });
+});
+
+function tokenRoute(url: string): Response | null {
+  if (url.includes("/access_tokens")) {
+    return json({ token: "ghs_test", expires_at: new Date(99_999_999_999).toISOString() });
+  }
+  return null;
+}
+
+function makeStore(fetchFn: FakeFetch): GithubIssuesStore {
+  // installationId pre-seeded so the store skips the /installation lookup.
+  return new GithubIssuesStore(
+    new GithubAppClient(creds, asFetch(fetchFn)),
+    "o",
+    "r",
+    42,
+    asFetch(fetchFn),
+  );
+}
+
+describe("GithubIssuesStore.create", () => {
+  test("POSTs an issue with factory + status labels and hidden frontmatter", async () => {
+    let captured: { title: string; body: string; labels: string[] } | undefined;
+    const store = makeStore(async (url, init) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (init?.method === "POST" && u.endsWith("/issues")) {
+        captured = JSON.parse(String(init.body));
+        return json({
+          number: 7,
+          title: captured?.title,
+          body: captured?.body,
+          state: "open",
+          state_reason: null,
+          labels: (captured?.labels ?? []).map((name) => ({ name })),
+        });
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+
+    const task = await store.create({
+      title: "Add pagination",
+      body: "## Notes\n\nbody",
+      priority: "high",
+    });
+    expect(captured?.title).toBe("Add pagination");
+    expect(captured?.labels).toContain("factory");
+    expect(captured?.labels).toContain("status:ready");
+    expect(captured?.body).toContain("priority: high");
+    expect(task.id).toBe("7");
+    expect(task.frontmatter.status).toBe("ready");
+    expect(task.frontmatter.title).toBe("Add pagination");
+  });
+});
+
+describe("GithubIssuesStore.list", () => {
+  test("filters out PRs and sorts by issue number", async () => {
+    const store = makeStore(async (url) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (u.includes("/issues?")) {
+        return json([
+          {
+            number: 9,
+            title: "B",
+            body: renderTaskIssueBody({ status: "ready" }, "b"),
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "factory" }],
+          },
+          {
+            number: 3,
+            title: "A",
+            body: renderTaskIssueBody({ status: "in_progress" }, "a"),
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "factory" }],
+          },
+          {
+            number: 5,
+            title: "PR",
+            body: "",
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "factory" }],
+            pull_request: { url: "x" },
+          },
+        ]);
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+    const tasks = await store.list();
+    expect(tasks.map((t) => t.id)).toEqual(["3", "9"]); // PR #5 dropped, sorted
+    expect(tasks[0]?.frontmatter.status).toBe("in_progress");
+  });
+});
+
+describe("GithubIssuesStore.read", () => {
+  test("returns null on 404", async () => {
+    const store = makeStore(async (url) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      return new Response("not found", { status: 404 });
+    });
+    expect(await store.read("123")).toBeNull();
+  });
+});
+
+describe("GithubIssuesStore.updateStatus", () => {
+  test("closes the issue and drops the status label when status=done", async () => {
+    const issue = {
+      number: 7,
+      title: "T",
+      body: renderTaskIssueBody({ status: "in_progress", priority: "med" }, "the body"),
+      state: "open",
+      state_reason: null as string | null,
+      labels: [{ name: "factory" }, { name: "status:in_progress" }] as Array<{ name: string }>,
+    };
+    let patched: Record<string, unknown> | undefined;
+    const store = makeStore(async (url, init) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (init?.method === "PATCH") {
+        patched = JSON.parse(String(init.body));
+        return json({
+          ...issue,
+          ...patched,
+          labels: (patched?.labels as string[]).map((name) => ({ name })),
+        });
+      }
+      if (u.endsWith("/issues/7")) return json(issue);
+      throw new Error(`unexpected ${u}`);
+    });
+
+    const updated = await store.updateStatus("7", "done");
+    expect(patched?.state).toBe("closed");
+    expect(patched?.state_reason).toBe("completed");
+    expect(patched?.labels).toContain("factory");
+    expect(patched?.labels).not.toContain("status:in_progress");
+    expect(String(patched?.body)).toContain("status: done");
+    expect(updated?.frontmatter.status).toBe("done");
+  });
+});
