@@ -132,7 +132,7 @@ export const plansRouter = router({
         .get();
       if (existing) return { planId: existing.id };
 
-      const task = await readTaskFile(project.workdirPath, input.taskId);
+      const task = await readTaskFile(project, input.taskId);
       if (!task) throw new Error(`task ${input.taskId} not found in project`);
 
       const seed = seedTaskPlanDraft();
@@ -437,7 +437,7 @@ export const plansRouter = router({
         .get();
       if (existing) return { planId: existing.id };
 
-      const task = await readTaskFile(project.workdirPath, input.taskId);
+      const task = await readTaskFile(project, input.taskId);
       if (!task) throw new Error(`task ${input.taskId} not found in project`);
 
       const seed = seedRefinementDraft(input.taskId);

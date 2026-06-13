@@ -35,6 +35,22 @@ export interface TaskFrontmatter {
   [k: string]: unknown;
 }
 
+export type TaskBackend = "file" | "github-issues";
+
+/**
+ * The minimum a caller must supply to resolve a task store. The full project
+ * row satisfies this structurally (it carries `workdirPath`, `taskBackend`,
+ * `githubRemote`, `githubInstallationId`). Callers that don't have a row yet
+ * (bootstrap, the run worktree) pass a literal `{ workdirPath }` — backend
+ * defaults to `file`.
+ */
+export interface TaskTarget {
+  workdirPath: string;
+  taskBackend?: TaskBackend | null;
+  githubRemote?: string | null;
+  githubInstallationId?: number | null;
+}
+
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
 
 export function parseTaskMarkdown(filePath: string, raw: string): TaskFile | null {
@@ -53,32 +69,6 @@ export function parseTaskMarkdown(filePath: string, raw: string): TaskFile | nul
 export function renderTaskMarkdown(t: TaskFile): string {
   const fm = YAML.stringify(t.frontmatter).trimEnd();
   return `---\n${fm}\n---\n\n${t.body.replace(/^\s+/, "")}\n`;
-}
-
-export async function listTasks(projectPath: string): Promise<TaskFile[]> {
-  const dir = path.join(projectPath, ".factory", "work");
-  if (!existsSync(dir)) return [];
-  const entries = await readdir(dir);
-  const tasks: TaskFile[] = [];
-  for (const entry of entries) {
-    if (!entry.endsWith(".md")) continue;
-    const filePath = path.join(dir, entry);
-    try {
-      const raw = await readFile(filePath, "utf8");
-      const parsed = parseTaskMarkdown(filePath, raw);
-      if (parsed) tasks.push(parsed);
-    } catch {
-      // skip unreadable files
-    }
-  }
-  // Sort by id (which is monotonic per the spec).
-  tasks.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
-  return tasks;
-}
-
-export async function readTaskFile(projectPath: string, taskId: string): Promise<TaskFile | null> {
-  const all = await listTasks(projectPath);
-  return all.find((t) => t.id === taskId) ?? null;
 }
 
 /**
@@ -108,71 +98,6 @@ export function pickNextReadyTask(
   return tasks.find((t) => t.frontmatter.status === "ready") ?? null;
 }
 
-export async function updateTaskStatus(
-  projectPath: string,
-  taskId: string,
-  status: TaskFrontmatter["status"],
-): Promise<TaskFile | null> {
-  const t = await readTaskFile(projectPath, taskId);
-  if (!t) return null;
-  const updated: TaskFile = {
-    ...t,
-    frontmatter: {
-      ...t.frontmatter,
-      status,
-      updated: new Date().toISOString(),
-    },
-  };
-  await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
-  return updated;
-}
-
-/**
- * Set or clear the per-task model override. Empty string clears the field
- * entirely (falls back to project default at submit time); a non-empty
- * value pins the task to that model id.
- */
-export async function updateTaskModel(
-  projectPath: string,
-  taskId: string,
-  model: string,
-): Promise<TaskFile | null> {
-  const t = await readTaskFile(projectPath, taskId);
-  if (!t) return null;
-  const trimmed = model.trim();
-  const nextFrontmatter: TaskFrontmatter = {
-    ...t.frontmatter,
-    updated: new Date().toISOString(),
-  };
-  if (trimmed.length > 0) {
-    nextFrontmatter.model = trimmed;
-  } else {
-    delete nextFrontmatter.model;
-  }
-  const updated: TaskFile = { ...t, frontmatter: nextFrontmatter };
-  await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
-  return updated;
-}
-
-export async function updateTaskBody(
-  projectPath: string,
-  taskId: string,
-  body: string,
-): Promise<TaskFile | null> {
-  const t = await readTaskFile(projectPath, taskId);
-  if (!t) return null;
-  const updated: TaskFile = {
-    ...t,
-    body,
-    frontmatter: {
-      ...t.frontmatter,
-      updated: new Date().toISOString(),
-    },
-  };
-  await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
-  return updated;
-}
-
 export interface CreateTaskInput {
   title: string;
   /** Full markdown body. Caller controls section structure. */
@@ -193,39 +118,181 @@ export interface CreateTaskInput {
 }
 
 /**
- * Single-point-of-truth for task creation. Picks the next monotonic task id,
- * writes the file under `.factory/work/`, returns the parsed result. All
- * task-creation flows route through this — bootstrap, refinement freeze,
- * feature_plan freeze, audit-finding promotion, ad-hoc PWA "+ task".
- *
- * Storage swap (GitHub Issues, beads, etc.) is a one-file change here.
+ * The storage seam. One backend reads/writes `.factory/work/*.md`; the
+ * GitHub-Issues backend (ADR-007 Phase 2) reads/writes issues. All task IO
+ * routes through a `TaskStore` so the backend is a per-project choice and not
+ * a concern of any caller.
  */
-export async function createTask(projectPath: string, input: CreateTaskInput): Promise<TaskFile> {
-  const dir = path.join(projectPath, ".factory", "work");
-  if (!existsSync(dir)) {
-    throw new Error(`project task directory does not exist: ${dir}`);
+export interface TaskStore {
+  list(): Promise<TaskFile[]>;
+  read(id: string): Promise<TaskFile | null>;
+  create(input: CreateTaskInput): Promise<TaskFile>;
+  updateStatus(id: string, status: TaskFrontmatter["status"]): Promise<TaskFile | null>;
+  updateModel(id: string, model: string): Promise<TaskFile | null>;
+  updateBody(id: string, body: string): Promise<TaskFile | null>;
+}
+
+/**
+ * Local markdown-with-frontmatter store: tasks live as
+ * `<workdir>/.factory/work/<id>-<slug>.md`. This is the default and the only
+ * backend for `tinker`/local projects.
+ */
+export class FileTaskStore implements TaskStore {
+  constructor(private readonly projectPath: string) {}
+
+  private dir(): string {
+    return path.join(this.projectPath, ".factory", "work");
   }
-  const existing = await listTasks(projectPath);
-  const id = nextTaskId(existing);
-  const fileName = `${id}-${slugify(input.title || "task").slice(0, 40)}.md`;
-  const filePath = path.join(dir, fileName);
-  const now = new Date().toISOString();
-  const frontmatter: TaskFrontmatter = {
-    id,
-    title: input.title || "Untitled",
-    status: input.status ?? "ready",
-    priority: input.priority ?? "med",
-    estimate: input.estimate ?? "small",
-    created: now,
-    updated: now,
-  };
-  if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
-  if (input.parent) frontmatter.parent = input.parent;
-  if (input.model && input.model.trim().length > 0) frontmatter.model = input.model.trim();
-  if (input.agent && input.agent.trim().length > 0) frontmatter.agent = input.agent.trim();
-  const file: TaskFile = { id, filePath, frontmatter, body: input.body };
-  await writeFile(filePath, renderTaskMarkdown(file), "utf8");
-  return file;
+
+  async list(): Promise<TaskFile[]> {
+    const dir = this.dir();
+    if (!existsSync(dir)) return [];
+    const entries = await readdir(dir);
+    const tasks: TaskFile[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const filePath = path.join(dir, entry);
+      try {
+        const raw = await readFile(filePath, "utf8");
+        const parsed = parseTaskMarkdown(filePath, raw);
+        if (parsed) tasks.push(parsed);
+      } catch {
+        // skip unreadable files
+      }
+    }
+    // Sort by id (which is monotonic per the spec).
+    tasks.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
+    return tasks;
+  }
+
+  async read(taskId: string): Promise<TaskFile | null> {
+    const all = await this.list();
+    return all.find((t) => t.id === taskId) ?? null;
+  }
+
+  async updateStatus(taskId: string, status: TaskFrontmatter["status"]): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    const updated: TaskFile = {
+      ...t,
+      frontmatter: { ...t.frontmatter, status, updated: new Date().toISOString() },
+    };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
+  /**
+   * Set or clear the per-task model override. Empty string clears the field
+   * entirely (falls back to project default at submit time); a non-empty
+   * value pins the task to that model id.
+   */
+  async updateModel(taskId: string, model: string): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    const trimmed = model.trim();
+    const nextFrontmatter: TaskFrontmatter = {
+      ...t.frontmatter,
+      updated: new Date().toISOString(),
+    };
+    if (trimmed.length > 0) {
+      nextFrontmatter.model = trimmed;
+    } else {
+      delete nextFrontmatter.model;
+    }
+    const updated: TaskFile = { ...t, frontmatter: nextFrontmatter };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
+  async updateBody(taskId: string, body: string): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    const updated: TaskFile = {
+      ...t,
+      body,
+      frontmatter: { ...t.frontmatter, updated: new Date().toISOString() },
+    };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
+  async create(input: CreateTaskInput): Promise<TaskFile> {
+    const dir = this.dir();
+    if (!existsSync(dir)) {
+      throw new Error(`project task directory does not exist: ${dir}`);
+    }
+    const existing = await this.list();
+    const id = nextTaskId(existing);
+    const fileName = `${id}-${slugify(input.title || "task").slice(0, 40)}.md`;
+    const filePath = path.join(dir, fileName);
+    const now = new Date().toISOString();
+    const frontmatter: TaskFrontmatter = {
+      id,
+      title: input.title || "Untitled",
+      status: input.status ?? "ready",
+      priority: input.priority ?? "med",
+      estimate: input.estimate ?? "small",
+      created: now,
+      updated: now,
+    };
+    if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
+    if (input.parent) frontmatter.parent = input.parent;
+    if (input.model && input.model.trim().length > 0) frontmatter.model = input.model.trim();
+    if (input.agent && input.agent.trim().length > 0) frontmatter.agent = input.agent.trim();
+    const file: TaskFile = { id, filePath, frontmatter, body: input.body };
+    await writeFile(filePath, renderTaskMarkdown(file), "utf8");
+    return file;
+  }
+}
+
+/**
+ * Resolve the task store for a target. Single dispatch point — the GitHub
+ * Issues backend (ADR-007 Phase 2) branches here on `target.taskBackend`.
+ * Today every project is `file`-backed.
+ */
+export function taskStoreFor(target: TaskTarget): TaskStore {
+  return new FileTaskStore(target.workdirPath);
+}
+
+// --- Free-function facade -------------------------------------------------
+// Names preserved for call-site stability; each delegates to the resolved
+// store. Single-point-of-truth for task IO — a storage swap is a change to
+// `taskStoreFor` + a new TaskStore implementation, not to any caller.
+
+export function listTasks(target: TaskTarget): Promise<TaskFile[]> {
+  return taskStoreFor(target).list();
+}
+
+export function readTaskFile(target: TaskTarget, taskId: string): Promise<TaskFile | null> {
+  return taskStoreFor(target).read(taskId);
+}
+
+export function createTask(target: TaskTarget, input: CreateTaskInput): Promise<TaskFile> {
+  return taskStoreFor(target).create(input);
+}
+
+export function updateTaskStatus(
+  target: TaskTarget,
+  taskId: string,
+  status: TaskFrontmatter["status"],
+): Promise<TaskFile | null> {
+  return taskStoreFor(target).updateStatus(taskId, status);
+}
+
+export function updateTaskModel(
+  target: TaskTarget,
+  taskId: string,
+  model: string,
+): Promise<TaskFile | null> {
+  return taskStoreFor(target).updateModel(taskId, model);
+}
+
+export function updateTaskBody(
+  target: TaskTarget,
+  taskId: string,
+  body: string,
+): Promise<TaskFile | null> {
+  return taskStoreFor(target).updateBody(taskId, body);
 }
 
 function nextTaskId(existing: TaskFile[]): string {

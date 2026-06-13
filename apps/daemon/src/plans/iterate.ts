@@ -409,7 +409,7 @@ async function buildPromptForKind(
       .where(eq(schema.projects.id, plan.projectId))
       .get();
     if (!project) throw new Error(`project ${plan.projectId} not found`);
-    const task = await readTaskFile(project.workdirPath, plan.taskId);
+    const task = await readTaskFile(project, plan.taskId);
     const [readme, agentsMd] = await Promise.all([
       readIfPresent(path.join(project.workdirPath, "README.md")),
       readAgentInstructions(project.workdirPath).then((v) => v ?? "(none)"),
@@ -433,7 +433,7 @@ async function buildPromptForKind(
       .where(eq(schema.projects.id, plan.projectId))
       .get();
     if (!project) throw new Error(`project ${plan.projectId} not found`);
-    const task = await readTaskFile(project.workdirPath, plan.taskId);
+    const task = await readTaskFile(project, plan.taskId);
 
     // Source run = the most recent completed run on the task. The plan
     // doesn't carry runId directly (refinement may target the task without a

@@ -82,9 +82,9 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
   if (run.taskId) {
     try {
       const target = taskStatusFor(run.status);
-      const onMain = await readTaskFile(project.workdirPath, run.taskId);
+      const onMain = await readTaskFile(project, run.taskId);
       if (onMain && onMain.frontmatter.status !== target) {
-        const updated = await updateTaskStatus(project.workdirPath, run.taskId, target);
+        const updated = await updateTaskStatus(project, run.taskId, target);
         if (updated) {
           const committed = await commitAllChanges(
             project.workdirPath,
@@ -129,7 +129,7 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
       )
       .all();
     if (others.length === 0) {
-      const tasks = await listTasks(project.workdirPath);
+      const tasks = await listTasks(project);
       // Use `pickNextReadyTask` (not `tasks.find`) so auto-advance respects
       // the operator's starting point and doesn't wrap back to an earlier
       // task — the v0.9.4 ordering fix. Picks the next ready task with an

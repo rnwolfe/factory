@@ -218,7 +218,7 @@ export async function submitRun(
   let effectiveAgent = normalizeAgent(input.agent) ?? "claude-code";
   let agentResolvedFromInputOrTask = normalizeAgent(input.agent) !== null;
   if (input.taskId) {
-    const taskFile = await readTaskFile(project.workdirPath, input.taskId);
+    const taskFile = await readTaskFile(project, input.taskId);
     const raw = taskFile?.frontmatter.model;
     if (typeof raw === "string" && raw.trim().length > 0) effectiveModel = raw.trim();
     if (!normalizeAgent(input.agent)) {

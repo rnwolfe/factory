@@ -209,7 +209,7 @@ export async function executeRun(
     }
   };
 
-  const taskFile = row.taskId ? await readTaskFile(project.workdirPath, row.taskId) : null;
+  const taskFile = row.taskId ? await readTaskFile(project, row.taskId) : null;
   const taskBody = taskFile?.body ?? "";
   const taskTitle = taskFile?.frontmatter.title ?? null;
   const baseTaskBody =
@@ -504,7 +504,7 @@ export async function executeRun(
     if (row.taskId && finalStatus !== "deferred" && finalStatus !== "usage_capped") {
       try {
         const updated = await updateTaskStatus(
-          result.worktreePath,
+          { workdirPath: result.worktreePath },
           row.taskId,
           taskStatusFor(finalStatus),
         );

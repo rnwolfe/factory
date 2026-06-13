@@ -139,7 +139,7 @@ export async function instantiateTaskTemplate(
   };
   let created: { id: string };
   try {
-    created = await createTask(project.workdirPath, taskInput);
+    created = await createTask(project, taskInput);
   } catch (err) {
     throw new InstantiateTemplateError(
       "task_create_failed",

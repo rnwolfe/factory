@@ -160,7 +160,7 @@ export async function promoteToTask(ctx: PromoteContext): Promise<{
     "- [ ] (TBD)",
   ].join("\n");
 
-  const created = await createTask(project.workdirPath, {
+  const created = await createTask(project, {
     title,
     body,
     labels: ["feedback"],

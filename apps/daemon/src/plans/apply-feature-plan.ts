@@ -41,7 +41,7 @@ export async function applyFeaturePlanFreeze(
 
   const taskIds: string[] = [];
   for (const t of draft.tasks) {
-    const created = await createTask(project.workdirPath, {
+    const created = await createTask(project, {
       title: t.title || "Untitled",
       body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\nEmitted by feature plan ${planId.slice(0, 8)}: "${draft.goal}"\n`,
       estimate: t.estimate ?? "small",

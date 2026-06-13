@@ -146,12 +146,15 @@ export async function bootstrapProject(
     const initialTasks = input.payload.spec_stub?.initial_tasks ?? [];
     for (const t of initialTasks) {
       if (!t) continue;
-      const created = await createTask(workdirPath, {
-        title: t.title || "Untitled",
-        body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\n(agent-maintained)\n`,
-        estimate: t.estimate ?? "small",
-        priority: "med",
-      });
+      const created = await createTask(
+        { workdirPath },
+        {
+          title: t.title || "Untitled",
+          body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\n(agent-maintained)\n`,
+          estimate: t.estimate ?? "small",
+          priority: "med",
+        },
+      );
       taskIds.push(created.id);
     }
 

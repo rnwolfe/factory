@@ -421,7 +421,7 @@ export const auditsRouter = router({
           })
           .join("\n");
         const body = `## Notes\n\nCaptured from audit \`${audit.skillName}\`.\n\n${recommendation.taskBody}\n\n## Source findings\n\n${findingsContext}\n`;
-        const created = await createTask(project.workdirPath, {
+        const created = await createTask(project, {
           title: recommendation.taskTitle,
           body,
           labels: ["bug", "needs-refinement"],

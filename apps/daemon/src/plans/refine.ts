@@ -48,7 +48,7 @@ export async function applyRefinementFreeze(
     .get();
   if (!project) throw new Error(`project ${projectId} not found`);
 
-  const task = await readTaskFile(project.workdirPath, taskId);
+  const task = await readTaskFile(project, taskId);
   if (!task) throw new Error(`task ${taskId} not found in project`);
 
   const refinement = draft as RefinementDraft;
@@ -57,13 +57,13 @@ export async function applyRefinementFreeze(
 
   if (refinement.revisedAcceptance && refinement.revisedAcceptance.length > 0) {
     const newBody = rewriteAcceptanceSection(task.body, refinement.revisedAcceptance);
-    await updateTaskBody(project.workdirPath, taskId, newBody);
+    await updateTaskBody(project, taskId, newBody);
     rewroteAcceptance = true;
   }
 
   if (refinement.followups && refinement.followups.length > 0) {
     for (const f of refinement.followups) {
-      const created = await createTask(project.workdirPath, {
+      const created = await createTask(project, {
         title: f.title,
         body: `## Acceptance\n\n${renderAcceptanceBlock(null)}\n\n## Notes\n\nFollow-up emitted by refinement plan against ${taskId}.${refinement.feedback ? ` Operator note: ${refinement.feedback}` : ""}\n`,
         estimate: f.estimate,

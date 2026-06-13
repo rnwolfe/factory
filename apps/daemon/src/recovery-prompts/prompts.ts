@@ -85,7 +85,7 @@ export async function buildInterventionPrompt(
   // judge "done" against the same criteria.
   let taskBody: string | null = null;
   if (project && run?.taskId) {
-    const taskFile = await readTaskFile(project.workdirPath, run.taskId);
+    const taskFile = await readTaskFile(project, run.taskId);
     taskBody = taskFile?.body ?? null;
   }
 

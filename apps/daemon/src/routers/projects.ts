@@ -54,7 +54,7 @@ const tasksRouter = router({
         .where(eq(schema.projects.id, input.projectId))
         .get();
       if (!project) return [];
-      const tasks = await listTasks(project.workdirPath);
+      const tasks = await listTasks(project);
       return tasks.map((t) => t.frontmatter);
     }),
   get: protectedProcedure
@@ -66,7 +66,7 @@ const tasksRouter = router({
         .where(eq(schema.projects.id, input.projectId))
         .get();
       if (!project) return null;
-      const task = await readTaskFile(project.workdirPath, input.taskId);
+      const task = await readTaskFile(project, input.taskId);
       if (!task) return null;
       return { frontmatter: task.frontmatter, body: task.body };
     }),
@@ -85,7 +85,7 @@ const tasksRouter = router({
         .where(eq(schema.projects.id, input.projectId))
         .get();
       if (!project) throw new Error("project not found");
-      const updated = await updateTaskStatus(project.workdirPath, input.taskId, input.status);
+      const updated = await updateTaskStatus(project, input.taskId, input.status);
       if (!updated) throw new Error("task not found");
       // Commit on main so the next run's worktree starts clean. Without this,
       // operator-driven status flips dirty the project tree and the next
@@ -112,7 +112,7 @@ const tasksRouter = router({
         .where(eq(schema.projects.id, input.projectId))
         .get();
       if (!project) throw new Error("project not found");
-      const updated = await updateTaskBody(project.workdirPath, input.taskId, input.body);
+      const updated = await updateTaskBody(project, input.taskId, input.body);
       if (!updated) throw new Error("task not found");
       await commitAllChanges(
         project.workdirPath,
@@ -139,7 +139,7 @@ const tasksRouter = router({
         .where(eq(schema.projects.id, input.projectId))
         .get();
       if (!project) throw new Error("project not found");
-      const updated = await updateTaskModel(project.workdirPath, input.taskId, input.model);
+      const updated = await updateTaskModel(project, input.taskId, input.model);
       if (!updated) throw new Error("task not found");
       await commitAllChanges(
         project.workdirPath,
@@ -179,7 +179,7 @@ const tasksRouter = router({
       const body =
         input.body ??
         `## Acceptance\n\n${renderAcceptanceBlock(input.acceptance)}\n\n## Notes\n\n(operator-captured)\n`;
-      const created = await createTask(project.workdirPath, {
+      const created = await createTask(project, {
         title: input.title,
         body,
         labels: input.labels,
@@ -268,7 +268,7 @@ export const projectsRouter = router({
       reconciled = { ...project, githubRemote: liveRemote };
     }
 
-    const tasks = await listTasks(project.workdirPath);
+    const tasks = await listTasks(project);
     return { project: reconciled, tasks: tasks.map((t) => t.frontmatter) };
   }),
 
