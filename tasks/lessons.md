@@ -228,34 +228,40 @@ fixed element. Convert to a flex/grid layout where the element's position is
 structural and cannot escape. Correct-by-construction beats fighting WebKit's
 fixed-positioning quirks you can't reproduce off-device.
 
-## A deployed PWA fix that "doesn't take" → suspect the service-worker cache; instrument on-device before re-guessing
+## Installed iOS PWA: `100dvh` ≠ full screen — use `100lvh`; and instrument on-device before guessing
 
-Symptom: shipped a mobile bottom-nav height fix; the operator reported "still
-too tall / large gap" across *four* releases (v0.20.2 → v0.21.4). I kept
-adjusting CSS from screenshots and each change "did nothing."
+Symptom: a mobile bottom-nav fix that the operator reported as "still too tall /
+large gap on the bottom" across *seven* releases (v0.20.2 → v0.21.7). I kept
+adjusting the nav's own height/padding from phone screenshots; nothing helped.
 
-Root cause: two compounding things. (1) The installed iOS PWA's **service
-worker served stale cached CSS/JS** — pull-to-refresh does not reliably bust it,
-so the operator kept seeing the *old* oversized nav while each new build was
-actually correct. (2) I diagnosed from phone screenshots where `--color-bg`
-(5% L) and `--color-bg-1` (8% L) are visually indistinguishable, so I couldn't
-tell "tall nav box" from "gap below a short nav."
+Root cause (the real one): the responsive shell root was `h-[100dvh]`. In this
+**installed (standalone) iOS PWA, `dvh`/`svh`/`vh` all resolve to the
+status-bar-excluded height** — on-device the probe read `scr932 inner873
+dvh873 svh873 vh873 lvh932`. So `100dvh` = 873 on a 932px screen, and because
+the shell is top-anchored, the **59px shortfall surfaced as a strip of page
+background below the nav**. No amount of nav padding/height could fix it — the
+*container* didn't reach the screen bottom. Fix: root → **`h-[100lvh]`** (the
+only unit equal to the full physical screen here).
 
-What finally worked: a tiny **on-screen debug overlay** printing the real
-computed values — `window.innerHeight`, the `100dvh` root height,
-`env(safe-area-inset-bottom)` (via a probe div), the nav's `getBoundingClientRect`,
-and its **computed** `padding-bottom`. One screenshot
-(`win873 navH57 navBot873 padB8px gapBelow0`) proved the nav was already compact
-and flush — the fix was in, the cache was the problem.
+Why it took so long (the process failure, worse than the bug):
+- I diagnosed from screenshots where `--color-bg` (5% L) and `--color-bg-1`
+  (8% L) are indistinguishable, so I couldn't tell "tall nav" from "gap below
+  nav," and shipped ~4 blind CSS guesses.
+- My *first* instrument was wrong too: I measured `gapBelow = innerHeight -
+  nav.bottom`, but `innerHeight` is *itself* the short value (873), so it read
+  `0` and hid the strip. I also wrongly blamed the service-worker cache — that
+  SW does not even cache assets, and the daemon already serves index.html
+  `no-cache` + hashed assets `immutable`, so there was never a staleness bug.
 
 Rules for next time:
-- When a *deployed* visual change doesn't appear, suspect the **service-worker
-  cache first** — have the operator **fully quit + relaunch** the standalone PWA,
-  not just pull-to-refresh. Don't keep changing code against a screen that may be
-  stale.
-- After 1–2 misses on a layout bug you can't reproduce, **stop guessing and
-  instrument**: ship a temporary overlay that prints computed geometry and read
-  ground truth. It resolved in one shot what 3 blind CSS guesses didn't.
-- `min(env(safe-area-inset-bottom), 0.5rem)` is valid + works on iOS 15+ to cap
-  home-indicator clearance; `100dvh` in an installed PWA == full screen
-  (root == innerHeight), so a bottom flex-child nav does reach the viewport edge.
+- **iOS standalone PWA + a full-height shell: use `100lvh`, not `100dvh`/`100vh`.**
+  `dvh`/`svh`/`vh` can resolve to a safe-area-excluded height and leave a
+  bottom strip; `lvh` is the full screen. (Confirmed via an on-device unit probe.)
+- **Instrument on-device, comprehensively, the moment you can't reproduce** — and
+  measure against the *physical screen* (`window.screen.height`) and **all**
+  viewport units (`100vh/dvh/svh/lvh` via probe divs), not just `innerHeight`
+  (which can be the deceptive short value). One legible probe screenshot ended
+  what 4 guesses + 2 half-probes could not.
+- After 1–2 misses, STOP shipping fixes; the cost of a wrong guess to a waiting
+  operator dwarfs the cost of one instrumented release. (This violated the
+  "stop and re-plan when sideways" rule for far too long.)
