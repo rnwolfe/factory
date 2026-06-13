@@ -1,7 +1,7 @@
 {
   "name": "@factory/cli",
   "private": true,
-  "version": "0.21.5",
+  "version": "0.21.6",
   "type": "module",
   "main": "./src/index.ts",
   "bin": {
