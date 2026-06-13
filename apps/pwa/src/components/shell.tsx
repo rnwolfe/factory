@@ -58,7 +58,7 @@ export function Shell({ children }: { children: ReactNode }) {
           className="md:hidden shrink-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"
           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
-          <div className="grid grid-cols-4 h-14">
+          <div className="grid grid-cols-4 h-12">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
