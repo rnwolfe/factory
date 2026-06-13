@@ -4,6 +4,13 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.21.2 — 2026-06-13
+
+### Fixed
+- **Mobile bottom-nav dead space.** Capped the home-indicator clearance
+  (`env(safe-area-inset-bottom)`) at `0.5rem` — the full inset was reserving a
+  large empty band below the icons, so the bar read oversized. Icons unchanged.
+
 ## v0.21.1 — 2026-06-13
 
 ### Fixed
