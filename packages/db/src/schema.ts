@@ -17,6 +17,7 @@ export const decisionKindEnum = [
   "blocked_run",
   "merge_failure",
   "agent_decision",
+  "issue_intake",
 ] as const;
 export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
 export const taskBackendEnum = ["file", "github-issues"] as const;

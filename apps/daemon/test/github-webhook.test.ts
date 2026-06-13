@@ -78,9 +78,15 @@ describe("classifyWebhook gating", () => {
   });
 
   test("flags an externally-opened issue for intake", () => {
-    const r = classifyWebhook("issues", issuePayload("rnwolfe/integrated"), PROJECTS);
+    const r = classifyWebhook(
+      "issues",
+      issuePayload("rnwolfe/integrated", {
+        issue: { number: 9, title: "Bug", user: { login: "alice" } },
+      }),
+      PROJECTS,
+    );
     expect(r.status).toBe("processed");
-    expect(r.reason).toContain("intake pending");
+    expect(r.intake).toEqual({ number: 9, title: "Bug", author: "alice" });
   });
 
   test("does not flag a factory-authored opened issue for intake", () => {

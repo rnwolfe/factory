@@ -322,6 +322,21 @@ export class GithubIssuesStore implements TaskStore {
     return issueToTaskFile(this.owner, this.repo, issue);
   }
 
+  /**
+   * Adopt an externally-authored issue as a Factory task: ensure the `factory`
+   * label, a `status:ready` label, and a factory:task frontmatter block. Used
+   * by issue-intake approval — the issue already exists, so this PATCHes it
+   * into Factory's shape rather than creating a new one.
+   */
+  async adopt(taskId: string): Promise<TaskFile | null> {
+    const existing = await this.read(taskId);
+    if (!existing) return null;
+    const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
+    meta.status = meta.status ?? "ready";
+    const labels = await this.labelsWithStatus(taskId, "ready");
+    return this.patch(taskId, { body: renderTaskIssueBody(meta, body), state: "open", labels });
+  }
+
   /** Fetch the issue's comment thread (chronological, paginated). */
   async listComments(taskId: string): Promise<IssueComment[]> {
     const headers = await this.headers();
@@ -462,4 +477,34 @@ export async function postIssueComment(
   } catch {
     return false;
   }
+}
+
+/**
+ * Adopt an externally-authored issue as a Factory task (issue-intake approval).
+ * Returns the resulting task, or null when the project isn't github-issues
+ * backed / the App isn't configured / the issue is gone.
+ */
+export async function adoptIssue(
+  config: Pick<FactoryConfig, "githubApp">,
+  project: {
+    taskBackend?: string | null;
+    githubRemote?: string | null;
+    githubInstallationId?: number | null;
+  },
+  taskId: string,
+  fetchFn: FetchFn = globalThis.fetch,
+): Promise<TaskFile | null> {
+  if (project.taskBackend !== "github-issues" || !project.githubRemote) return null;
+  const client = githubAppClientFromConfig(config, fetchFn);
+  if (!client) return null;
+  const repo = parseGithubRepo(project.githubRemote);
+  if (!repo) return null;
+  const store = new GithubIssuesStore(
+    client,
+    repo.owner,
+    repo.repo,
+    project.githubInstallationId ?? null,
+    fetchFn,
+  );
+  return store.adopt(taskId);
 }

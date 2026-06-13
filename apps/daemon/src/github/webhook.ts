@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Db, schema } from "@factory/db";
+import { createId } from "@paralleldrive/cuid2";
 import type { FactoryConfig } from "../config.ts";
+import type { EventBus } from "../events.ts";
 import { parseGithubRepo } from "./app-auth.ts";
 
 /**
@@ -31,6 +33,8 @@ export interface WebhookResult {
   status: "ignored" | "processed";
   reason: string;
   projectId?: string;
+  /** Present when an externally-authored issue should be offered for intake. */
+  intake?: { number: number; title: string; author: string };
 }
 
 /** Timing-safe verification of the `X-Hub-Signature-256` header. */
@@ -88,24 +92,41 @@ export function classifyWebhook(
     const factoryAuthored = (payload.issue?.labels ?? []).some(
       (l) => (typeof l === "string" ? l : l.name) === FACTORY_LABEL,
     );
+    if (factoryAuthored) {
+      return {
+        status: "processed",
+        reason: "factory-authored issue opened",
+        projectId: project.id,
+      };
+    }
     return {
       status: "processed",
-      reason: factoryAuthored
-        ? "factory-authored issue opened"
-        : `external issue #${payload.issue?.number} — intake pending`,
+      reason: `external issue #${payload.issue?.number} — intake`,
       projectId: project.id,
+      intake: {
+        number: payload.issue?.number ?? 0,
+        title: payload.issue?.title ?? "(untitled)",
+        author: payload.issue?.user?.login ?? payload.sender?.login ?? "unknown",
+      },
     };
   }
 
   return { status: "processed", reason: `${event}.${payload.action ?? ""}`, projectId: project.id };
 }
 
-/** Fetch the project set and classify (thin DB wrapper over `classifyWebhook`). */
+/**
+ * Fetch the project set, classify, and perform the side effect: an
+ * externally-opened issue on an integrated repo becomes an `issue_intake`
+ * decision in the inbox (operator approves → adopt as a task; dismiss →
+ * ignore). Preserves the inbox-as-only-attention-sink contract — external
+ * input never silently becomes runnable work.
+ */
 export async function handleGithubWebhook(
-  db: Db,
+  deps: { db: Db; events: EventBus },
   event: string,
   payload: GithubWebhookPayload,
 ): Promise<WebhookResult> {
+  const { db, events } = deps;
   const projects = await db
     .select({
       id: schema.projects.id,
@@ -114,7 +135,32 @@ export async function handleGithubWebhook(
     })
     .from(schema.projects)
     .all();
-  return classifyWebhook(event, payload, projects);
+  const result = classifyWebhook(event, payload, projects);
+
+  if (result.status === "processed" && result.intake && result.projectId) {
+    const decisionId = createId();
+    await db.insert(schema.decisions).values({
+      id: decisionId,
+      kind: "issue_intake",
+      projectId: result.projectId,
+      outcome: "intake",
+      payload: {
+        number: result.intake.number,
+        title: result.intake.title,
+        author: result.intake.author,
+      },
+      status: "pending",
+      createdAt: Date.now(),
+    });
+    events.publish({
+      channel: "inbox",
+      kind: "decision_created",
+      decisionId,
+      projectId: result.projectId,
+    });
+  }
+
+  return result;
 }
 
 /**
@@ -126,6 +172,7 @@ export async function githubWebhookRoute(
   req: Request,
   config: FactoryConfig,
   db: Db,
+  events: EventBus,
 ): Promise<Response> {
   const secret = config.githubApp?.webhookSecret;
   if (!secret) return new Response("github webhook not configured", { status: 503 });
@@ -140,7 +187,7 @@ export async function githubWebhookRoute(
   } catch {
     return new Response("bad json", { status: 400 });
   }
-  const result = await handleGithubWebhook(db, event, payload);
+  const result = await handleGithubWebhook({ db, events }, event, payload);
   console.log(`[webhook] ${event}.${payload.action ?? ""} → ${result.status}: ${result.reason}`);
   return Response.json({ ok: true, ...result }, { status: 200 });
 }

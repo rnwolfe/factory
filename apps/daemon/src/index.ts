@@ -236,7 +236,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
         // Gates every delivery on a github-issues-backed project for the repo;
         // unmatched repos (the App is installed on all of them) are no-ops.
         if (url.pathname === "/webhooks/github" && req.method === "POST") {
-          return githubWebhookRoute(req, config, db);
+          return githubWebhookRoute(req, config, db, events);
         }
 
         // Health endpoint bypasses tRPC for ops checks (systemctl status,

@@ -326,6 +326,41 @@ describe("GithubIssuesStore.listComments", () => {
   });
 });
 
+describe("GithubIssuesStore.adopt", () => {
+  test("adds factory + status:ready labels and frontmatter to an external issue", async () => {
+    const issue = {
+      number: 21,
+      title: "Bug report",
+      body: "Something broke",
+      state: "open",
+      state_reason: null as string | null,
+      labels: [{ name: "bug" }] as Array<{ name: string }>,
+    };
+    let patched: Record<string, unknown> | undefined;
+    const store = makeStore(async (url, init) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (init?.method === "PATCH") {
+        patched = JSON.parse(String(init.body));
+        return json({
+          ...issue,
+          ...patched,
+          labels: (patched?.labels as string[]).map((name) => ({ name })),
+        });
+      }
+      if (u.endsWith("/issues/21")) return json(issue);
+      throw new Error(`unexpected ${u}`);
+    });
+    const adopted = await store.adopt("21");
+    expect(patched?.labels).toContain("factory");
+    expect(patched?.labels).toContain("status:ready");
+    expect(patched?.labels).toContain("bug"); // pre-existing label preserved
+    expect(String(patched?.body)).toContain("status: ready");
+    expect(adopted?.frontmatter.status).toBe("ready");
+  });
+});
+
 describe("postIssueComment", () => {
   test("no-op (no network) for file-backed projects", async () => {
     let called = false;

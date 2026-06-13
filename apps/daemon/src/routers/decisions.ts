@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
+import { adoptIssue } from "../projects/github-task-store.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
@@ -373,6 +374,27 @@ export const decisionsRouter = router({
             planKind: "project_spec",
           });
         }
+      }
+
+      if (input.action === "approve" && decision.kind === "issue_intake") {
+        // Adopt the externally-authored issue as a Factory task: add the
+        // factory + status:ready labels and frontmatter so it joins the
+        // project's task set. Dismiss just leaves the issue untracked.
+        if (!decision.projectId) throw new Error("issue_intake decision missing projectId");
+        const project = await ctx.db
+          .select()
+          .from(schema.projects)
+          .where(eq(schema.projects.id, decision.projectId))
+          .get();
+        if (!project) throw new Error("project not found");
+        const payload = decision.payload as { number: number };
+        const adopted = await adoptIssue(ctx.config, project, String(payload.number));
+        if (!adopted) {
+          throw new Error(
+            `could not adopt issue #${payload.number} — App unconfigured or issue missing`,
+          );
+        }
+        projectId = project.id;
       }
 
       const now = Date.now();
