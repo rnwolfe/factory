@@ -66,7 +66,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="h-[100dvh] flex overflow-hidden">
-      <div className="fixed top-12 inset-x-0 z-[60] bg-black/95 text-[8.5px] leading-[1.3] text-[#5f5] mono px-1 py-0.5 text-center pointer-events-none break-all">
+      <div className="fixed top-1/4 inset-x-3 z-[60] bg-black text-[14px] leading-relaxed text-[#5f5] mono p-3 text-center rounded-lg border border-[#5f5] pointer-events-none break-words">
         {dbg}
       </div>
       <Sidebar inboxCount={inboxCount} />
