@@ -227,3 +227,35 @@ can't find a transformed/contained ancestor in the source, stop patching the
 fixed element. Convert to a flex/grid layout where the element's position is
 structural and cannot escape. Correct-by-construction beats fighting WebKit's
 fixed-positioning quirks you can't reproduce off-device.
+
+## A deployed PWA fix that "doesn't take" → suspect the service-worker cache; instrument on-device before re-guessing
+
+Symptom: shipped a mobile bottom-nav height fix; the operator reported "still
+too tall / large gap" across *four* releases (v0.20.2 → v0.21.4). I kept
+adjusting CSS from screenshots and each change "did nothing."
+
+Root cause: two compounding things. (1) The installed iOS PWA's **service
+worker served stale cached CSS/JS** — pull-to-refresh does not reliably bust it,
+so the operator kept seeing the *old* oversized nav while each new build was
+actually correct. (2) I diagnosed from phone screenshots where `--color-bg`
+(5% L) and `--color-bg-1` (8% L) are visually indistinguishable, so I couldn't
+tell "tall nav box" from "gap below a short nav."
+
+What finally worked: a tiny **on-screen debug overlay** printing the real
+computed values — `window.innerHeight`, the `100dvh` root height,
+`env(safe-area-inset-bottom)` (via a probe div), the nav's `getBoundingClientRect`,
+and its **computed** `padding-bottom`. One screenshot
+(`win873 navH57 navBot873 padB8px gapBelow0`) proved the nav was already compact
+and flush — the fix was in, the cache was the problem.
+
+Rules for next time:
+- When a *deployed* visual change doesn't appear, suspect the **service-worker
+  cache first** — have the operator **fully quit + relaunch** the standalone PWA,
+  not just pull-to-refresh. Don't keep changing code against a screen that may be
+  stale.
+- After 1–2 misses on a layout bug you can't reproduce, **stop guessing and
+  instrument**: ship a temporary overlay that prints computed geometry and read
+  ground truth. It resolved in one shot what 3 blind CSS guesses didn't.
+- `min(env(safe-area-inset-bottom), 0.5rem)` is valid + works on iOS 15+ to cap
+  home-indicator clearance; `100dvh` in an installed PWA == full screen
+  (root == innerHeight), so a bottom flex-child nav does reach the viewport edge.
