@@ -2,7 +2,7 @@ import { schema } from "@factory/db";
 import { mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
@@ -134,10 +134,16 @@ interface AgentDecisionPayloadShape {
 
 export const decisionsRouter = router({
   inbox: protectedProcedure.query(async ({ ctx }) => {
+    const now = Date.now();
     return ctx.db
       .select()
       .from(schema.decisions)
-      .where(eq(schema.decisions.status, "pending"))
+      .where(
+        and(
+          eq(schema.decisions.status, "pending"),
+          or(isNull(schema.decisions.snoozedUntil), lte(schema.decisions.snoozedUntil, now)),
+        ),
+      )
       .orderBy(desc(schema.decisions.createdAt))
       .all();
   }),
