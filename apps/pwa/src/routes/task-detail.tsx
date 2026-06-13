@@ -363,6 +363,8 @@ export function TaskDetail() {
         </div>
       </section>
 
+      <TaskThread projectId={id} taskId={taskId} />
+
       <section>
         <div className="flex items-center gap-2 px-1 mb-1.5">
           <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
@@ -400,6 +402,93 @@ export function TaskDetail() {
         </div>
       </section>
     </div>
+  );
+}
+
+const WRITE_ASSOC = new Set(["OWNER", "COLLABORATOR", "MEMBER"]);
+
+/**
+ * Issue comment thread for a github-backed task: read the thread + reply as the
+ * operator (their PAT). Renders nothing for file-backed tasks. Full-width on
+ * mobile, capped with the page on desktop.
+ */
+function TaskThread({ projectId, taskId }: { projectId: string; taskId: string }) {
+  const qc = useQueryClient();
+  const thread = useQuery({
+    queryKey: ["projects.tasks.thread", projectId, taskId],
+    queryFn: () => trpc.projects.tasks.thread.query({ projectId, taskId }),
+    enabled: projectId.length > 0 && taskId.length > 0,
+    refetchInterval: 8_000,
+  });
+  const [reply, setReply] = useState("");
+  const post = useMutation({
+    mutationFn: (body: string) => trpc.projects.tasks.reply.mutate({ projectId, taskId, body }),
+    onSuccess: () => {
+      setReply("");
+      qc.invalidateQueries({ queryKey: ["projects.tasks.thread", projectId, taskId] });
+    },
+  });
+
+  // Only github-backed tasks have an issue thread.
+  if (!thread.data || thread.data.backend !== "github-issues") return null;
+  const comments = thread.data.comments;
+
+  return (
+    <section>
+      <div className="flex items-center gap-2 px-1 mb-1.5">
+        <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          discussion
+        </span>
+        <div className="hairline flex-1" />
+        <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{comments.length}</span>
+      </div>
+      <div className="surface divide-y divide-[var(--color-line)]">
+        {comments.length === 0 ? (
+          <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
+            no comments on the issue yet.
+          </div>
+        ) : (
+          comments.map((c) => (
+            <div key={c.id} className="px-3 py-2.5">
+              <div className="flex items-center gap-2 mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-fg-3)]">
+                <span className="text-[var(--color-fg-2)] normal-case tracking-normal">
+                  @{c.author}
+                </span>
+                {WRITE_ASSOC.has(c.authorAssociation) ? <span className="chip">write</span> : null}
+              </div>
+              <div className="text-[13px] text-[var(--color-fg-1)] leading-relaxed mt-1 whitespace-pre-wrap break-words">
+                {c.body}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="surface-2 mt-2 p-2">
+        <textarea
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
+          placeholder="reply on the issue (posts to GitHub as you)…"
+          className="w-full min-h-[64px] bg-transparent text-[13px] text-[var(--color-fg-1)] outline-none resize-y"
+          disabled={post.isPending}
+        />
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">authored as you</span>
+          <button
+            type="button"
+            className="btn btn-primary !h-7 !px-3 text-[11px]"
+            disabled={post.isPending || reply.trim().length === 0}
+            onClick={() => post.mutate(reply.trim())}
+          >
+            {post.isPending ? "posting…" : "reply"}
+          </button>
+        </div>
+        {post.isError ? (
+          <div className="mt-1 text-xs text-[var(--color-verdict-trashed)]">
+            {(post.error as Error).message}
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

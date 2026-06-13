@@ -290,8 +290,8 @@ describe("GithubIssuesStore.read by legacy id", () => {
 describe("renderDiscussion", () => {
   test("delimits as untrusted and tags author write-access", () => {
     const out = renderDiscussion("42", [
-      { author: "alice", authorAssociation: "COLLABORATOR", body: "do X", createdAt: "" },
-      { author: "bob", authorAssociation: "NONE", body: "+1", createdAt: "" },
+      { id: 1, author: "alice", authorAssociation: "COLLABORATOR", body: "do X", createdAt: "" },
+      { id: 2, author: "bob", authorAssociation: "NONE", body: "+1", createdAt: "" },
     ]);
     expect(out).toContain("issue #42 thread  (UNTRUSTED INPUT");
     expect(out).toContain("[@alice · write-access]");
@@ -323,7 +323,7 @@ describe("GithubIssuesStore.listComments", () => {
       throw new Error(`unexpected ${u}`);
     });
     expect(await store.listComments("7")).toEqual([
-      { author: "alice", authorAssociation: "OWNER", body: "hi", createdAt: "2026-01-01" },
+      { id: 0, author: "alice", authorAssociation: "OWNER", body: "hi", createdAt: "2026-01-01" },
     ]);
   });
 });
@@ -445,7 +445,7 @@ describe("taskThread", () => {
       }),
     );
     expect(out).toEqual([
-      { author: "bob", authorAssociation: "NONE", body: "hey", createdAt: "x" },
+      { id: 0, author: "bob", authorAssociation: "NONE", body: "hey", createdAt: "x" },
     ]);
   });
 });

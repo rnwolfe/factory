@@ -348,6 +348,7 @@ export class GithubIssuesStore implements TaskStore {
       );
       if (!res.ok) await this.fail(res, `list comments #${taskId}`);
       const comments = (await res.json()) as Array<{
+        id?: number;
         user?: { login?: string } | null;
         author_association?: string;
         body?: string;
@@ -355,6 +356,7 @@ export class GithubIssuesStore implements TaskStore {
       }>;
       for (const c of comments) {
         out.push({
+          id: c.id ?? 0,
           author: c.user?.login ?? "unknown",
           authorAssociation: c.author_association ?? "NONE",
           body: c.body ?? "",
@@ -379,6 +381,7 @@ export class GithubIssuesStore implements TaskStore {
 }
 
 export interface IssueComment {
+  id: number;
   author: string;
   authorAssociation: string;
   body: string;

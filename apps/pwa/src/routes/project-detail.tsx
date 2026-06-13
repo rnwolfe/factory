@@ -109,6 +109,12 @@ export function ProjectDetail() {
     staleTime: 60_000,
   });
 
+  const githubAppStatus = useQuery({
+    queryKey: ["projects.hasGithubApp"],
+    queryFn: () => trpc.projects.hasGithubApp.query() as unknown as Promise<{ has: boolean }>,
+    staleTime: 60_000,
+  });
+
   const runs = useQuery({
     queryKey: ["runs.list", id],
     queryFn: () => trpc.runs.list.query({ projectId: id }) as unknown as Promise<RunRow[]>,
@@ -201,6 +207,13 @@ export function ProjectDetail() {
     },
   });
 
+  const enableGithubIssues = useMutation({
+    mutationFn: () => trpc.projects.enableGithubIssues.mutate({ id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
   if (project.isLoading) return <ProjectSkeleton />;
   if (!project.data) {
     return (
@@ -227,6 +240,7 @@ export function ProjectDetail() {
       model: string | null;
       agent: AgentName | null;
       githubRemote: string | null;
+      taskBackend: "file" | "github-issues";
     };
     tasks: Array<{
       id: string;
@@ -387,7 +401,37 @@ export function ProjectDetail() {
               <Upload size={12} /> publish to github
             </button>
           ) : null}
+          {p.githubRemote && githubAppStatus.data?.has ? (
+            p.taskBackend === "github-issues" ? (
+              <span className="chip" title="this project's tasks are GitHub Issues">
+                tasks · github issues
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Switch this project's tasks to GitHub Issues? Existing task files are backfilled as issues and archived. This can't be auto-undone.",
+                    )
+                  ) {
+                    enableGithubIssues.mutate();
+                  }
+                }}
+                disabled={enableGithubIssues.isPending}
+                className="btn btn-ghost text-[12px]"
+                title="back tasks with GitHub Issues (backfills existing task files, then archives them)"
+              >
+                {enableGithubIssues.isPending ? "migrating…" : "use github issues"}
+              </button>
+            )
+          ) : null}
         </div>
+        {enableGithubIssues.isError ? (
+          <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+            {(enableGithubIssues.error as Error).message}
+          </div>
+        ) : null}
 
         <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--color-fg-2)] cursor-pointer select-none">
           <input
