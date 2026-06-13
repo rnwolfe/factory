@@ -20,7 +20,7 @@ import type { EventBus } from "../events.ts";
 import { resolveBotGitAuthor } from "../github/app-auth.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
-import { fetchIssueDiscussion } from "../projects/github-task-store.ts";
+import { fetchIssueDiscussion, postIssueComment } from "../projects/github-task-store.ts";
 import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
 import {
@@ -655,6 +655,7 @@ export async function executeRun(
     // work is invisible from the project root and auto-advance can't build
     // on prior tasks.
     let mergeFailureNote: string | null = null;
+    let mergeSha: string | null = null;
     if (finalStatus === "completed") {
       const taskId = row.taskId ?? "ad-hoc";
       const merge = await mergeIntoMain({
@@ -664,6 +665,7 @@ export async function executeRun(
         author: botAuthor ?? config.gitAuthor,
       });
       if (merge.ok) {
+        mergeSha = merge.sha;
         if (!merge.alreadyMerged) {
           events.publish({
             channel: "events",
@@ -801,6 +803,26 @@ export async function executeRun(
     // the next task would start from a main that's missing this run's work,
     // so any dependency between tasks would silently break. The held
     // advance fires from the same helper once the operator resolves.
+    // Writeback: report the run outcome into the issue thread (github-backed
+    // tasks), closing the loop with the same thread the agent read from. Self-
+    // gates to github backends (no-op for file-backed) and is best-effort.
+    if (
+      row.taskId &&
+      (finalStatus === "completed" || finalStatus === "blocked" || finalStatus === "failed")
+    ) {
+      const icon = finalStatus === "completed" ? "✅" : finalStatus === "blocked" ? "⏸️" : "❌";
+      const lines = [`${icon} **Run ${finalStatus}** \`${runId.slice(0, 8)}\``, "", summary.trim()];
+      if (mergeSha) lines.push("", `Merged to \`main\`: \`${mergeSha.slice(0, 10)}\``);
+      if (qualityReport && qualityReport.overall !== "skipped") {
+        lines.push("", `Quality: **${qualityReport.overall}**`);
+      }
+      if (blockerQuestions.length > 0) {
+        lines.push("", "**Questions:**", ...blockerQuestions.map((q) => `- ${q}`));
+      }
+      lines.push("", "<!-- factory:run -->");
+      await postIssueComment(config, project, row.taskId, lines.join("\n"));
+    }
+
     if (finalStatus === "completed" && !mergeFailureNote) {
       await applyPostMergeRunOutcome({ config, db, events, runs, pool }, runId);
     }

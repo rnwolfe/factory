@@ -427,3 +427,39 @@ export async function fetchIssueDiscussion(
     return "";
   }
 }
+
+/**
+ * Post a machine comment to a task's issue thread (writeback). No-op for
+ * file-backed projects or when the App isn't configured; best-effort — returns
+ * false on any error so it never breaks the calling run.
+ */
+export async function postIssueComment(
+  config: Pick<FactoryConfig, "githubApp">,
+  project: {
+    taskBackend?: string | null;
+    githubRemote?: string | null;
+    githubInstallationId?: number | null;
+  },
+  taskId: string,
+  body: string,
+  fetchFn: FetchFn = globalThis.fetch,
+): Promise<boolean> {
+  if (project.taskBackend !== "github-issues" || !project.githubRemote) return false;
+  const client = githubAppClientFromConfig(config, fetchFn);
+  if (!client) return false;
+  const repo = parseGithubRepo(project.githubRemote);
+  if (!repo) return false;
+  const store = new GithubIssuesStore(
+    client,
+    repo.owner,
+    repo.repo,
+    project.githubInstallationId ?? null,
+    fetchFn,
+  );
+  try {
+    await store.postComment(taskId, body);
+    return true;
+  } catch {
+    return false;
+  }
+}

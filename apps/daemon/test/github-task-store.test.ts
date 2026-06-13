@@ -4,6 +4,7 @@ import { GithubAppClient } from "../src/github/app-auth.ts";
 import {
   GithubIssuesStore,
   parseTaskIssueBody,
+  postIssueComment,
   renderDiscussion,
   renderTaskIssueBody,
   statusToGithub,
@@ -15,6 +16,7 @@ const { privateKey } = generateKeyPairSync("rsa", {
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
 });
 const creds = { appId: "1", slug: "wolfefactory", privateKey };
+const appConfig = { githubApp: { ...creds, webhookSecret: null } };
 
 type FakeFetch = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
 const asFetch = (f: FakeFetch) => f as unknown as typeof fetch;
@@ -321,5 +323,49 @@ describe("GithubIssuesStore.listComments", () => {
     expect(await store.listComments("7")).toEqual([
       { author: "alice", authorAssociation: "OWNER", body: "hi", createdAt: "2026-01-01" },
     ]);
+  });
+});
+
+describe("postIssueComment", () => {
+  test("no-op (no network) for file-backed projects", async () => {
+    let called = false;
+    const ok = await postIssueComment(
+      appConfig,
+      { taskBackend: "file" },
+      "1",
+      "hi",
+      asFetch(async () => {
+        called = true;
+        return json({});
+      }),
+    );
+    expect(ok).toBe(false);
+    expect(called).toBe(false);
+  });
+
+  test("posts a comment for github-backed projects", async () => {
+    let posted: { body: string } | undefined;
+    const ok = await postIssueComment(
+      appConfig,
+      {
+        taskBackend: "github-issues",
+        githubRemote: "https://github.com/o/r.git",
+        githubInstallationId: 42,
+      },
+      "7",
+      "the comment",
+      asFetch(async (url, init) => {
+        const u = String(url);
+        const t = tokenRoute(u);
+        if (t) return t;
+        if (init?.method === "POST" && u.includes("/issues/7/comments")) {
+          posted = JSON.parse(String(init.body));
+          return json({}, 201);
+        }
+        throw new Error(`unexpected ${u}`);
+      }),
+    );
+    expect(ok).toBe(true);
+    expect(posted?.body).toBe("the comment");
   });
 });
