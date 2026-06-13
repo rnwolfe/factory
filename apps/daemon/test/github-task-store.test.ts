@@ -197,3 +197,87 @@ describe("GithubIssuesStore.updateStatus", () => {
     expect(updated?.frontmatter.status).toBe("done");
   });
 });
+
+describe("GithubIssuesStore.importTask", () => {
+  test("backfills a done task: creates the issue then closes it, carrying legacy_id", async () => {
+    let createBody: { title: string; body: string; labels: string[] } | undefined;
+    let patched: Record<string, unknown> | undefined;
+    const store = makeStore(async (url, init) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (init?.method === "POST" && u.endsWith("/issues")) {
+        createBody = JSON.parse(String(init.body));
+        return json({
+          number: 12,
+          title: createBody?.title,
+          body: createBody?.body,
+          state: "open",
+          state_reason: null,
+          labels: (createBody?.labels ?? []).map((name) => ({ name })),
+        });
+      }
+      if (init?.method === "PATCH") {
+        patched = JSON.parse(String(init.body));
+        return json({
+          number: 12,
+          title: createBody?.title,
+          state: "closed",
+          state_reason: "completed",
+          body: patched?.body,
+          labels: (patched?.labels as string[]).map((name) => ({ name })),
+        });
+      }
+      if (u.endsWith("/issues/12")) {
+        return json({
+          number: 12,
+          title: createBody?.title,
+          body: createBody?.body,
+          state: "open",
+          state_reason: null,
+          labels: (createBody?.labels ?? []).map((name) => ({ name })),
+        });
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+
+    const result = await store.importTask({
+      id: "task-007",
+      filePath: "x",
+      frontmatter: { id: "task-007", title: "Old task", status: "done", priority: "high" },
+      body: "legacy body",
+    });
+    expect(createBody?.body).toContain("legacy_id: task-007");
+    expect(createBody?.labels).toContain("factory");
+    expect(createBody?.labels).not.toContain("status:done"); // closed → no status label
+    expect(patched?.state).toBe("closed");
+    expect(result.id).toBe("12");
+    expect(result.frontmatter.legacy_id).toBe("task-007");
+  });
+});
+
+describe("GithubIssuesStore.read by legacy id", () => {
+  test("resolves a task-NNN id via legacy_id by scanning issues", async () => {
+    const store = makeStore(async (url) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (u.includes("/issues?")) {
+        return json([
+          {
+            number: 4,
+            title: "X",
+            body: renderTaskIssueBody({ status: "ready", legacy_id: "task-007" }, "b"),
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "factory" }],
+          },
+        ]);
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+    const task = await store.read("task-007");
+    expect(task?.id).toBe("4");
+    expect(task?.frontmatter.legacy_id).toBe("task-007");
+  });
+});

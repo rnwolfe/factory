@@ -172,6 +172,13 @@ export class GithubIssuesStore implements TaskStore {
   }
 
   async read(taskId: string): Promise<TaskFile | null> {
+    // Numeric ids are issue numbers — direct fetch. Non-numeric ids are legacy
+    // file ids (e.g. `task-007`) carried as `legacy_id` on backfilled issues;
+    // resolve those by scanning so historical run.taskId references keep working.
+    if (!/^\d+$/.test(taskId)) {
+      const all = await this.list();
+      return all.find((t) => t.frontmatter.legacy_id === taskId) ?? null;
+    }
     const headers = await this.headers();
     const res = await this.fetchFn(`${this.base()}/issues/${taskId}`, { headers });
     if (res.status === 404) return null;
@@ -179,6 +186,48 @@ export class GithubIssuesStore implements TaskStore {
     const issue = (await res.json()) as IssueApi;
     if (issue.pull_request) return null;
     return issueToTaskFile(this.owner, this.repo, issue);
+  }
+
+  /**
+   * Backfill an existing file task as an issue, preserving its old id as
+   * `legacy_id` and its status (closing the issue for done/dropped). Used by
+   * the file → github-issues migration.
+   */
+  async importTask(file: TaskFile): Promise<TaskFile> {
+    const fm = file.frontmatter;
+    const meta: IssueMeta = {
+      status: fm.status,
+      priority: fm.priority,
+      estimate: fm.estimate,
+      model: fm.model,
+      agent: fm.agent,
+      parent: fm.parent,
+      legacy_id: fm.id,
+    };
+    const { state } = statusToGithub(fm.status);
+    const headers = await this.headers();
+    const labels = [
+      FACTORY_LABEL,
+      ...(state === "open" ? [`status:${fm.status}`] : []),
+      ...(fm.labels ?? []),
+    ];
+    const res = await this.fetchFn(`${this.base()}/issues`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        title: fm.title,
+        body: renderTaskIssueBody(meta, file.body),
+        labels,
+      }),
+    });
+    if (!res.ok) await this.fail(res, "import task issue");
+    const issue = (await res.json()) as IssueApi;
+    let created = issueToTaskFile(this.owner, this.repo, issue);
+    if (state === "closed") {
+      const closed = await this.updateStatus(created.id, fm.status);
+      if (closed) created = closed;
+    }
+    return created;
   }
 
   async create(input: CreateTaskInput): Promise<TaskFile> {

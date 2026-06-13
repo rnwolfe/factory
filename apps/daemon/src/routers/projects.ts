@@ -4,6 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { enableGithubIssuesBackend } from "../projects/enable-github-backend.ts";
 import { createRepo, GithubError, pushToNewRemote } from "../projects/github.ts";
 import {
   ImportError,
@@ -631,6 +632,23 @@ export const projectsRouter = router({
   hasGithubToken: protectedProcedure.query(async ({ ctx }) => {
     return { has: Boolean(ctx.config.githubToken) };
   }),
+
+  /** Whether the Factory GitHub App is configured (gates the issue backend). */
+  hasGithubApp: protectedProcedure.query(async ({ ctx }) => {
+    return { has: ctx.config.githubApp !== null };
+  }),
+
+  /**
+   * Flip a project to the GitHub Issues task backend (ADR-007 Phase 2): backfill
+   * existing file tasks as issues, archive the local files, record the backend.
+   * Refuses when the App is unconfigured, the project has no GitHub remote, or
+   * the repo already carries Factory-labeled issues.
+   */
+  enableGithubIssues: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return enableGithubIssuesBackend({ db: ctx.db, config: ctx.config }, input.id);
+    }),
 
   /**
    * Create a new GitHub repo and push the project's `main` to it. Refuses
