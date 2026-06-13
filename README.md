@@ -106,6 +106,39 @@ One-time, operator-side:
 Until configured, everything falls back to the string author and no issue
 features are available — `tinker`/local projects are unaffected.
 
+#### Enabling the issue backend per project
+
+Once the App is configured, open a published project in the PWA and click
+**use github issues** on the project header (gated on a published repo + the
+App). It backfills existing `.factory/work/*.md` tasks as issues (preserving
+their ids as `legacy_id`), archives the local files, and flips the project to
+the GitHub-Issues backend. From then on the issue *is* the task, and the issue
+comment thread is folded into the run prompt + written back to on completion.
+
+#### Webhook (live inbound sync) — operator setup
+
+The webhook makes inbound sync real-time: externally-filed issues land in the
+inbox for adoption, and status/thread changes reflect quickly. The App has a
+**single app-level webhook**; Factory gates each delivery to repos that have a
+github-issues-backed project, so deliveries for your other repos are ignored.
+
+1. **Generate a webhook secret** (any high-entropy string), e.g.
+   `openssl rand -hex 32`.
+2. **Give the daemon the secret** — set `github-app-webhook-secret` (Settings,
+   DB-backed) or `auth.githubApp.webhookSecret` in `config.yaml`, then restart.
+   Without it the endpoint returns `503`; with it, deliveries are HMAC-verified
+   (`X-Hub-Signature-256`) and bad signatures are rejected `401`.
+3. **Expose `…/webhooks/github` publicly.** Only this one path needs to be
+   Internet-reachable (the rest of the API is bearer-authed). Put it behind a
+   stable HTTPS URL — the `expose-service` skill (`*.labs.rwolfe.io`) or your
+   own tunnel/reverse proxy to the daemon's port.
+4. **Configure the App's webhook** (github.com/settings/apps/wolfefactory →
+   *Webhook*): set **Webhook URL** = `https://<public-host>/webhooks/github`,
+   **Secret** = the secret from step 1, mark it **Active**, and ensure the
+   subscribed events include **Issues**, **Issue comment**, and **Installation**.
+5. Open a fresh issue on an integrated repo to confirm it appears in the inbox
+   as an `issue · intake` card.
+
 Caveats (see [`docs/adr/006-codex-harness.md`](./docs/adr/006-codex-harness.md)):
 
 - **No session resume.** Codex runs that hit a usage cap fail instead of parking-and-resuming. The PWA refuses intervene-resume / reuse-worktree paths under `agent=codex` with an actionable error at submit time, before a worktree is created.
