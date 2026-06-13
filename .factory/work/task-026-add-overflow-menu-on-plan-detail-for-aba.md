@@ -1,11 +1,11 @@
 ---
 id: task-026
 title: Add ⋯ overflow menu on plan-detail for abandon/archive across all statuses
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-13T12:54:54.702Z
-updated: 2026-06-13T12:54:54.702Z
+updated: 2026-06-13T13:07:05.777Z
 labels:
   - feedback
 ---
@@ -25,3 +25,4 @@ Add a three-dots overflow menu to the plan-detail header, available regardless o
 ## Acceptance
 
 - [ ] (TBD)
+
