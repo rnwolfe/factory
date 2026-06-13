@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Snowflake, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Archive, ArrowLeft, MoreVertical, Snowflake, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { MetricsChip } from "../components/metrics-chip.tsx";
@@ -141,7 +141,7 @@ export function PlanDetail() {
 
   const [draftText, setDraftText] = useState("");
   const [confirmFreeze, setConfirmFreeze] = useState(false);
-  const [confirmAbandon, setConfirmAbandon] = useState(false);
+  const [confirmDrop, setConfirmDrop] = useState(false);
 
   const sendComment = useMutation({
     mutationFn: (body: string) => trpc.plans.comment.mutate({ planId: id, body }),
@@ -167,9 +167,18 @@ export function PlanDetail() {
   const abandon = useMutation({
     mutationFn: () => trpc.plans.abandon.mutate({ planId: id }),
     onSuccess: () => {
+      const current = plan.data;
       qc.invalidateQueries({ queryKey: ["plans.inbox"] });
       qc.invalidateQueries({ queryKey: ["plans.get", id] });
-      nav("/");
+      if (current?.status === "drafting") {
+        nav("/");
+      } else if (current?.projectId && current.taskId) {
+        nav(`/projects/${current.projectId}/tasks/${current.taskId}`);
+      } else if (current?.projectId) {
+        nav(`/projects/${current.projectId}`);
+      } else {
+        nav("/");
+      }
     },
   });
 
@@ -197,6 +206,9 @@ export function PlanDetail() {
 
   const p = plan.data;
   const isDrafting = p.status === "drafting";
+  const canDropPlan = p.status === "drafting" || p.status === "frozen" || p.status === "superseded";
+  const dropAction = isDrafting ? "abandon" : "archive";
+  const dropPendingLabel = isDrafting ? "abandoning…" : "archiving…";
   const projectLink =
     p.projectId && p.kind !== "project_spec" ? (
       <Link
@@ -210,12 +222,23 @@ export function PlanDetail() {
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
       <header className="surface p-4">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
-        >
-          <ArrowLeft size={11} /> inbox
-        </Link>
+        <div className="flex items-center justify-between gap-2">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+          >
+            <ArrowLeft size={11} /> inbox
+          </Link>
+          <PlanOverflowMenu
+            action={dropAction}
+            enabled={canDropPlan}
+            pending={abandon.isPending}
+            onSelect={() => {
+              setConfirmFreeze(false);
+              setConfirmDrop(true);
+            }}
+          />
+        </div>
 
         <div className="flex items-center gap-2 mt-3 mb-2 flex-wrap">
           <span className={cn("chip", "chip-decompose")}>{kindLabel(p.kind)}</span>
@@ -369,76 +392,75 @@ export function PlanDetail() {
         </div>
       </section>
 
-      {isDrafting ? (
-        confirmFreeze ? (
-          <div className="surface p-4 space-y-3">
-            <div className="display text-[15px] text-[var(--color-fg)]">freeze this plan?</div>
-            <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
-              {freezeConsumerHint(p.kind)} the plan becomes read-only.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setConfirmFreeze(false)}
-                disabled={freeze.isPending}
-              >
-                cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => freeze.mutate()}
-                disabled={freeze.isPending}
-              >
-                {freeze.isPending ? "freezing…" : "yes, freeze"}
-              </button>
-            </div>
-            {freeze.isError ? (
-              <p className="mono text-[11px] text-[var(--color-verdict-trashed)]">
-                {(freeze.error as Error).message}
-              </p>
-            ) : null}
-          </div>
-        ) : confirmAbandon ? (
-          <div className="surface p-4 space-y-3">
-            <div className="display text-[15px] text-[var(--color-fg)]">abandon this plan?</div>
-            <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
-              this plan disappears from the inbox and cannot be resumed.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setConfirmAbandon(false)}
-                disabled={abandon.isPending}
-              >
-                cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                onClick={() => abandon.mutate()}
-                disabled={abandon.isPending}
-              >
-                {abandon.isPending ? "abandoning…" : "yes, abandon"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 sticky bottom-[calc(72px+env(safe-area-inset-bottom))]">
+      {confirmFreeze && isDrafting ? (
+        <div className="surface p-4 space-y-3">
+          <div className="display text-[15px] text-[var(--color-fg)]">freeze this plan?</div>
+          <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
+            {freezeConsumerHint(p.kind)} the plan becomes read-only.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setConfirmFreeze(false)}
+              disabled={freeze.isPending}
+            >
+              cancel
+            </button>
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => setConfirmFreeze(true)}
+              onClick={() => freeze.mutate()}
+              disabled={freeze.isPending}
             >
-              <Snowflake size={14} /> freeze
-            </button>
-            <button type="button" className="btn" onClick={() => setConfirmAbandon(true)}>
-              <Trash2 size={14} /> abandon
+              {freeze.isPending ? "freezing…" : "yes, freeze"}
             </button>
           </div>
-        )
+          {freeze.isError ? (
+            <p className="mono text-[11px] text-[var(--color-verdict-trashed)]">
+              {(freeze.error as Error).message}
+            </p>
+          ) : null}
+        </div>
+      ) : confirmDrop && canDropPlan ? (
+        <div className="surface p-4 space-y-3">
+          <div className="display text-[15px] text-[var(--color-fg)]">
+            {isDrafting ? "abandon this draft?" : "archive this plan?"}
+          </div>
+          <p className="text-[13px] text-[var(--color-fg-2)] leading-relaxed">
+            {isDrafting
+              ? "this draft disappears from the inbox and cannot be resumed."
+              : "this plan becomes read-only history and will no longer be treated as frozen or superseded."}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setConfirmDrop(false)}
+              disabled={abandon.isPending}
+            >
+              cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => abandon.mutate()}
+              disabled={abandon.isPending}
+            >
+              {abandon.isPending ? dropPendingLabel : `yes, ${dropAction}`}
+            </button>
+          </div>
+        </div>
+      ) : isDrafting ? (
+        <div className="sticky bottom-[calc(72px+env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            className="btn btn-primary w-full"
+            onClick={() => setConfirmFreeze(true)}
+          >
+            <Snowflake size={14} /> freeze
+          </button>
+        </div>
       ) : (
         <div className="surface p-3 text-[12px] mono text-[var(--color-fg-3)]">
           this plan is {p.status}
@@ -446,6 +468,67 @@ export function PlanDetail() {
           {p.abandonedAt ? ` · ${fmtDate(p.abandonedAt)}` : ""}
         </div>
       )}
+    </div>
+  );
+}
+
+function PlanOverflowMenu({
+  action,
+  enabled,
+  pending,
+  onSelect,
+}: {
+  action: "abandon" | "archive";
+  enabled: boolean;
+  pending: boolean;
+  onSelect: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="btn btn-ghost h-8 px-2"
+        aria-label="plan actions"
+      >
+        <MoreVertical size={14} />
+      </button>
+      {open ? (
+        <div className="absolute right-0 mt-1 z-20 surface border border-[var(--color-line)] min-w-[180px] py-1 shadow-lg">
+          {enabled ? (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSelect();
+              }}
+              disabled={pending}
+              className="w-full flex items-center gap-2 px-3 h-9 text-[13px] text-[var(--color-verdict-trashed)] hover:bg-[var(--color-bg-2)] disabled:opacity-60"
+            >
+              {action === "archive" ? <Archive size={13} /> : <Trash2 size={13} />}
+              {action}
+            </button>
+          ) : (
+            <div className="px-3 py-2 mono text-[10.5px] text-[var(--color-fg-3)]">
+              no actions available
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

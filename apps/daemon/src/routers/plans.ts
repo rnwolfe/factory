@@ -783,7 +783,7 @@ export const plansRouter = router({
         .where(eq(schema.plans.id, input.planId))
         .get();
       if (!plan) throw new Error("plan not found");
-      if (plan.status !== "drafting") {
+      if (plan.status === "abandoned") {
         throw new Error(`plan already ${plan.status}`);
       }
       const now = Date.now();
@@ -792,7 +792,12 @@ export const plansRouter = router({
         .set({ status: "abandoned", abandonedAt: now, updatedAt: now })
         .where(eq(schema.plans.id, input.planId));
 
-      ctx.events.publish({ channel: "inbox", kind: "plan_abandoned", planId: input.planId });
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "plan_abandoned",
+        planId: input.planId,
+        projectId: plan.projectId,
+      });
       return { ok: true };
     }),
 });
