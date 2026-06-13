@@ -85,7 +85,10 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
       const onMain = await readTaskFile(project, run.taskId);
       if (onMain && onMain.frontmatter.status !== target) {
         const updated = await updateTaskStatus(project, run.taskId, target);
-        if (updated) {
+        // github-backed: updateTaskStatus already PATCHed the issue; there's no
+        // local file to commit, so skip the (empty) reconcile commit + its
+        // misleading "gitignored" warning.
+        if (updated && project.taskBackend !== "github-issues") {
           const committed = await commitAllChanges(
             project.workdirPath,
             `chore: ${run.taskId} status -> ${updated.frontmatter.status}`,

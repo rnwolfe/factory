@@ -20,6 +20,7 @@ import type { EventBus } from "../events.ts";
 import { resolveBotGitAuthor } from "../github/app-auth.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
+import { fetchIssueDiscussion } from "../projects/github-task-store.ts";
 import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
 import {
@@ -212,9 +213,17 @@ export async function executeRun(
   const taskFile = row.taskId ? await readTaskFile(project, row.taskId) : null;
   const taskBody = taskFile?.body ?? "";
   const taskTitle = taskFile?.frontmatter.title ?? null;
-  const baseTaskBody =
+  let baseTaskBody =
     taskBody ||
     `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`;
+
+  // Fold the GitHub issue thread into the prompt as first-class context for
+  // github-backed tasks (ADR-007). Best-effort and delimited as untrusted; "" for
+  // file-backed projects or on any error, so it never blocks a run.
+  if (row.taskId) {
+    const discussion = await fetchIssueDiscussion(config, project, row.taskId);
+    if (discussion) baseTaskBody = `${baseTaskBody}\n\n${discussion}`;
+  }
 
   // Plan-aware prompt: if the run has a frozen task_plan attached, fold its
   // draft into the prompt as authoritative context. Resume prompts get the
@@ -501,7 +510,15 @@ export async function executeRun(
     // merge into main brings the status update along with the agent's work.
     // Skipped for deferred runs: the task is logically still in flight, and
     // the continuation run will write the terminal status when it lands.
-    if (row.taskId && finalStatus !== "deferred" && finalStatus !== "usage_capped") {
+    // File-backed only: the terminal status is written into the worktree so it
+    // rides the merge into main. github-backed projects update the issue via
+    // the API in post-merge instead (no file to write/commit here).
+    if (
+      project.taskBackend !== "github-issues" &&
+      row.taskId &&
+      finalStatus !== "deferred" &&
+      finalStatus !== "usage_capped"
+    ) {
       try {
         const updated = await updateTaskStatus(
           { workdirPath: result.worktreePath },

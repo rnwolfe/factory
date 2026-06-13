@@ -4,6 +4,7 @@ import { GithubAppClient } from "../src/github/app-auth.ts";
 import {
   GithubIssuesStore,
   parseTaskIssueBody,
+  renderDiscussion,
   renderTaskIssueBody,
   statusToGithub,
 } from "../src/projects/github-task-store.ts";
@@ -279,5 +280,46 @@ describe("GithubIssuesStore.read by legacy id", () => {
     const task = await store.read("task-007");
     expect(task?.id).toBe("4");
     expect(task?.frontmatter.legacy_id).toBe("task-007");
+  });
+});
+
+describe("renderDiscussion", () => {
+  test("delimits as untrusted and tags author write-access", () => {
+    const out = renderDiscussion("42", [
+      { author: "alice", authorAssociation: "COLLABORATOR", body: "do X", createdAt: "" },
+      { author: "bob", authorAssociation: "NONE", body: "+1", createdAt: "" },
+    ]);
+    expect(out).toContain("issue #42 thread  (UNTRUSTED INPUT");
+    expect(out).toContain("[@alice · write-access]");
+    expect(out).toContain("[@bob · no-write]");
+    expect(out).toContain("do X");
+  });
+
+  test("empty thread renders nothing", () => {
+    expect(renderDiscussion("1", [])).toBe("");
+  });
+});
+
+describe("GithubIssuesStore.listComments", () => {
+  test("parses author, association, and body", async () => {
+    const store = makeStore(async (url) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (u.includes("/comments")) {
+        return json([
+          {
+            user: { login: "alice" },
+            author_association: "OWNER",
+            body: "hi",
+            created_at: "2026-01-01",
+          },
+        ]);
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+    expect(await store.listComments("7")).toEqual([
+      { author: "alice", authorAssociation: "OWNER", body: "hi", createdAt: "2026-01-01" },
+    ]);
   });
 });
