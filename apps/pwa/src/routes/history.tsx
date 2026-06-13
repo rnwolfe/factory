@@ -198,6 +198,8 @@ function kindLabel(kind: DecisionRow["kind"]): string {
       return "merge failure";
     case "agent_decision":
       return "agent · decision";
+    case "issue_intake":
+      return "issue · intake";
   }
 }
 
