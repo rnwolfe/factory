@@ -9,6 +9,7 @@ import type { DaemonContext } from "./context.ts";
 import { recoverOrphanedDeferredTasks } from "./deferred-tasks/orchestrate.ts";
 import { EventBus } from "./events.ts";
 import { githubAppClientFromConfig } from "./github/app-auth.ts";
+import { githubWebhookRoute } from "./github/webhook.ts";
 import { buildHealth } from "./health.ts";
 import {
   recoverOrphanedInterventions,
@@ -229,6 +230,13 @@ export async function startDaemon(): Promise<DaemonHandle> {
               console.error(`[trpc] ${path ?? "?"}: ${error.message}`);
             },
           });
+        }
+
+        // GitHub App webhook (ADR-007). HMAC-verified, not bearer-authed.
+        // Gates every delivery on a github-issues-backed project for the repo;
+        // unmatched repos (the App is installed on all of them) are no-ops.
+        if (url.pathname === "/webhooks/github" && req.method === "POST") {
+          return githubWebhookRoute(req, config, db);
         }
 
         // Health endpoint bypasses tRPC for ops checks (systemctl status,
