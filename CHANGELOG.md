@@ -4,6 +4,17 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.21.8 — 2026-06-13
+
+### Fixed
+- **Mobile bottom-nav bottom gap (root cause).** The responsive shell used
+  `h-[100dvh]`, but in the installed iOS PWA `dvh`/`svh`/`vh` all resolve to the
+  status-bar-excluded height (on-device: 873 on a 932px screen), and — the shell
+  being top-anchored — the ~59px shortfall surfaced as a strip of page
+  background below the nav. Switched the root to `h-[100lvh]` (the only unit
+  equal to the full physical screen here), so the nav reaches the true bottom
+  edge. Removed the temporary on-screen diagnostics added in v0.21.3–v0.21.7.
+
 ## v0.21.5 — 2026-06-13
 
 ### Fixed
