@@ -30,20 +30,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const [dbg, setDbg] = useState("measuring…");
   useEffect(() => {
     const measure = () => {
-      const root = document.getElementById("root")?.firstElementChild as HTMLElement | null;
-      const navEl = document.querySelector("nav");
-      const probe = document.createElement("div");
-      probe.style.cssText =
-        "position:fixed;left:0;bottom:0;width:0;height:0;padding-bottom:env(safe-area-inset-bottom)";
-      document.body.appendChild(probe);
-      const safe = Math.round(probe.getBoundingClientRect().height);
-      probe.remove();
+      const navEl = document.getElementById("mobile-nav");
+      const cs = navEl ? getComputedStyle(navEl) : null;
       const r = navEl?.getBoundingClientRect();
       setDbg(
-        `win${window.innerHeight} doc${document.documentElement.clientHeight} ` +
-          `root${root ? Math.round(root.getBoundingClientRect().height) : "?"} ` +
-          `safe${safe} navH${r ? Math.round(r.height) : "?"} ` +
-          `gapBelow${r ? Math.round(window.innerHeight - r.bottom) : "?"}`,
+        `win${window.innerHeight} navH${r ? Math.round(r.height) : "?"} ` +
+          `navTop${r ? Math.round(r.top) : "?"} navBot${r ? Math.round(r.bottom) : "?"} ` +
+          `padB${cs ? cs.paddingBottom : "?"} gapBelow${r ? Math.round(window.innerHeight - r.bottom) : "?"}`,
       );
     };
     const t = setTimeout(measure, 250);
@@ -86,6 +79,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </main>
 
         <nav
+          id="mobile-nav"
           className="md:hidden shrink-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"
           // Cap the home-indicator clearance: the full env(safe-area-inset-bottom)
           // reserved a large dead band below the icons. 0.5rem keeps a little
