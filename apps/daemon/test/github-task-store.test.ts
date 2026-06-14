@@ -203,6 +203,38 @@ describe("GithubIssuesStore.updateStatus", () => {
   });
 });
 
+describe("GithubIssuesStore.updateAgent", () => {
+  test("updates the hidden task agent metadata without changing the visible body", async () => {
+    const issue = {
+      number: 7,
+      title: "T",
+      body: renderTaskIssueBody({ status: "ready", model: "gpt-5.4" }, "the body"),
+      state: "open",
+      state_reason: null,
+      labels: [{ name: "factory" }],
+    };
+    let patched: Record<string, unknown> | undefined;
+    const store = makeStore(async (url, init) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (init?.method === "PATCH") {
+        patched = JSON.parse(String(init.body));
+        return json({ ...issue, ...patched });
+      }
+      if (u.endsWith("/issues/7")) return json(issue);
+      throw new Error(`unexpected ${u}`);
+    });
+
+    const updated = await store.updateAgent("7", "codex");
+    const { meta, body } = parseTaskIssueBody(String(patched?.body));
+    expect(meta.agent).toBe("codex");
+    expect(meta.model).toBe("gpt-5.4");
+    expect(body.trim()).toBe("the body");
+    expect(updated?.frontmatter.agent).toBe("codex");
+  });
+});
+
 describe("GithubIssuesStore.importTask", () => {
   test("backfills a done task: creates the issue then closes it, carrying legacy_id", async () => {
     let createBody: { title: string; body: string; labels: string[] } | undefined;

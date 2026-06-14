@@ -132,6 +132,7 @@ export interface TaskStore {
   create(input: CreateTaskInput): Promise<TaskFile>;
   updateStatus(id: string, status: TaskFrontmatter["status"]): Promise<TaskFile | null>;
   updateModel(id: string, model: string): Promise<TaskFile | null>;
+  updateAgent(id: string, agent: string): Promise<TaskFile | null>;
   updateBody(id: string, body: string): Promise<TaskFile | null>;
 }
 
@@ -201,6 +202,29 @@ export class FileTaskStore implements TaskStore {
       nextFrontmatter.model = trimmed;
     } else {
       delete nextFrontmatter.model;
+    }
+    const updated: TaskFile = { ...t, frontmatter: nextFrontmatter };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
+  /**
+   * Set or clear the per-task agent override. Empty string clears the field
+   * entirely (falls back to project default at submit time); a non-empty
+   * value pins the task to that agent id.
+   */
+  async updateAgent(taskId: string, agent: string): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    const trimmed = agent.trim();
+    const nextFrontmatter: TaskFrontmatter = {
+      ...t.frontmatter,
+      updated: new Date().toISOString(),
+    };
+    if (trimmed.length > 0) {
+      nextFrontmatter.agent = trimmed;
+    } else {
+      delete nextFrontmatter.agent;
     }
     const updated: TaskFile = { ...t, frontmatter: nextFrontmatter };
     await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
@@ -316,6 +340,14 @@ export function updateTaskModel(
   model: string,
 ): Promise<TaskFile | null> {
   return taskStoreFor(target).updateModel(taskId, model);
+}
+
+export function updateTaskAgent(
+  target: TaskTarget,
+  taskId: string,
+  agent: string,
+): Promise<TaskFile | null> {
+  return taskStoreFor(target).updateAgent(taskId, agent);
 }
 
 export function updateTaskBody(
