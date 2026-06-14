@@ -10,7 +10,6 @@ import { applyTaskTemplateFreeze, seedTaskTemplateDraft } from "../plans/apply-t
 import { bootstrapFromPlan } from "../plans/bootstrap-from-plan.ts";
 import {
   parseStoredDraft,
-  runPlanIteration,
   seedFeaturePlanDraft,
   seedProjectSpecDraft,
   seedProjectVisionDraft,
@@ -18,6 +17,7 @@ import {
   seedTaskPlanDraft,
 } from "../plans/iterate.ts";
 import { applyRefinementFreeze } from "../plans/refine.ts";
+import { schedulePlanIteration } from "../plans/schedule.ts";
 import { readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
@@ -110,6 +110,8 @@ export const plansRouter = router({
         planKind: "project_spec",
       });
 
+      schedulePlanIteration(ctx, { planId });
+
       return { planId };
     }),
 
@@ -164,39 +166,8 @@ export const plansRouter = router({
         projectId: project.id,
       });
 
-      // Kick off the agent's first turn immediately — empty draft + empty
-      // thread becomes the agent's seed-from-task pass. Same fire-and-forget
-      // shape as decisions.comment.
-      void (async () => {
-        try {
-          const result = await runPlanIteration(ctx.db, planId);
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-          if (result.draftUpdated) {
-            ctx.events.publish({ channel: "inbox", kind: "plan_updated", planId });
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[plan-iterate] ${planId}: ${message}`);
-          await ctx.db.insert(schema.planComments).values({
-            id: createId(),
-            planId,
-            role: "agent",
-            body: `(plan iteration failed: ${message.slice(0, 240)})`,
-            createdAt: Date.now(),
-          });
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-        }
-      })();
+      // Empty draft + empty thread becomes the agent's seed-from-task pass.
+      schedulePlanIteration(ctx, { planId, projectId: project.id });
 
       return { planId };
     }),
@@ -234,37 +205,7 @@ export const plansRouter = router({
         projectId: project.id,
       });
 
-      // Kick off the agent's first turn — operator gets a draft to push back on.
-      void (async () => {
-        try {
-          const result = await runPlanIteration(ctx.db, planId);
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-          if (result.draftUpdated) {
-            ctx.events.publish({ channel: "inbox", kind: "plan_updated", planId });
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[plan-iterate] ${planId}: ${message}`);
-          await ctx.db.insert(schema.planComments).values({
-            id: createId(),
-            planId,
-            role: "agent",
-            body: `(plan iteration failed: ${message.slice(0, 240)})`,
-            createdAt: Date.now(),
-          });
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-        }
-      })();
+      schedulePlanIteration(ctx, { planId, projectId: project.id });
 
       return { planId };
     }),
@@ -316,37 +257,7 @@ export const plansRouter = router({
         projectId: project.id,
       });
 
-      // Kick off agent's first turn for the seed-from-context pass.
-      void (async () => {
-        try {
-          const result = await runPlanIteration(ctx.db, planId);
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-          if (result.draftUpdated) {
-            ctx.events.publish({ channel: "inbox", kind: "plan_updated", planId });
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[plan-iterate] ${planId}: ${message}`);
-          await ctx.db.insert(schema.planComments).values({
-            id: createId(),
-            planId,
-            role: "agent",
-            body: `(plan iteration failed: ${message.slice(0, 240)})`,
-            createdAt: Date.now(),
-          });
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-        }
-      })();
+      schedulePlanIteration(ctx, { planId, projectId: project.id });
 
       return { planId };
     }),
@@ -386,36 +297,7 @@ export const plansRouter = router({
         planKind: "task_template",
         projectId: null,
       });
-      // Kick off the agent's first turn so the draft is already partly
-      // filled when the operator opens the plan-detail page.
-      void (async () => {
-        try {
-          const result = await runPlanIteration(ctx.db, planId);
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-          if (result.draftUpdated) {
-            ctx.events.publish({ channel: "inbox", kind: "plan_updated", planId });
-          }
-        } catch (err) {
-          await ctx.db.insert(schema.planComments).values({
-            id: createId(),
-            planId,
-            role: "agent",
-            body: `(initial iteration failed: ${err instanceof Error ? err.message : String(err)})`,
-            createdAt: Date.now(),
-          });
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId,
-            role: "agent",
-          });
-        }
-      })();
+      schedulePlanIteration(ctx, { planId, projectId: null });
       return { planId };
     }),
 
@@ -469,6 +351,8 @@ export const plansRouter = router({
         projectId: project.id,
       });
 
+      schedulePlanIteration(ctx, { planId, projectId: project.id });
+
       return { planId };
     }),
 
@@ -506,43 +390,9 @@ export const plansRouter = router({
         role: "operator",
       });
 
-      // Background agent iteration. Same fire-and-forget shape as triage
-      // follow-up — the UI shows the operator's message instantly while the
-      // agent's reply lands asynchronously.
-      void (async () => {
-        try {
-          const result = await runPlanIteration(ctx.db, input.planId);
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId: input.planId,
-            role: "agent",
-          });
-          if (result.draftUpdated) {
-            ctx.events.publish({
-              channel: "inbox",
-              kind: "plan_updated",
-              planId: input.planId,
-            });
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[plan-iterate] ${input.planId}: ${message}`);
-          await ctx.db.insert(schema.planComments).values({
-            id: createId(),
-            planId: input.planId,
-            role: "agent",
-            body: `(plan iteration failed: ${message.slice(0, 240)})`,
-            createdAt: Date.now(),
-          });
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId: input.planId,
-            role: "agent",
-          });
-        }
-      })();
+      // The UI shows the operator's message instantly while the agent's reply
+      // lands asynchronously.
+      schedulePlanIteration(ctx, { planId: input.planId, projectId: plan.projectId });
 
       return { commentId };
     }),
@@ -652,28 +502,11 @@ export const plansRouter = router({
             planKind: "project_vision",
             projectId,
           });
-          // Fire-and-forget seed turn — same shape as startTaskPlan.
-          void (async () => {
-            try {
-              const r = await runPlanIteration(ctx.db, visionPlanId);
-              ctx.events.publish({
-                channel: "inbox",
-                kind: "plan_comment_added",
-                planId: visionPlanId,
-                role: "agent",
-              });
-              if (r.draftUpdated) {
-                ctx.events.publish({
-                  channel: "inbox",
-                  kind: "plan_updated",
-                  planId: visionPlanId,
-                });
-              }
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              console.error(`[plan-iterate] auto-vision ${visionPlanId}: ${message}`);
-            }
-          })();
+          schedulePlanIteration(ctx, {
+            planId: visionPlanId,
+            projectId,
+            errorLabel: `auto-vision ${visionPlanId}`,
+          });
         }
       } else if (plan.kind === "refinement") {
         if (!plan.projectId || !plan.taskId) {

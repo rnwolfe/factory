@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, isNull, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
+import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
@@ -380,6 +381,9 @@ export const decisionsRouter = router({
             planKind: "project_spec",
           });
         }
+        if (planId) {
+          schedulePlanIteration(ctx, { planId });
+        }
       }
 
       if (input.action === "approve" && decision.kind === "issue_intake") {
@@ -548,6 +552,7 @@ export const decisionsRouter = router({
             role: "operator",
             projectId,
           });
+          schedulePlanIteration(ctx, { planId: targetPlanId, projectId });
           planId = targetPlanId;
         }
       }
