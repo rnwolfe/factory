@@ -105,6 +105,13 @@ export interface SubmitRunInput {
    * run row so retry/resume paths bind to the same provider.
    */
   agent?: string;
+  /**
+   * Marks this run as executing a confirmed release proposal, carrying the
+   * annotated tag (e.g. `v0.23.0`) the run is expected to create. After the
+   * run's branch merges into `main`, the runner pushes `main` + this tag to
+   * origin (from the project checkout, not the worktree). See ADR-008.
+   */
+  releaseTag?: string;
 }
 
 const SUPPORTED_AGENTS = new Set<string>(AGENT_NAMES);
@@ -319,6 +326,7 @@ export async function submitRun(
     sessionId: sessionIdForRow ?? null,
     model: effectiveModel,
     retryOfRunId: input.retryOfRunId ?? null,
+    releaseTag: input.releaseTag ?? null,
   });
 
   // Resume mode: explicit sessionId set, OR inherited via reuseFromRunId

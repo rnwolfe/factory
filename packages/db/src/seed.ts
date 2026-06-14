@@ -110,14 +110,14 @@ Output the markdown entry body only (no \`## v{version}\` header — that's adde
 - [ ] Version bumped to **{version}** in every file that carries one (root \`package.json\` + workspaces, or the project's equivalent).
 - [ ] Changelog entry prepended to the project's release-notes file (e.g. \`CHANGELOG.md\`); body = the confirmed **What's new** prose above.
 - [ ] Single release commit on the primary branch: \`chore(release): {version}\`.
-- [ ] Annotated git tag \`{version}\` at the release commit, carrying the changelog entry in the tag message.
-- [ ] **\`main\` and the tag \`{version}\` pushed to origin** — the inbox confirmation authorized this push.
-- [ ] Any post-tag step (deploy, \`factory upgrade\`, npm publish) called out in the run summary.`,
+- [ ] Annotated git tag named **exactly \`{version}\`** at the release commit, carrying the changelog entry in the tag message.
+- [ ] Did **NOT** push — Factory pushes \`main\` + the tag to origin automatically after merging this run. (If you ran a release script, you used its **no-push** mode.)
+- [ ] Any post-tag step that Factory can't do (deploy, npm publish) called out in the run summary for the operator.`,
         },
         {
           heading: "Recipe",
           kind: "agent",
-          body: `You are cutting a release for this project. This release was confirmed by the operator in the inbox — that confirmation **authorizes the push**, so you push \`main\` and the tag at the end (unlike an ordinary run, which never pushes).
+          body: `You are cutting a release for this project. Produce the gated, committed, tagged release **on this run's branch — do NOT push.** Factory pushes \`main\` + the tag to origin automatically once this run merges (the push happens from the project's main checkout, where the refs are correct; your worktree's \`main\` is stale, so a push from here would push the wrong thing). Your one hard requirement for that to work: create an annotated tag named **exactly \`{version}\`**.
 
 The version **{version}** was resolved from the change set and confirmed in the inbox — treat it as authoritative; don't re-derive or change it. The **What's new** section above is the operator-confirmed changelog prose — use it as the entry body, don't rewrite from scratch.
 
@@ -125,19 +125,19 @@ The version **{version}** was resolved from the change set and confirmed in the 
 
 Find the project's real release path before doing anything by hand, in this order:
 
-1. **A release script** — e.g. \`scripts/release.ts\`, a \`release\` entry in \`package.json\` scripts, or a Make/just \`release\` target. **Run it with its push flag and its checks ON** — e.g. \`bun scripts/release.ts --push\`. **Never** pass a checks-skipping flag (\`--skip-checks\` / \`--no-verify\` / \`--no-test\`): the gates running before the tag is the entire point. If the script computes its own version, reconcile it to **{version}** and surface any mismatch in your \`summary\`.
-2. **\`skills/release/SKILL.md\`** if present — follow it verbatim (it may itself call the release script). If a step looks wrong, surface it in your \`summary\` instead of improvising.
+1. **A release script** — e.g. \`scripts/release.ts\`, a \`release\` entry in \`package.json\` scripts, or a Make/just \`release\` target. Run it so it bumps + changelogs + tags **with the gates ON but WITHOUT pushing** (omit \`--push\`, or use its no-push/dry-push mode). **Never** pass a checks-skipping flag (\`--skip-checks\` / \`--no-verify\` / \`--no-test\`): the gates running before the tag is the entire point. If the script computes its own version or tags under a different name, reconcile so the tag is exactly **{version}**, and surface any mismatch in your \`summary\`.
+2. **\`skills/release/SKILL.md\`** if present — follow it verbatim, but still skip the push step (Factory pushes). If a step looks wrong, surface it in your \`summary\` instead of improvising.
 3. **The generic recipe below** — only if the project has neither.
 
 # Generic recipe (only when the project has no release tooling)
 
-1. Preconditions: clean working tree, on the primary branch (\`main\`), in sync with \`origin\`.
+1. Preconditions: clean working tree, in sync with \`origin\`.
 2. **Run the project's gates and STOP if any fail** — typecheck, lint, and tests (whatever the project defines, e.g. \`bun run typecheck && bun run check && bun test\`). Do not skip them; do not \`--no-verify\` the commit.
 3. Update **{version}** in every file that carries the project's version (root \`package.json\` + workspaces, a \`VERSION\` file, etc.).
 4. Prepend a \`## {version} — <today>\` section to the changelog; body = the **What's new** prose above (lightly reconcile against the actual commits if anything drifted).
 5. Single commit: \`chore(release): {version}\`.
-6. Annotated tag: \`git tag -a {version} -m "<version>\\n\\n<changelog entry body>"\`.
-7. **Push** \`main\` and the tag (\`git push origin <branch>\` then \`git push origin {version}\`). The inbox confirm authorized this — do not stop at "printing the commands." Then call out any post-tag step (deploy, \`factory upgrade\`, npm publish) in your \`summary\`.
+6. Annotated tag named exactly **{version}**: \`git tag -a {version} -m "<version>\\n\\n<changelog entry body>"\`.
+7. **Stop — do not push.** Factory pushes \`main\` + \`{version}\` after this run merges. Call out any post-tag step it can't do (deploy, npm publish) in your \`summary\`.
 
 # Reading list
 

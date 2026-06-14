@@ -501,7 +501,16 @@ export const decisionsRouter = router({
             runs: ctx.runs,
             pool: ctx.pool,
           },
-          { projectId: project.id, taskId: created.id, agent: input.agent },
+          {
+            projectId: project.id,
+            taskId: created.id,
+            agent: input.agent,
+            // Mark this as a release run so the runner pushes main + the tag
+            // after the merge. The agent creates the annotated tag named after
+            // the confirmed version; a null version → no auto-push (the run
+            // still cuts locally and the operator pushes).
+            releaseTag: payload.version ?? undefined,
+          },
         );
         retryRunId = result.runId;
         projectId = project.id;

@@ -135,6 +135,57 @@ function buildMergeMessage(opts: {
 }
 
 /**
+ * Push a confirmed release to origin after its branch has merged into the
+ * project's `main`. Runs from the project checkout (where `main` now carries
+ * the release commit) and pushes `main` + the annotated `tag` the agent
+ * created. Never throws — a push failure leaves the local release intact and is
+ * reported back so the operator can push by hand. See ADR-008 + the runs-can't-
+ * push lesson in tasks/lessons.md.
+ */
+export async function pushReleaseRefs(
+  projectPath: string,
+  tag: string,
+): Promise<{ ok: boolean; note: string }> {
+  const git = async (args: string[]) => {
+    const proc = Bun.spawn({
+      cmd: ["git", ...args],
+      cwd: projectPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
+    return { code, out: out.trim(), err: err.trim() };
+  };
+
+  const tagCheck = await git(["rev-parse", "--verify", "--quiet", `refs/tags/${tag}`]);
+  if (tagCheck.code !== 0) {
+    return {
+      ok: false,
+      note: `push skipped — tag ${tag} not found in the repo (the run did not create it). main was NOT pushed; cut/push the release by hand.`,
+    };
+  }
+  const pushMain = await git(["push", "origin", "main"]);
+  if (pushMain.code !== 0) {
+    return {
+      ok: false,
+      note: `push failed — \`git push origin main\`: ${(pushMain.err || pushMain.out || "unknown").slice(0, 200)}`,
+    };
+  }
+  const pushTag = await git(["push", "origin", tag]);
+  if (pushTag.code !== 0) {
+    return {
+      ok: false,
+      note: `main pushed, but tag ${tag} failed: ${(pushTag.err || pushTag.out || "unknown").slice(0, 200)} — push the tag by hand.`,
+    };
+  }
+  return { ok: true, note: `pushed main + ${tag} to origin.` };
+}
+
+/**
  * Resolve the agent provider for a run row. Unknown agent names fall back to
  * claude-code so a typo in a task frontmatter or a future provider removal
  * never strands a queued run; the daemon logs the fallback for visibility.
@@ -698,6 +749,21 @@ export async function executeRun(
           // succeeded so the run is otherwise complete.
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(`[runner] worktree cleanup failed for ${runId}: ${msg}`);
+        }
+
+        // Release runs push to origin AFTER the merge, from the project
+        // checkout — the run's worktree had a stale `main` (its release commit
+        // lived on the run branch until this merge). The agent created the
+        // annotated tag named after the confirmed version; push `main` + that
+        // tag now. Failures are surfaced in the run summary, not thrown — the
+        // local release is intact and the operator can push by hand.
+        if (row.releaseTag) {
+          const push = await pushReleaseRefs(project.workdirPath, row.releaseTag);
+          console.log(`[runner] ${runId} release push: ${push.note}`);
+          await db
+            .update(schema.runs)
+            .set({ summary: `${summary}\n\n[release] ${push.note}` })
+            .where(eq(schema.runs.id, runId));
         }
       } else {
         mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;

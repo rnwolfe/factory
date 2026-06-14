@@ -504,6 +504,15 @@ export const runs = sqliteTable("runs", {
    * attempts.
    */
   retryOfRunId: text("retry_of_run_id").references((): AnySQLiteColumn => runs.id),
+  /**
+   * Set when this run was submitted to execute a confirmed release proposal —
+   * the annotated tag (e.g. `v0.23.0`) the run is expected to create. After the
+   * run's branch merges into the project's `main`, the runner pushes `main` +
+   * this tag to origin. The push happens post-merge from the project checkout
+   * (not from the run's worktree, where `main` is stale). Null for ordinary
+   * runs, which never push. See ADR-008 + tasks/lessons.md.
+   */
+  releaseTag: text("release_tag"),
 });
 
 export const events = sqliteTable("events", {
