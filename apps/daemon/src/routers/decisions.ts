@@ -132,12 +132,30 @@ interface AgentDecisionPayloadShape {
   overrideAt?: number;
 }
 
+const decisionWithProjectSelect = {
+  id: schema.decisions.id,
+  kind: schema.decisions.kind,
+  ideaId: schema.decisions.ideaId,
+  projectId: schema.decisions.projectId,
+  projectName: schema.projects.name,
+  rubricVersionId: schema.decisions.rubricVersionId,
+  outcome: schema.decisions.outcome,
+  payload: schema.decisions.payload,
+  uncertainty: schema.decisions.uncertainty,
+  weightedScore: schema.decisions.weightedScore,
+  status: schema.decisions.status,
+  snoozedUntil: schema.decisions.snoozedUntil,
+  createdAt: schema.decisions.createdAt,
+  actionedAt: schema.decisions.actionedAt,
+};
+
 export const decisionsRouter = router({
   inbox: protectedProcedure.query(async ({ ctx }) => {
     const now = Date.now();
     return ctx.db
-      .select()
+      .select(decisionWithProjectSelect)
       .from(schema.decisions)
+      .leftJoin(schema.projects, eq(schema.projects.id, schema.decisions.projectId))
       .where(
         and(
           eq(schema.decisions.status, "pending"),
@@ -152,8 +170,9 @@ export const decisionsRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(500).default(50) }))
     .query(async ({ ctx, input }) => {
       return ctx.db
-        .select()
+        .select(decisionWithProjectSelect)
         .from(schema.decisions)
+        .leftJoin(schema.projects, eq(schema.projects.id, schema.decisions.projectId))
         .where(ne(schema.decisions.status, "pending"))
         .orderBy(desc(schema.decisions.createdAt))
         .limit(input.limit)
@@ -162,7 +181,12 @@ export const decisionsRouter = router({
 
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     return (
-      ctx.db.select().from(schema.decisions).where(eq(schema.decisions.id, input.id)).get() ?? null
+      ctx.db
+        .select(decisionWithProjectSelect)
+        .from(schema.decisions)
+        .leftJoin(schema.projects, eq(schema.projects.id, schema.decisions.projectId))
+        .where(eq(schema.decisions.id, input.id))
+        .get() ?? null
     );
   }),
 

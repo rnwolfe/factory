@@ -58,6 +58,7 @@ export interface DecisionRow {
   };
   ideaId?: string | null;
   projectId?: string | null;
+  projectName?: string | null;
 }
 
 interface Props {
@@ -113,6 +114,14 @@ function timeAgo(ts: number): string {
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
+}
+
+export function decisionProjectLabel(
+  decision: Pick<DecisionRow, "kind" | "projectId" | "projectName">,
+): string {
+  if (decision.projectName) return decision.projectName;
+  if (!decision.projectId) return decision.kind === "triage" ? "no project yet" : "no project";
+  return `project ${decision.projectId.slice(0, 8)}`;
 }
 
 export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }: Props) {
@@ -241,10 +250,16 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
           startX.current = null;
         }}
       >
-        <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <span className={cn("chip", verdictTone(decision.outcome))}>{decision.outcome}</span>
             <span className="chip">{kindLabel(decision.kind, decision.payload)}</span>
+            <span
+              className="chip max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap"
+              title={decisionProjectLabel(decision)}
+            >
+              {decisionProjectLabel(decision)}
+            </span>
             <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
               · {timeAgo(decision.createdAt)} ago
             </span>

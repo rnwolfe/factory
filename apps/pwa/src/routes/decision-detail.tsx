@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { decisionProjectLabel } from "../components/decision-card.tsx";
 import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
@@ -301,6 +302,7 @@ export function DecisionDetail() {
                       : "tag change"}
           </span>
           <span className="chip">{d.status}</span>
+          <span className="chip">{decisionProjectLabel(d)}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
             {fmtDate(d.createdAt)}
           </span>

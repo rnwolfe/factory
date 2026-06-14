@@ -1,7 +1,7 @@
 import { ArrowRight, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { AuditRow } from "./audit-card.tsx";
-import type { DecisionRow } from "./decision-card.tsx";
+import { type DecisionRow, decisionProjectLabel } from "./decision-card.tsx";
 import type { PlanRow } from "./plan-card.tsx";
 
 interface FeedbackInboxRow {
@@ -117,6 +117,7 @@ function DecisionDetail({
         chips={
           <>
             <span className="chip">{kindLabel(row.kind)}</span>
+            <span className="chip">{decisionProjectLabel(row)}</span>
             <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
               {timeAgo(row.createdAt)} ago
             </span>
@@ -151,6 +152,7 @@ function DecisionDetail({
         <>
           <span className="chip">{kindLabel(row.kind)}</span>
           <span className="chip">{row.outcome}</span>
+          <span className="chip">{decisionProjectLabel(row)}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
             {timeAgo(row.createdAt)} ago
           </span>
