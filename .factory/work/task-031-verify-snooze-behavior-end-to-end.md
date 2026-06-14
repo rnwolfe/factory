@@ -1,11 +1,11 @@
 ---
 id: task-031
 title: Verify snooze behavior end to end
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-13T14:39:41.287Z
-updated: 2026-06-13T14:39:41.287Z
+updated: 2026-06-14T23:03:32.117Z
 labels:
   - feature-plan-task
 ---
