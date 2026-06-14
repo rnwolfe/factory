@@ -1,11 +1,11 @@
 ---
 id: task-035
 title: "Task page: use fused AgentModelPicker so codex models appear"
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T10:58:56.265Z
-updated: 2026-06-14T10:58:56.265Z
+updated: 2026-06-14T11:04:33.202Z
 labels:
   - feedback
 ---
@@ -25,3 +25,4 @@ Replace the legacy `ModelPicker` in `apps/pwa/src/routes/task-detail.tsx` with `
 ## Acceptance
 
 - [ ] (TBD)
+
