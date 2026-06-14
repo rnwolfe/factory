@@ -82,6 +82,9 @@ interface DecisionPayload {
   number?: number;
   title?: string;
   author?: string;
+  // release_proposal shape — model-resolved version + rendered release body
+  version?: string | null;
+  body?: string;
   override?:
     | { kind: "single"; choice: string }
     | { kind: "multi"; choices: string[] }
@@ -261,6 +264,7 @@ export function DecisionDetail() {
   const isMergeFailure = d.kind === "merge_failure";
   const isAgentDecision = d.kind === "agent_decision";
   const isIssueIntake = d.kind === "issue_intake";
+  const isReleaseProposal = d.kind === "release_proposal";
   const isPending = d.status === "pending";
   const score = d.weightedScore != null ? d.weightedScore.toFixed(2) : "—";
   const uncertainty = d.uncertainty != null ? d.uncertainty.toFixed(2) : "—";
@@ -270,7 +274,9 @@ export function DecisionDetail() {
       ? (payload.summary ?? d.outcome)
       : isIssueIntake
         ? `#${payload.number ?? "?"} ${payload.title ?? ""}`.trim()
-        : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
+        : isReleaseProposal
+          ? `release ${payload.version ?? "(version pending)"}`
+          : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
 
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
@@ -299,7 +305,9 @@ export function DecisionDetail() {
                     ? `agent · ${payload.kind ?? "decision"}`
                     : isIssueIntake
                       ? "issue · intake"
-                      : "tag change"}
+                      : isReleaseProposal
+                        ? "release"
+                        : "tag change"}
           </span>
           <span className="chip">{d.status}</span>
           <span className="chip">{decisionProjectLabel(d)}</span>
@@ -439,6 +447,27 @@ export function DecisionDetail() {
               comment thread becomes run context; runs comment back as the bot). dismiss leaves the
               issue untouched on GitHub.
             </p>
+          </div>
+        </Section>
+      ) : null}
+
+      {isReleaseProposal ? (
+        <Section title="release notes">
+          <div className="px-4 py-3 space-y-3 text-[14px] leading-relaxed text-[var(--color-fg-1)]">
+            <p className="text-[13px] text-[var(--color-fg-2)]">
+              Version{" "}
+              <span className="text-[var(--color-fg)]">{payload.version ?? "(pending)"}</span> was
+              determined from the change set since the last tag. Confirm to cut the release (bump +
+              changelog + tag); dismiss to discard. Editing the version/notes pre-confirm is a
+              follow-up — for now, dismiss and re-trigger if the version is wrong.
+            </p>
+            {payload.body ? (
+              <pre className="mono text-[12px] leading-relaxed text-[var(--color-fg-2)] whitespace-pre-wrap break-words max-h-[480px] overflow-y-auto">
+                {payload.body}
+              </pre>
+            ) : (
+              <p className="text-[var(--color-fg-3)]">no rendered body</p>
+            )}
           </div>
         </Section>
       ) : null}
@@ -938,6 +967,25 @@ export function DecisionDetail() {
               disabled={action.isPending}
             >
               promote to task
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => action.mutate({ action: "dismiss" })}
+              disabled={action.isPending}
+            >
+              dismiss
+            </button>
+          </div>
+        ) : isReleaseProposal ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => action.mutate({ action: "approve" })}
+              disabled={action.isPending}
+            >
+              cut release
             </button>
             <button
               type="button"

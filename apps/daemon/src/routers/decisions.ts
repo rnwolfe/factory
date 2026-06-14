@@ -8,10 +8,21 @@ import { inboxViewInput, snoozeWhere } from "../inbox-snooze.ts";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
+import { createTask } from "../projects/tasks.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
+
+interface ReleaseProposalPayload {
+  templateSlug: string;
+  version: string | null;
+  title: string;
+  body: string;
+  labels?: string[];
+  priority?: "low" | "med" | "high";
+  estimate?: "small" | "medium" | "large";
+}
 
 interface BlockedRunPayload {
   runId: string;
@@ -429,6 +440,40 @@ export const decisionsRouter = router({
             `could not adopt issue #${payload.number} — App unconfigured or issue missing`,
           );
         }
+        projectId = project.id;
+      }
+
+      if (input.action === "approve" && decision.kind === "release_proposal") {
+        // Confirm a release proposal: materialize the (already model-rendered)
+        // release task and submit a run to execute it. The version + changelog
+        // prose were resolved at proposal time and live in the decision payload;
+        // dismiss just discards the proposal, leaving no task behind.
+        if (!decision.projectId) throw new Error("release_proposal decision missing projectId");
+        const project = await ctx.db
+          .select()
+          .from(schema.projects)
+          .where(eq(schema.projects.id, decision.projectId))
+          .get();
+        if (!project) throw new Error("project not found");
+        const payload = decision.payload as ReleaseProposalPayload;
+        const created = await createTask(project, {
+          title: payload.title,
+          body: payload.body,
+          labels: payload.labels ?? ["release"],
+          priority: payload.priority ?? "med",
+          estimate: payload.estimate ?? "small",
+        });
+        const result = await submitRun(
+          {
+            config: ctx.config,
+            db: ctx.db,
+            events: ctx.events,
+            runs: ctx.runs,
+            pool: ctx.pool,
+          },
+          { projectId: project.id, taskId: created.id, agent: input.agent },
+        );
+        retryRunId = result.runId;
         projectId = project.id;
       }
 

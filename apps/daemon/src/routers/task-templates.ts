@@ -78,6 +78,12 @@ const TaskTemplateDraftSchema = z.object({
         description: z.string().max(200).default(""),
         required: z.boolean().default(true),
         default: z.string().nullable().default(null),
+        resolver: z
+          .union([
+            z.object({ kind: z.literal("operator") }),
+            z.object({ kind: z.literal("agent"), prompt: z.string().min(1).max(2000) }),
+          ])
+          .optional(),
       }),
     )
     .max(20)
@@ -92,6 +98,7 @@ const TaskTemplateDraftSchema = z.object({
     )
     .max(20)
     .default([]),
+  confirmInInbox: z.boolean().optional(),
 });
 
 export const taskTemplatesRouter = router({
@@ -208,6 +215,7 @@ export const taskTemplatesRouter = router({
           projectId: input.projectId,
           variables: input.variables,
           renderWithAgent: input.renderWithAgent,
+          events: ctx.events,
         });
       } catch (err) {
         if (err instanceof InstantiateTemplateError) {

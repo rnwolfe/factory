@@ -18,6 +18,7 @@ export const decisionKindEnum = [
   "merge_failure",
   "agent_decision",
   "issue_intake",
+  "release_proposal",
 ] as const;
 export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
 export const taskBackendEnum = ["file", "github-issues"] as const;
@@ -194,12 +195,25 @@ export interface ProjectVisionDraft {
  * template's body interpolates `{key}` against `value`; agent-rendered
  * sections see the same values surfaced in their context block.
  */
+/**
+ * How a template variable's value is filled at instantiate-time:
+ *   - `operator` (default when `resolver` is absent — fully back-compat):
+ *     prompt the operator on the instantiation form.
+ *   - `agent`: the model computes the value from project context (recent
+ *     commits, AGENTS.md, README, and `git log <last-tag>..HEAD`) using
+ *     `prompt`, instead of asking the operator. The resolved value is still
+ *     surfaced (and editable) downstream. First use: `release-project.version`.
+ */
+export type TaskTemplateVariableResolver = { kind: "operator" } | { kind: "agent"; prompt: string };
+
 export interface TaskTemplateVariable {
   key: string;
   label: string;
   description: string;
   required: boolean;
   default: string | null;
+  /** Absent ⇒ `{ kind: "operator" }`. See {@link TaskTemplateVariableResolver}. */
+  resolver?: TaskTemplateVariableResolver;
 }
 
 /**
@@ -229,6 +243,14 @@ export interface TaskTemplateDraft {
   estimate: "small" | "medium" | "large";
   variables: TaskTemplateVariable[];
   sections: TaskTemplateSection[];
+  /**
+   * When true, instantiation does not create a task directly. Instead it lands
+   * a `release_proposal` decision in the inbox carrying the resolved variables
+   * and rendered body; the operator confirms (executing the release run) or
+   * dismisses. Opt-in — absent/false preserves the direct-to-task behavior every
+   * existing template relies on. Set on `release-project`. See ADR-008.
+   */
+  confirmInInbox?: boolean;
 }
 
 export type PlanDraft =

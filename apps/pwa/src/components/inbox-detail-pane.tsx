@@ -146,6 +146,49 @@ function DecisionDetail({
     );
   }
 
+  if (row.kind === "release_proposal") {
+    const version = typeof row.payload?.version === "string" ? row.payload.version : null;
+    const body = typeof row.payload?.body === "string" ? row.payload.body : "";
+    return (
+      <DetailShell
+        chips={
+          <>
+            <span className="chip">{kindLabel(row.kind)}</span>
+            <span className="chip">{decisionProjectLabel(row)}</span>
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+              {timeAgo(row.createdAt)} ago
+            </span>
+          </>
+        }
+        title={`release ${version ?? "(version pending)"}`}
+        fullHref={`/decisions/${row.id}`}
+      >
+        <p className="text-[var(--color-fg-2)]">
+          Version determined from the change set. Confirm to cut the release (bump + changelog +
+          tag); the full notes are on the detail page.
+        </p>
+        {body ? (
+          <pre className="mono text-[12px] leading-relaxed text-[var(--color-fg-2)] whitespace-pre-wrap break-words max-h-[280px] overflow-y-auto">
+            {body.slice(0, 1200)}
+            {body.length > 1200 ? "\n…" : ""}
+          </pre>
+        ) : null}
+        <div className="flex flex-wrap gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => onAction("approve")}
+            className="btn btn-primary flex-1 min-w-[120px]"
+          >
+            cut release
+          </button>
+          <button type="button" onClick={() => onAction("dismiss")} className="btn">
+            dismiss
+          </button>
+        </div>
+      </DetailShell>
+    );
+  }
+
   return (
     <DetailShell
       chips={
@@ -391,5 +434,7 @@ function kindLabel(kind: DecisionRow["kind"]): string {
       return "agent · decision";
     case "issue_intake":
       return "issue · intake";
+    case "release_proposal":
+      return "release";
   }
 }
