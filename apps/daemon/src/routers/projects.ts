@@ -31,6 +31,7 @@ import {
   listTasks,
   readTaskFile,
   renderAcceptanceBlock,
+  updateTaskAgent,
   updateTaskBody,
   updateTaskModel,
   updateTaskStatus,
@@ -70,7 +71,7 @@ const tasksRouter = router({
       if (!project) return null;
       const task = await readTaskFile(project, input.taskId);
       if (!task) return null;
-      return { frontmatter: task.frontmatter, body: task.body };
+      return { frontmatter: task.frontmatter, body: task.body, projectAgent: project.agent };
     }),
   updateStatus: protectedProcedure
     .input(
@@ -146,6 +147,33 @@ const tasksRouter = router({
       await commitAllChanges(
         project.workdirPath,
         `chore: ${input.taskId} model -> ${input.model || "default"}`,
+        ctx.config.gitAuthor,
+      );
+      return updated.frontmatter;
+    }),
+  updateAgent: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        taskId: z.string(),
+        // Empty string clears the per-task override (falls back to project
+        // default at submit time). Non-empty values are constrained to the
+        // supported harnesses because submit ignores unknown task agents.
+        agent: z.enum(["claude-code", "codex"]).or(z.literal("")),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const updated = await updateTaskAgent(project, input.taskId, input.agent);
+      if (!updated) throw new Error("task not found");
+      await commitAllChanges(
+        project.workdirPath,
+        `chore: ${input.taskId} agent -> ${input.agent || "default"}`,
         ctx.config.gitAuthor,
       );
       return updated.frontmatter;

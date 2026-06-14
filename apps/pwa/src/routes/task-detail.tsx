@@ -3,7 +3,7 @@ import { ArrowLeft, ListTree, Pencil, Play, Snowflake, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { MarkdownView } from "../components/markdown-view.tsx";
-import { ModelPicker } from "../components/model-picker.tsx";
+import { AgentModelPicker, type AgentName } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { trpc } from "../lib/trpc.ts";
 
@@ -107,6 +107,16 @@ export function TaskDetail() {
       trpc.projects.tasks.updateModel.mutate({ projectId: id, taskId, model: modelId ?? "" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
+  const updateAgent = useMutation({
+    mutationFn: (agent: AgentName | null) =>
+      trpc.projects.tasks.updateAgent.mutate({ projectId: id, taskId, agent: agent ?? "" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
     },
   });
 
@@ -132,6 +142,9 @@ export function TaskDetail() {
   }
 
   const fm = task.data.frontmatter;
+  const projectAgent = (task.data.projectAgent as AgentName | null | undefined) ?? null;
+  const effectiveAgent =
+    (typeof fm.agent === "string" ? (fm.agent as AgentName) : projectAgent) ?? "claude-code";
   const isDone = fm.status === "done";
 
   return (
@@ -269,24 +282,29 @@ export function TaskDetail() {
       <section>
         <div className="flex items-center gap-2 px-1 mb-1.5">
           <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
-            model
+            agent · model
           </span>
           <div className="hairline flex-1" />
         </div>
         <div className="surface p-3">
-          <ModelPicker
-            value={typeof fm.model === "string" ? fm.model : null}
-            onChange={(id) => updateModel.mutate(id)}
-            disabled={updateModel.isPending}
+          <AgentModelPicker
+            agent={effectiveAgent}
+            model={typeof fm.model === "string" ? fm.model : null}
+            onAgentChange={(agent) => updateAgent.mutate(agent)}
+            onModelChange={(model) => updateModel.mutate(model)}
+            disabled={updateAgent.isPending || updateModel.isPending}
           />
           <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-2">
-            {fm.model
-              ? `pinned to ${String(fm.model)} for this task`
+            {fm.agent || fm.model
+              ? `task override${fm.agent ? ` · ${String(fm.agent)}` : ""}${fm.model ? ` · ${String(fm.model)}` : ""}`
               : "inherits from project default (which inherits from system default)"}
           </p>
-          {updateModel.isError ? (
+          {updateAgent.isError || updateModel.isError ? (
             <p className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
-              {(updateModel.error as Error).message}
+              {
+                ((updateAgent.error as Error | null) ?? (updateModel.error as Error | null))
+                  ?.message
+              }
             </p>
           ) : null}
         </div>

@@ -281,6 +281,14 @@ export class GithubIssuesStore implements TaskStore {
     return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
   }
 
+  async updateAgent(taskId: string, agent: string): Promise<TaskFile | null> {
+    const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
+    const trimmed = agent.trim();
+    if (trimmed) meta.agent = trimmed;
+    else meta.agent = undefined;
+    return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
+  }
+
   async updateBody(taskId: string, body: string): Promise<TaskFile | null> {
     const { meta } = parseTaskIssueBody(await this.rawBody(taskId));
     return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
