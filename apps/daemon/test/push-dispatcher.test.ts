@@ -92,7 +92,7 @@ async function insertRun(
 async function insertDecision(
   db: Setup["db"],
   opts: {
-    kind: "agent_decision" | "blocked_run" | "merge_failure" | "triage";
+    kind: "agent_decision" | "blocked_run" | "merge_failure" | "triage" | "issue_intake";
     projectId: string | null;
     payload?: unknown;
     outcome?: string;
@@ -195,6 +195,35 @@ describe("push dispatcher · payloadFor", () => {
       );
       expect(payload).not.toBeNull();
       expect(payload?.title).toBe("merge failed");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("issue_intake pushes a descriptive new-issue notification", async () => {
+    const { db, cleanup } = setup();
+    try {
+      const projectId = await insertProject(db, { autonomyMode: "autonomous" });
+      // Autonomy filter must NOT apply: an externally-filed issue is operator
+      // input, not a routine agent call, so it surfaces regardless of mode.
+      const decisionId = await insertDecision(db, {
+        kind: "issue_intake",
+        projectId,
+        outcome: "intake",
+        payload: { number: 42, title: "login button is broken", author: "octocat" },
+      });
+      const payload = await payloadFor(
+        { channel: "inbox", kind: "decision_created", decisionId, projectId },
+        db,
+        cfg,
+      );
+      expect(payload).not.toBeNull();
+      expect(payload?.title).toBe("new GitHub issue");
+      expect(payload?.body).toContain("#42");
+      expect(payload?.body).toContain("login button is broken");
+      expect(payload?.body).toContain("@octocat");
+      expect(payload?.url).toBe(`/decisions/${decisionId}`);
+      expect(payload?.tag).toBe(`decision:${decisionId}`);
     } finally {
       cleanup();
     }

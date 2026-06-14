@@ -161,6 +161,16 @@ function describeDecision(d: DecisionRow): { title: string; body: string } {
       body: outcome.length > 0 ? outcome : "an automated tag change is awaiting review.",
     };
   }
+  if (d.kind === "issue_intake") {
+    const p = (d.payload ?? {}) as { number?: unknown; title?: unknown; author?: unknown };
+    const num = typeof p.number === "number" ? `#${p.number} ` : "";
+    const title = typeof p.title === "string" && p.title.length > 0 ? p.title : "new issue";
+    const author = typeof p.author === "string" && p.author.length > 0 ? ` · @${p.author}` : "";
+    return {
+      title: "new GitHub issue",
+      body: `${num}${title.slice(0, 120)}${author}`,
+    };
+  }
   return {
     title: "decision needs review",
     body: outcome.length > 0 ? outcome : "a new decision landed in the inbox.",

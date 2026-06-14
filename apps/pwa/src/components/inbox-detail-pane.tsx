@@ -108,6 +108,43 @@ function DecisionDetail({
     ? (row.payload.clarifying_questions as string[])
     : [];
 
+  if (row.kind === "issue_intake") {
+    const number = typeof row.payload?.number === "number" ? row.payload.number : null;
+    const author = typeof row.payload?.author === "string" ? row.payload.author : null;
+    const issueTitle = typeof row.payload?.title === "string" ? row.payload.title : "";
+    return (
+      <DetailShell
+        chips={
+          <>
+            <span className="chip">{kindLabel(row.kind)}</span>
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+              {timeAgo(row.createdAt)} ago
+            </span>
+          </>
+        }
+        title={`#${number ?? "?"} ${issueTitle}`.trim()}
+        fullHref={`/decisions/${row.id}`}
+      >
+        <p className="text-[var(--color-fg-2)]">
+          filed by @{author ?? "unknown"} on GitHub — promote to adopt it as a task (the comment
+          thread becomes run context; runs comment back as the bot).
+        </p>
+        <div className="flex flex-wrap gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => onAction("approve")}
+            className="btn btn-primary flex-1 min-w-[120px]"
+          >
+            promote to task
+          </button>
+          <button type="button" onClick={() => onAction("dismiss")} className="btn">
+            dismiss
+          </button>
+        </div>
+      </DetailShell>
+    );
+  }
+
   return (
     <DetailShell
       chips={

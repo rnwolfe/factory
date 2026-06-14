@@ -77,6 +77,10 @@ interface DecisionPayload {
   decided?: string;
   options?: Array<{ title: string; tradeoff: string; chosen: boolean }>;
   reasoning?: string;
+  // issue_intake shape — an externally-filed GitHub issue offered for adoption
+  number?: number;
+  title?: string;
+  author?: string;
   override?:
     | { kind: "single"; choice: string }
     | { kind: "multi"; choices: string[] }
@@ -255,6 +259,7 @@ export function DecisionDetail() {
   const isBlockedRun = d.kind === "blocked_run";
   const isMergeFailure = d.kind === "merge_failure";
   const isAgentDecision = d.kind === "agent_decision";
+  const isIssueIntake = d.kind === "issue_intake";
   const isPending = d.status === "pending";
   const score = d.weightedScore != null ? d.weightedScore.toFixed(2) : "—";
   const uncertainty = d.uncertainty != null ? d.uncertainty.toFixed(2) : "—";
@@ -262,7 +267,9 @@ export function DecisionDetail() {
     ? `merge to main failed${payload.taskId ? ` for ${payload.taskId}` : ""} — ${payload.reason ?? "unknown"}`
     : isAgentDecision
       ? (payload.summary ?? d.outcome)
-      : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
+      : isIssueIntake
+        ? `#${payload.number ?? "?"} ${payload.title ?? ""}`.trim()
+        : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
 
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
@@ -289,7 +296,9 @@ export function DecisionDetail() {
                   ? "merge failure"
                   : isAgentDecision
                     ? `agent · ${payload.kind ?? "decision"}`
-                    : "tag change"}
+                    : isIssueIntake
+                      ? "issue · intake"
+                      : "tag change"}
           </span>
           <span className="chip">{d.status}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
@@ -413,6 +422,23 @@ export function DecisionDetail() {
             </Section>
           ) : null}
         </>
+      ) : null}
+
+      {isIssueIntake ? (
+        <Section title="github issue">
+          <div className="px-4 py-3 space-y-2 text-[14px] leading-relaxed text-[var(--color-fg-1)]">
+            <p>
+              <span className="mono text-[var(--color-fg-3)]">#{payload.number ?? "?"}</span> filed
+              by <span className="text-[var(--color-fg)]">@{payload.author ?? "unknown"}</span> on
+              GitHub.
+            </p>
+            <p className="text-[13px] text-[var(--color-fg-2)]">
+              promote to adopt it as a task on this project — Factory takes over the issue (the
+              comment thread becomes run context; runs comment back as the bot). dismiss leaves the
+              issue untouched on GitHub.
+            </p>
+          </div>
+        </Section>
       ) : null}
 
       {payload.rationale ? (
@@ -897,6 +923,25 @@ export function DecisionDetail() {
               className="btn"
               onClick={() => action.mutate({ action: "dismiss" })}
               disabled={action.isPending || startIntervention.isPending}
+            >
+              dismiss
+            </button>
+          </div>
+        ) : isIssueIntake ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => action.mutate({ action: "approve" })}
+              disabled={action.isPending}
+            >
+              promote to task
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => action.mutate({ action: "dismiss" })}
+              disabled={action.isPending}
             >
               dismiss
             </button>
