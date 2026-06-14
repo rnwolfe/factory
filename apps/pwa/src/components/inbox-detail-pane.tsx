@@ -1,4 +1,4 @@
-import { ArrowRight, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ArrowRight, Link as LinkIcon, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { AuditRow } from "./audit-card.tsx";
 import { type DecisionRow, decisionProjectLabel } from "./decision-card.tsx";
@@ -112,6 +112,7 @@ function DecisionDetail({
     const number = typeof row.payload?.number === "number" ? row.payload.number : null;
     const author = typeof row.payload?.author === "string" ? row.payload.author : null;
     const issueTitle = typeof row.payload?.title === "string" ? row.payload.title : "";
+    const htmlUrl = typeof row.payload?.htmlUrl === "string" ? row.payload.htmlUrl : null;
     return (
       <DetailShell
         chips={
@@ -130,6 +131,17 @@ function DecisionDetail({
           filed by @{author ?? "unknown"} on GitHub — promote to adopt it as a task (the comment
           thread becomes run context; runs comment back as the bot).
         </p>
+        {htmlUrl ? (
+          <a
+            href={htmlUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-accent)] hover:text-[var(--color-fg)]"
+          >
+            <LinkIcon size={13} />
+            open on GitHub
+          </a>
+        ) : null}
         <div className="flex flex-wrap gap-2 pt-2">
           <button
             type="button"

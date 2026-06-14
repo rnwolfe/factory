@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createDb, runMigrations, schema } from "@factory/db";
+import { EventBus } from "../src/events.ts";
 import {
   classifyWebhook,
   type GithubWebhookPayload,
+  handleGithubWebhook,
   verifyGithubSignature,
 } from "../src/github/webhook.ts";
 
@@ -41,6 +47,40 @@ function issuePayload(
     issue: { number: 1, title: "t", labels: [] },
     ...over,
   };
+}
+
+function setupDb() {
+  const root = mkdtempSync(path.join(tmpdir(), "factory-webhook-test-"));
+  const dbPath = path.join(root, "data.db");
+  runMigrations(dbPath);
+  const db = createDb(dbPath);
+  return {
+    db,
+    cleanup: () => {
+      try {
+        rmSync(root, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    },
+  };
+}
+
+async function insertGithubIssueProject(db: ReturnType<typeof createDb>): Promise<string> {
+  const id = "p-intake";
+  const now = Date.now();
+  await db.insert(schema.projects).values({
+    id,
+    slug: "intake",
+    name: "intake",
+    ceremony: "tinker",
+    workdirPath: "/tmp/intake",
+    createdAt: now,
+    lastActivityAt: now,
+    githubRemote: "https://github.com/rnwolfe/integrated.git",
+    taskBackend: "github-issues",
+  });
+  return id;
 }
 
 describe("classifyWebhook gating", () => {
@@ -89,6 +129,28 @@ describe("classifyWebhook gating", () => {
     expect(r.intake).toEqual({ number: 9, title: "Bug", author: "alice" });
   });
 
+  test("carries issue html_url when flagging an externally-opened issue for intake", () => {
+    const r = classifyWebhook(
+      "issues",
+      issuePayload("rnwolfe/integrated", {
+        issue: {
+          number: 9,
+          title: "Bug",
+          html_url: "https://github.com/rnwolfe/integrated/issues/9",
+          user: { login: "alice" },
+        },
+      }),
+      PROJECTS,
+    );
+    expect(r.status).toBe("processed");
+    expect(r.intake).toEqual({
+      number: 9,
+      title: "Bug",
+      author: "alice",
+      htmlUrl: "https://github.com/rnwolfe/integrated/issues/9",
+    });
+  });
+
   test("does not flag a factory-authored opened issue for intake", () => {
     const r = classifyWebhook(
       "issues",
@@ -97,5 +159,72 @@ describe("classifyWebhook gating", () => {
     );
     expect(r.status).toBe("processed");
     expect(r.reason).toContain("factory-authored");
+  });
+});
+
+describe("handleGithubWebhook issue_intake payload", () => {
+  test("creates an issue_intake decision payload with html_url when GitHub provides one", async () => {
+    const { db, cleanup } = setupDb();
+    try {
+      const projectId = await insertGithubIssueProject(db);
+      const published: unknown[] = [];
+      const events = new EventBus();
+      events.subscribe((event) => published.push(event));
+      const result = await handleGithubWebhook(
+        { db, events },
+        "issues",
+        issuePayload("rnwolfe/integrated", {
+          issue: {
+            number: 44,
+            title: "Expose provenance links",
+            html_url: "https://github.com/rnwolfe/integrated/issues/44",
+            user: { login: "octocat" },
+          },
+        }),
+      );
+
+      const rows = await db.select().from(schema.decisions).all();
+      expect(result.status).toBe("processed");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.kind).toBe("issue_intake");
+      expect(rows[0]?.projectId).toBe(projectId);
+      expect(rows[0]?.payload).toEqual({
+        number: 44,
+        title: "Expose provenance links",
+        author: "octocat",
+        htmlUrl: "https://github.com/rnwolfe/integrated/issues/44",
+      });
+      expect(published).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("creates an issue_intake decision payload without a URL for older payload shapes", async () => {
+    const { db, cleanup } = setupDb();
+    try {
+      await insertGithubIssueProject(db);
+      await handleGithubWebhook(
+        { db, events: new EventBus() },
+        "issues",
+        issuePayload("rnwolfe/integrated", {
+          issue: {
+            number: 45,
+            title: "Legacy issue event",
+            user: { login: "octocat" },
+          },
+        }),
+      );
+
+      const rows = await db.select().from(schema.decisions).all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.payload).toEqual({
+        number: 45,
+        title: "Legacy issue event",
+        author: "octocat",
+      });
+    } finally {
+      cleanup();
+    }
   });
 });

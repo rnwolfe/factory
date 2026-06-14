@@ -1,4 +1,4 @@
-import { ArrowRight, MoreHorizontal, Trash2 } from "lucide-react";
+import { ArrowRight, Link as LinkIcon, MoreHorizontal, Trash2 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -55,6 +55,7 @@ export interface DecisionRow {
     number?: number;
     title?: string;
     author?: string;
+    htmlUrl?: string;
     // release_proposal shape — a model-resolved version + rendered release body
     version?: string | null;
     body?: string;
@@ -335,8 +336,21 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
             ) : null}
           </div>
         ) : isIssueIntake ? (
-          <div className="px-4 pb-3 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
-            filed by @{decision.payload.author ?? "unknown"} on GitHub
+          <div className="px-4 pb-3 flex flex-wrap items-center gap-2 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
+            <span>filed by @{decision.payload.author ?? "unknown"} on GitHub</span>
+            {typeof decision.payload.htmlUrl === "string" && decision.payload.htmlUrl.length > 0 ? (
+              <a
+                href={decision.payload.htmlUrl}
+                target="_blank"
+                rel="noreferrer"
+                data-card-skip-open
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[var(--color-accent)] hover:text-[var(--color-fg)]"
+              >
+                <LinkIcon size={12} />
+                source
+              </a>
+            ) : null}
           </div>
         ) : isReleaseProposal ? (
           <div className="px-4 pb-3 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
