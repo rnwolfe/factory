@@ -66,13 +66,21 @@ const SEEDED_TEMPLATES: Array<{ slug: string; draft: TaskTemplateDraft }> = [
       labels: ["release"],
       priority: "med",
       estimate: "small",
+      confirmInInbox: true,
       variables: [
         {
           key: "version",
           label: "Version",
           description: "The new version, e.g. v0.5.0. Match the project's existing tag format.",
-          required: true,
+          // Model-resolved from the change set — the operator isn't asked for a
+          // number. An explicit operator value still overrides (see ADR-008).
+          required: false,
           default: null,
+          resolver: {
+            kind: "agent",
+            prompt:
+              "Determine the next version from the commits since the last v*.*.* tag, under semver-driven-by-conventional-commits (feat: → minor, fix:/chore:/docs:/refactor:/test: → patch, a `!` type or `BREAKING CHANGE:` footer → major; pre-1.0 projects stay on 0.x and treat feat as minor). Match the project's existing tag format (leading `v` if prior tags use it). If there is no prior tag, propose v0.1.0. Return ONLY the version string, e.g. v0.23.0.",
+          },
         },
         {
           key: "notes",
@@ -83,6 +91,17 @@ const SEEDED_TEMPLATES: Array<{ slug: string; draft: TaskTemplateDraft }> = [
         },
       ],
       sections: [
+        {
+          heading: "What's new",
+          kind: "agent",
+          body: `Draft the changelog entry prose for version **{version}** of this project — the operator-visible "what's new", to be reviewed in the inbox before the release is cut.
+
+Read the commits since the last v*.*.* tag (\`git log <last-tag>..HEAD --pretty=format:'%h %s'\`), the task titles/run summaries behind them where they clarify intent, and the prior changelog entry to match tone and section layout.
+
+Write a Keep-a-Changelog-style entry body: a one-line intro paragraph if warranted, then \`### Added\` / \`### Changed\` / \`### Fixed\` sections (skip empty ones), one bullet per operator-visible change. **Operator-visible only** — fold in routine chores/refactors only if a user would notice. Fold in the operator's extra framing if provided: {notes}.
+
+Output the markdown entry body only (no \`## v{version}\` header — that's added at write time, no fenced JSON, no preamble). This text becomes the changelog entry the release run writes.`,
+        },
         {
           heading: "Acceptance",
           kind: "static",
@@ -107,16 +126,14 @@ If \`skills/release/SKILL.md\` does **not** exist, fall back to the generic semv
 
 # Generic recipe (fallback)
 
+The version **{version}** was resolved from the change set and confirmed by the operator in the inbox — treat it as authoritative; do not re-derive or change it. The **What's new** section above is the operator-confirmed changelog prose — use it as the entry body, don't rewrite it from scratch.
+
 1. Verify preconditions: clean working tree, on primary branch (\`main\`), in sync with \`origin\`, project tests pass.
-2. Determine the version bump from commits since the last tag:
-   - \`feat:\` → minor (unless body says \`BREAKING CHANGE:\` → major).
-   - \`fix:\` / \`refactor:\` / \`chore:\` / \`docs:\` / \`test:\` → patch.
-   - The operator-supplied **{version}** is authoritative — match it.
-3. Update **{version}** in every file that carries the project's version. Common patterns: root \`package.json\`, every workspace's \`package.json\`, or a \`VERSION\` file.
-4. Write a changelog entry. If a \`CHANGELOG.md\` or \`HISTORY.md\` exists, append a new section at the top. Group commits by conventional-commit type (Added / Changed / Fixed / Documentation). Use the operator's notes if provided: **{notes}**.
-5. Single commit: \`chore(release): {version}\`.
-6. Annotated tag: \`git tag -a {version} -m "<version>\\n\\n<changelog entry body>"\`.
-7. Print the push commands (\`git push origin <branch>\` then \`git push origin {version}\`) and any project-specific post-tag step. **Do not run the push commands yourself** — push to a shared remote is operator-authorized.
+2. Update **{version}** in every file that carries the project's version. Common patterns: root \`package.json\`, every workspace's \`package.json\`, or a \`VERSION\` file.
+3. Write the changelog entry: if a \`CHANGELOG.md\` or \`HISTORY.md\` exists, prepend a new \`## {version} — <today>\` section whose body is the **What's new** prose above (lightly reconcile against the actual commits if anything drifted).
+4. Single commit: \`chore(release): {version}\`.
+5. Annotated tag: \`git tag -a {version} -m "<version>\\n\\n<changelog entry body>"\`.
+6. Print the push commands (\`git push origin <branch>\` then \`git push origin {version}\`) and any project-specific post-tag step. **Do not run the push commands yourself** — push to a shared remote is operator-authorized.
 
 # Reading list
 

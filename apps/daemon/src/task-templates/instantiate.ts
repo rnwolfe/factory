@@ -2,10 +2,12 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { type Db, schema, type TaskTemplateDraft, type TaskTemplateSection } from "@factory/db";
+import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
+import type { EventBus } from "../events.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { loadActiveTemplate } from "../plans/apply-task-template.ts";
 import { invokeClaudeJson } from "../plans/invoke-claude.ts";
@@ -16,7 +18,12 @@ export interface InstantiateTaskTemplateInput {
   db: Db;
   templateSlug: string;
   projectId: string;
-  /** Variable values keyed by variable.key. Missing required values throws. */
+  /**
+   * Operator-supplied variable values keyed by variable.key. An operator value
+   * always wins, even for `agent`-resolved variables (the operator can override
+   * the model's pick). Missing required `operator` variables throw; missing
+   * `agent` variables are filled by the model, not the operator.
+   */
   variables: Record<string, string>;
   /**
    * When true, sections with `kind: "agent"` get one model invocation each
@@ -25,12 +32,28 @@ export interface InstantiateTaskTemplateInput {
    * the operator can edit. Default true.
    */
   renderWithAgent?: boolean;
+  /**
+   * Required only when instantiating a template with `confirmInInbox` — the
+   * proposal decision is published on this bus so the inbox lights up live.
+   */
+  events?: EventBus;
 }
 
 export interface InstantiateTaskTemplateResult {
-  taskId: string;
+  /**
+   * `task` — a task file was created directly (the default for every template
+   * without `confirmInInbox`). `proposal` — a `release_proposal` decision was
+   * landed in the inbox instead; the task/run is created on operator confirm.
+   */
+  mode: "task" | "proposal";
+  /** Set when `mode === "task"`. */
+  taskId?: string;
+  /** Set when `mode === "proposal"`. */
+  decisionId?: string;
   title: string;
   bodyPreview: string;
+  /** Variable values after operator + default + agent resolution. */
+  resolvedVariables: Record<string, string>;
   /** Per-section render outcomes, surfaced so the PWA can flag agent failures. */
   sections: Array<{
     heading: string;
@@ -99,17 +122,37 @@ export async function instantiateTaskTemplate(
     throw new InstantiateTemplateError("project_not_found", `project not found: ${projectId}`);
   }
 
-  // Resolve effective variable map: operator inputs + defaults + a few
-  // project-derived helpers exposed to every template.
-  const vars = resolveVariables(template.draft, rawVars, {
+  const agent = resolveAgent(db, { projectAgent: project.agent });
+  const projectContext = await gatherProjectContext(project.workdirPath);
+
+  // Resolve operator/default variable values first; collect the keys that are
+  // model-resolved (`resolver.kind === "agent"`) so they can be filled from
+  // project state next. A few project-derived helpers are exposed to every
+  // template (projectName/projectSlug).
+  const { vars, agentKeys } = resolveVariables(template.draft, rawVars, {
     projectName: project.name,
     projectSlug: project.slug,
   });
+  // Fill model-resolved variables (e.g. release version) from the project's
+  // current state. An operator-supplied value already wins (it never lands in
+  // agentKeys), so this only computes the ones the operator left to the model.
+  // Gated on renderWithAgent: false means "no model calls at all" (agent vars
+  // fall back to their default / blank), matching how agent sections behave.
+  if (agentKeys.length > 0 && renderWithAgent) {
+    await resolveAgentVariables({
+      db,
+      draft: template.draft,
+      vars,
+      agentKeys,
+      agent,
+      projectId: project.id,
+      projectWorkdir: project.workdirPath,
+      projectContext,
+    });
+  }
 
   // Render each section. Agent sections run model invocations in parallel
   // when there's more than one, since each is independent.
-  const agent = resolveAgent(db, { projectAgent: project.agent });
-  const projectContext = await gatherProjectContext(project.workdirPath);
   const sectionResults = await Promise.all(
     template.draft.sections.map((section) =>
       renderSection({
@@ -129,6 +172,50 @@ export async function instantiateTaskTemplate(
 
   const body = sectionResults.map(({ heading, body }) => `## ${heading}\n\n${body}`).join("\n\n");
   const title = substitute(template.draft.titlePattern, vars).trim() || template.draft.name;
+  const sectionViews = sectionResults.map(({ heading, kind, agentRendered, error }) => ({
+    heading,
+    kind,
+    agentRendered,
+    error,
+  }));
+
+  // Confirm-in-inbox templates (release) don't create a task here. They land a
+  // `release_proposal` decision carrying the resolved version + rendered body;
+  // the task/run is created when the operator confirms (see decisions router).
+  if (template.draft.confirmInInbox) {
+    const decisionId = createId();
+    await db.insert(schema.decisions).values({
+      id: decisionId,
+      kind: "release_proposal",
+      projectId: project.id,
+      outcome: vars.version ? `release ${vars.version}` : "release",
+      payload: {
+        templateSlug,
+        version: vars.version ?? null,
+        title,
+        body,
+        labels: template.draft.labels,
+        priority: template.draft.priority,
+        estimate: template.draft.estimate,
+      },
+      status: "pending",
+      createdAt: Date.now(),
+    });
+    input.events?.publish({
+      channel: "inbox",
+      kind: "decision_created",
+      decisionId,
+      projectId: project.id,
+    });
+    return {
+      mode: "proposal",
+      decisionId,
+      title,
+      bodyPreview: body.slice(0, 400),
+      resolvedVariables: vars,
+      sections: sectionViews,
+    };
+  }
 
   const taskInput: CreateTaskInput = {
     title,
@@ -148,15 +235,12 @@ export async function instantiateTaskTemplate(
   }
 
   return {
+    mode: "task",
     taskId: created.id,
     title,
     bodyPreview: body.slice(0, 400),
-    sections: sectionResults.map(({ heading, kind, agentRendered, error }) => ({
-      heading,
-      kind,
-      agentRendered,
-      error,
-    })),
+    resolvedVariables: vars,
+    sections: sectionViews,
   };
 }
 
@@ -340,13 +424,23 @@ function resolveVariables(
   draft: TaskTemplateDraft,
   rawVars: Record<string, string>,
   derived: Record<string, string>,
-): Record<string, string> {
+): { vars: Record<string, string>; agentKeys: string[] } {
   const out: Record<string, string> = { ...derived };
+  const agentKeys: string[] = [];
   for (const v of draft.variables) {
     const raw = rawVars[v.key];
     const trimmed = typeof raw === "string" ? raw.trim() : "";
     if (trimmed.length > 0) {
+      // An explicit operator value always wins — even over an agent resolver.
       out[v.key] = trimmed;
+      continue;
+    }
+    if (v.resolver?.kind === "agent") {
+      // Filled by the model after context is gathered; seed blank so static
+      // sections referencing it don't render a literal `{key}` if resolution
+      // fails. Not subject to the required-throw — the operator wasn't asked.
+      out[v.key] = "";
+      agentKeys.push(v.key);
       continue;
     }
     if (v.default !== null && v.default !== undefined && v.default.length > 0) {
@@ -361,7 +455,144 @@ function resolveVariables(
     }
     out[v.key] = "";
   }
-  return out;
+  return { vars: out, agentKeys };
+}
+
+interface ResolveAgentVariablesInput {
+  db: Db;
+  draft: TaskTemplateDraft;
+  vars: Record<string, string>;
+  agentKeys: string[];
+  agent: string;
+  projectId: string;
+  projectWorkdir: string;
+  projectContext: ProjectContext;
+}
+
+/**
+ * Fill model-resolved variables in place. Each `agent`-resolver variable gets
+ * one `claude --print` pass over the project's state (last tag + commits since,
+ * AGENTS.md, the variables resolved so far) and the resolver's prompt, expecting
+ * a single-line value back. On failure or empty output, falls back to the
+ * variable's default (or leaves it blank) — the operator edits the resolved
+ * value in the proposal before confirming, so a miss is recoverable, not fatal.
+ */
+async function resolveAgentVariables(input: ResolveAgentVariablesInput): Promise<void> {
+  const { db, draft, vars, agentKeys, agent, projectId, projectWorkdir, projectContext } = input;
+  const changes = await gitChangesSinceLastTag(projectWorkdir);
+  for (const key of agentKeys) {
+    const def = draft.variables.find((v) => v.key === key);
+    if (!def || def.resolver?.kind !== "agent") continue;
+    try {
+      const prompt = buildVariableResolverPrompt({
+        resolverPrompt: def.resolver.prompt,
+        def,
+        vars,
+        projectContext,
+        changes,
+      });
+      const inv = await invokeClaudeJson(prompt, {
+        budgetSeconds: getAgentBudgetSeconds(),
+        agent: agent as "claude-code" | "codex",
+        cwd: projectWorkdir,
+      });
+      if (inv.metrics) {
+        await recordAgentMetrics({
+          db,
+          ownerKind: "plan_iteration",
+          ownerId: projectId,
+          projectId,
+          agent,
+          metrics: inv.metrics,
+        });
+      }
+      const value = firstLineValue(inv.text);
+      if (value.length > 0) vars[key] = value;
+      else if (def.default) vars[key] = def.default;
+    } catch {
+      if (def.default) vars[key] = def.default;
+    }
+  }
+}
+
+interface VariableResolverPromptInput {
+  resolverPrompt: string;
+  def: { key: string; label: string; description: string };
+  vars: Record<string, string>;
+  projectContext: ProjectContext;
+  changes: string;
+}
+
+function buildVariableResolverPrompt(input: VariableResolverPromptInput): string {
+  const { resolverPrompt, def, vars, projectContext, changes } = input;
+  const varsBlock =
+    Object.entries(vars)
+      .filter(([, v]) => v.length > 0)
+      .map(([k, v]) => `- ${k}: ${v}`)
+      .join("\n") || "(none resolved yet)";
+  return `You are resolving a single value for a task-template variable from the project's current state. Output ONLY the value — no prose, no markdown, no code fences.
+
+# Variable
+key: ${def.key}
+label: ${def.label}
+${def.description}
+
+# How to resolve it
+${resolverPrompt}
+
+# Project state
+## Last release tag + commits since
+${changes}
+
+## AGENTS.md (excerpt)
+${truncate(projectContext.agentsMd, 2000)}
+
+## Variables resolved so far
+${varsBlock}
+
+# Output
+Reply with ONLY the resolved value on a single line. No preamble, no explanation, no quotes, no backticks.`;
+}
+
+/**
+ * Pull a clean single-line value out of a model reply: first non-empty line,
+ * with wrapping backticks/quotes and a trailing period stripped. Models tend to
+ * answer a "return only the value" prompt cleanly, but occasionally wrap it.
+ */
+function firstLineValue(text: string): string {
+  const line = text
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (!line) return "";
+  return line.replace(/^[`'"]+|[`'".]+$/g, "").trim();
+}
+
+async function gitChangesSinceLastTag(workdirPath: string): Promise<string> {
+  if (!existsSync(path.join(workdirPath, ".git"))) return "(no git history)";
+  try {
+    const tagProc = bunSpawn({
+      cmd: ["git", "describe", "--tags", "--abbrev=0", "--match", "v*.*.*"],
+      cwd: workdirPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const lastTag = (await new Response(tagProc.stdout).text()).trim();
+    await tagProc.exited;
+    const range = lastTag ? `${lastTag}..HEAD` : "HEAD";
+    const logProc = bunSpawn({
+      cmd: ["git", "log", range, "--pretty=format:%h %s"],
+      cwd: workdirPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const log = (await new Response(logProc.stdout).text()).trim();
+    await logProc.exited;
+    const header = lastTag ? `last tag: ${lastTag}` : "no prior tag (first release)";
+    return `${header}\n\n${log || "(no commits since last tag)"}`;
+  } catch {
+    return "(git unavailable)";
+  }
 }
 
 function truncate(s: string, max: number): string {

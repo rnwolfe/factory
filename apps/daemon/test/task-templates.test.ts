@@ -195,7 +195,89 @@ describe("instantiateTaskTemplate", () => {
       // Verify the file actually landed.
       const taskDir = path.join(h.workdirPath, ".factory", "work");
       const files = readdirOrEmpty(taskDir);
-      expect(files.some((f) => f.startsWith(result.taskId))).toBe(true);
+      expect(result.mode).toBe("task");
+      expect(files.some((f) => f.startsWith(result.taskId ?? " "))).toBe(true);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  // confirmInInbox templates (release) land a release_proposal decision instead
+  // of creating a task. renderWithAgent:false skips all model calls, so an
+  // agent-resolved variable falls back to its default/blank — letting us test
+  // the proposal plumbing without spawning the CLI.
+  const RELEASE_DRAFT: TaskTemplateDraft = {
+    kind: "task_template",
+    name: "Release",
+    description: "Cut a release",
+    titlePattern: "Release {projectName} {version}",
+    labels: ["release"],
+    priority: "med",
+    estimate: "small",
+    confirmInInbox: true,
+    variables: [
+      {
+        key: "version",
+        label: "Version",
+        description: "Next version",
+        required: false,
+        default: null,
+        resolver: { kind: "agent", prompt: "Determine the next version." },
+      },
+    ],
+    sections: [{ heading: "Recipe", kind: "static", body: "Cut release {version}." }],
+  };
+
+  test("confirmInInbox lands a release_proposal decision instead of a task", async () => {
+    const h = mkHarness();
+    try {
+      const { projectId } = await seedProject(h.db, h.workdirPath);
+      await applyTaskTemplateFreeze({ db: h.db, draft: RELEASE_DRAFT, planId: createId() });
+
+      const result = await instantiateTaskTemplate({
+        db: h.db,
+        templateSlug: "release",
+        projectId,
+        variables: {}, // no operator version → model would resolve, but agent skipped
+        renderWithAgent: false,
+      });
+
+      expect(result.mode).toBe("proposal");
+      expect(result.decisionId).toBeDefined();
+      expect(result.taskId).toBeUndefined();
+      // No task file was written.
+      expect(readdirOrEmpty(path.join(h.workdirPath, ".factory", "work")).length).toBe(0);
+      // The decision row exists with the right kind + projectId.
+      const decision = await h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, result.decisionId ?? ""))
+        .get();
+      expect(decision?.kind).toBe("release_proposal");
+      expect(decision?.projectId).toBe(projectId);
+      expect(decision?.status).toBe("pending");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("operator-supplied value overrides an agent-resolved variable", async () => {
+    const h = mkHarness();
+    try {
+      const { projectId } = await seedProject(h.db, h.workdirPath);
+      await applyTaskTemplateFreeze({ db: h.db, draft: RELEASE_DRAFT, planId: createId() });
+
+      const result = await instantiateTaskTemplate({
+        db: h.db,
+        templateSlug: "release",
+        projectId,
+        variables: { version: "v9.9.9" }, // operator pins it; resolver must not run
+        renderWithAgent: true, // even with the agent enabled, the operator value wins
+      });
+
+      expect(result.mode).toBe("proposal");
+      expect(result.resolvedVariables.version).toBe("v9.9.9");
+      expect(result.title).toBe("Release Test Project v9.9.9");
     } finally {
       h.cleanup();
     }

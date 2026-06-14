@@ -16,7 +16,8 @@ export interface DecisionRow {
     | "blocked_run"
     | "merge_failure"
     | "agent_decision"
-    | "issue_intake";
+    | "issue_intake"
+    | "release_proposal";
   outcome: string;
   weightedScore: number | null;
   uncertainty: number | null;
@@ -54,6 +55,9 @@ export interface DecisionRow {
     number?: number;
     title?: string;
     author?: string;
+    // release_proposal shape — a model-resolved version + rendered release body
+    version?: string | null;
+    body?: string;
     [k: string]: unknown;
   };
   ideaId?: string | null;
@@ -98,6 +102,8 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
       return "agent · decision";
     case "issue_intake":
       return "issue · intake";
+    case "release_proposal":
+      return "release";
   }
 }
 
@@ -184,6 +190,7 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
   const isMergeFailure = decision.kind === "merge_failure";
   const isAgentDecision = decision.kind === "agent_decision";
   const isIssueIntake = decision.kind === "issue_intake";
+  const isReleaseProposal = decision.kind === "release_proposal";
 
   const blockedHeadline = isBlockedRun
     ? (decision.payload.summary ??
@@ -204,11 +211,16 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
     ? `#${decision.payload.number ?? "?"} ${decision.payload.title ?? ""}`.trim()
     : null;
 
+  const releaseHeadline = isReleaseProposal
+    ? `release ${decision.payload.version ?? "(version pending)"}`
+    : null;
+
   const headline =
     blockedHeadline ??
     mergeFailHeadline ??
     agentDecisionHeadline ??
     issueIntakeHeadline ??
+    releaseHeadline ??
     decision.payload.title_suggestion ??
     (ideaText ? ideaText.slice(0, 80) : decision.outcome);
 
@@ -326,6 +338,10 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
           <div className="px-4 pb-3 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
             filed by @{decision.payload.author ?? "unknown"} on GitHub
           </div>
+        ) : isReleaseProposal ? (
+          <div className="px-4 pb-3 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
+            confirm to cut · model-determined version
+          </div>
         ) : null}
 
         {isTriage ? (
@@ -364,6 +380,16 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
           <div className="grid grid-cols-2 border-t border-[var(--color-line)]">
             <ActionBtn
               label="promote"
+              tone="primary"
+              onClick={() => onAction("approve")}
+              showArrow
+            />
+            <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
+          </div>
+        ) : isReleaseProposal ? (
+          <div className="grid grid-cols-2 border-t border-[var(--color-line)]">
+            <ActionBtn
+              label="cut release"
               tone="primary"
               onClick={() => onAction("approve")}
               showArrow
