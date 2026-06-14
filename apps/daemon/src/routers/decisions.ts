@@ -4,7 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
-import { inboxViewInput, snoozeWhere } from "../inbox-snooze.ts";
+import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
@@ -177,6 +177,36 @@ export const decisionsRouter = router({
       )
       .orderBy(desc(schema.decisions.createdAt))
       .all();
+  }),
+
+  snooze: protectedProcedure.input(snoozeInput).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.db
+      .select({ id: schema.decisions.id, status: schema.decisions.status })
+      .from(schema.decisions)
+      .where(eq(schema.decisions.id, input.id))
+      .get();
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "decision not found" });
+    if (existing.status !== "pending") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "decision is not pending" });
+    }
+
+    await ctx.db
+      .update(schema.decisions)
+      .set({ snoozedUntil: input.snoozedUntil })
+      .where(eq(schema.decisions.id, input.id));
+
+    ctx.events.publish({
+      channel: "inbox",
+      kind: "decision_updated",
+      decisionId: input.id,
+    });
+
+    return ctx.db
+      .select(decisionWithProjectSelect)
+      .from(schema.decisions)
+      .leftJoin(schema.projects, eq(schema.projects.id, schema.decisions.projectId))
+      .where(eq(schema.decisions.id, input.id))
+      .get();
   }),
 
   history: protectedProcedure

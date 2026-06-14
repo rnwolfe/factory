@@ -17,6 +17,11 @@ export const inboxViewInput = z
   .object({ view: z.enum(["active", "snoozed"]).default("active") })
   .default({ view: "active" });
 
+export const snoozeInput = z.object({
+  id: z.string(),
+  snoozedUntil: z.number().int().min(0).nullable(),
+});
+
 /**
  * Snooze predicate for an inbox query, parameterized by the row's
  * `snoozedUntil` column.

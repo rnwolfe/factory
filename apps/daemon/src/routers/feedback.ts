@@ -6,9 +6,10 @@ import {
   appendFeedback,
   getFeedback,
   listOpenFeedback,
+  setFeedbackSnooze,
   setFeedbackStatus,
 } from "../feedback/store.ts";
-import { inboxViewInput } from "../inbox-snooze.ts";
+import { inboxViewInput, snoozeInput } from "../inbox-snooze.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const VoteEnum = z.enum(["up", "down"]);
@@ -60,6 +61,20 @@ export const feedbackRouter = router({
 
   inbox: protectedProcedure.input(inboxViewInput).query(async ({ ctx, input }) => {
     return listOpenFeedback(ctx.db, input.view);
+  }),
+
+  snooze: protectedProcedure.input(snoozeInput).mutation(async ({ ctx, input }) => {
+    const row = setFeedbackSnooze(ctx.db, input.id, input.snoozedUntil);
+    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "feedback not found" });
+    if (row.status !== "open" && row.status !== "in_progress") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "feedback is not open" });
+    }
+    ctx.events.publish({
+      channel: "inbox",
+      kind: "feedback_updated",
+      feedbackId: row.id,
+    });
+    return row;
   }),
 
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {

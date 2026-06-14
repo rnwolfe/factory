@@ -17,6 +17,7 @@ export interface PlanRow {
   taskId: string | null;
   goal: string;
   draft: string;
+  snoozedUntil?: number | null;
   createdAt: number;
   updatedAt: number;
   frozenAt?: number | null;
@@ -34,6 +35,7 @@ interface Props {
   plan: PlanRow;
   hint?: PlanThreadHint | null;
   index?: number;
+  snoozeControl?: React.ReactNode;
   onOpen: () => void;
 }
 
@@ -60,20 +62,21 @@ function timeAgo(ts: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export function PlanCard({ plan, hint, index = 0, onOpen }: Props) {
+export function PlanCard({ plan, hint, index = 0, snoozeControl, onOpen }: Props) {
   return (
     <div
       className="surface drop-in border-l-2 border-[var(--color-verdict-decompose,_var(--color-accent))]"
       style={{ animationDelay: `${index * 40}ms` }}
     >
+      <div className="px-4 pt-3 pb-2 flex items-center gap-2 flex-wrap">
+        <span className={cn("chip", "chip-decompose")}>{kindLabel(plan.kind)}</span>
+        <span className="chip">{plan.status}</span>
+        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+          · {timeAgo(plan.updatedAt || plan.createdAt)} ago
+        </span>
+        {snoozeControl}
+      </div>
       <button type="button" onClick={onOpen} className="w-full text-left">
-        <div className="px-4 pt-3 pb-2 flex items-center gap-2 flex-wrap">
-          <span className={cn("chip", "chip-decompose")}>{kindLabel(plan.kind)}</span>
-          <span className="chip">{plan.status}</span>
-          <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
-            · {timeAgo(plan.updatedAt || plan.createdAt)} ago
-          </span>
-        </div>
         <div className="px-4 pb-3">
           <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2">
             {plan.goal || "(unnamed plan)"}

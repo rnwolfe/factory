@@ -62,6 +62,16 @@ export function setFeedbackStatus(
   return getFeedback(db, id);
 }
 
+export function setFeedbackSnooze(db: Db, id: string, snoozedUntil: number | null) {
+  db.update(schema.feedback)
+    .set({ snoozedUntil })
+    .where(
+      and(eq(schema.feedback.id, id), inArray(schema.feedback.status, ["open", "in_progress"])),
+    )
+    .run();
+  return getFeedback(db, id);
+}
+
 export function setFeedbackSession(db: Db, id: string, sessionId: string) {
   db.update(schema.feedback)
     .set({ claudeSessionId: sessionId })
