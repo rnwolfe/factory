@@ -4,7 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { inboxViewInput, snoozeWhere } from "../inbox-snooze.ts";
+import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { applyFeaturePlanFreeze } from "../plans/apply-feature-plan.ts";
 import { applyProjectVisionFreeze } from "../plans/apply-project-vision.ts";
 import { applyTaskTemplateFreeze, seedTaskTemplateDraft } from "../plans/apply-task-template.ts";
@@ -37,6 +37,31 @@ export const plansRouter = router({
       )
       .orderBy(desc(schema.plans.createdAt))
       .all();
+  }),
+
+  snooze: protectedProcedure.input(snoozeInput).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.db
+      .select({ id: schema.plans.id, status: schema.plans.status })
+      .from(schema.plans)
+      .where(eq(schema.plans.id, input.id))
+      .get();
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "plan not found" });
+    if (existing.status !== "drafting") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "plan is not drafting" });
+    }
+
+    await ctx.db
+      .update(schema.plans)
+      .set({ snoozedUntil: input.snoozedUntil })
+      .where(eq(schema.plans.id, input.id));
+
+    ctx.events.publish({
+      channel: "inbox",
+      kind: "plan_updated",
+      planId: input.id,
+    });
+
+    return ctx.db.select().from(schema.plans).where(eq(schema.plans.id, input.id)).get();
   }),
 
   list: protectedProcedure

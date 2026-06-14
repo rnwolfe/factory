@@ -21,6 +21,7 @@ export interface DecisionRow {
   outcome: string;
   weightedScore: number | null;
   uncertainty: number | null;
+  snoozedUntil?: number | null;
   createdAt: number;
   payload: {
     rationale?: string;
@@ -70,6 +71,7 @@ interface Props {
   ideaText?: string | null;
   onAction: (action: "approve" | "park" | "trash" | "decompose" | "dismiss") => void;
   onOpen: () => void;
+  snoozeControl?: React.ReactNode;
   index?: number;
 }
 
@@ -130,7 +132,14 @@ export function decisionProjectLabel(
   return `project ${decision.projectId.slice(0, 8)}`;
 }
 
-export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }: Props) {
+export function DecisionCard({
+  decision,
+  ideaText,
+  onAction,
+  onOpen,
+  snoozeControl,
+  index = 0,
+}: Props) {
   const [dx, setDx] = useState(0);
   const startX = useRef<number | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -276,17 +285,20 @@ export function DecisionCard({ decision, ideaText, onAction, onOpen, index = 0 }
               · {timeAgo(decision.createdAt)} ago
             </span>
           </div>
-          <button
-            type="button"
-            aria-label="more"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((v) => !v);
-            }}
-            className="text-[var(--color-fg-2)] hover:text-[var(--color-fg)] p-1 -mr-1"
-          >
-            <MoreHorizontal size={16} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {snoozeControl}
+            <button
+              type="button"
+              aria-label="more"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen((v) => !v);
+              }}
+              className="text-[var(--color-fg-2)] hover:text-[var(--color-fg)] p-1 -mr-1"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+          </div>
         </div>
 
         <button type="button" onClick={onOpen} className="w-full text-left px-4 pb-3">

@@ -11,7 +11,7 @@ import { bridgePromoteFindings } from "../audits/promote.ts";
 import { computeSkillVersion } from "../audits/prompts.ts";
 import { commitApprovedAuditReport } from "../audits/report-commit.ts";
 import { installAuditTemplate, listAuditTemplates } from "../audits/templates.ts";
-import { inboxViewInput, snoozeWhere } from "../inbox-snooze.ts";
+import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { seedTaskPlanDraft } from "../plans/iterate.ts";
 import { listAuditSkills, readAuditSkill } from "../projects/audit-skills.ts";
 import { createTask } from "../projects/tasks.ts";
@@ -74,6 +74,31 @@ export const auditsRouter = router({
       )
       .orderBy(desc(schema.audits.startedAt))
       .all();
+  }),
+
+  snooze: protectedProcedure.input(snoozeInput).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.db
+      .select({ id: schema.audits.id, status: schema.audits.status })
+      .from(schema.audits)
+      .where(eq(schema.audits.id, input.id))
+      .get();
+    if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "audit not found" });
+    if (existing.status !== "completed") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "audit is not completed" });
+    }
+
+    await ctx.db
+      .update(schema.audits)
+      .set({ snoozedUntil: input.snoozedUntil })
+      .where(eq(schema.audits.id, input.id));
+
+    ctx.events.publish({
+      channel: "inbox",
+      kind: "audit_updated",
+      auditId: input.id,
+    });
+
+    return ctx.db.select().from(schema.audits).where(eq(schema.audits.id, input.id)).get();
   }),
 
   listSkills: protectedProcedure

@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Plus, ThumbsDown, ThumbsUp } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { type QueryKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Clock, FileText, Plus, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuditCard, type AuditRow } from "../components/audit-card.tsx";
 import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx";
@@ -15,6 +15,7 @@ interface FeedbackInboxRow {
   body: string;
   contextHint: string | null;
   status: "open" | "in_progress" | "resolved" | "dismissed";
+  snoozedUntil?: number | null;
   createdAt: number;
 }
 
@@ -43,6 +44,16 @@ function isDesktopViewport(): boolean {
 }
 
 type InboxView = "active" | "snoozed";
+type SnoozeTarget = InboxItem["kind"];
+type SnoozeVars = { kind: SnoozeTarget; id: string; snoozedUntil: number | null };
+type SnoozeContext = { queryKey: QueryKey; prev?: Array<{ id: string }> };
+
+const SNOOZE_PRESETS = [
+  { label: "1 hour", ms: 60 * 60 * 1000 },
+  { label: "tomorrow", ms: 24 * 60 * 60 * 1000 },
+  { label: "1 week", ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: "3 weeks", ms: 21 * 24 * 60 * 60 * 1000 },
+] as const;
 
 export function Inbox() {
   const qc = useQueryClient();
@@ -153,6 +164,58 @@ export function Inbox() {
       action.mutate({ decisionId, action: a });
     },
     [action],
+  );
+
+  const snooze = useMutation<unknown, Error, SnoozeVars, SnoozeContext>({
+    mutationFn: async (vars) => {
+      const input = { id: vars.id, snoozedUntil: vars.snoozedUntil };
+      switch (vars.kind) {
+        case "decision":
+          await trpc.decisions.snooze.mutate(input);
+          return;
+        case "plan":
+          await trpc.plans.snooze.mutate(input);
+          return;
+        case "audit":
+          await trpc.audits.snooze.mutate(input);
+          return;
+        case "feedback":
+          await trpc.feedback.snooze.mutate(input);
+          return;
+      }
+    },
+    onMutate: async (vars) => {
+      const queryKey =
+        vars.kind === "decision"
+          ? ["decisions.inbox", view]
+          : vars.kind === "plan"
+            ? ["plans.inbox", view]
+            : vars.kind === "audit"
+              ? ["audits.inbox", view]
+              : ["feedback.inbox", view];
+      await qc.cancelQueries({ queryKey });
+      const prev = qc.getQueryData<Array<{ id: string }>>(queryKey);
+      qc.setQueryData<Array<{ id: string }>>(queryKey, (rows) =>
+        (rows ?? []).filter((r) => r.id !== vars.id),
+      );
+      return { queryKey, prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(ctx.queryKey, ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      qc.invalidateQueries({ queryKey: ["plans.inbox"] });
+      qc.invalidateQueries({ queryKey: ["audits.inbox"] });
+      qc.invalidateQueries({ queryKey: ["feedback.inbox"] });
+    },
+  });
+
+  const handleSnooze = useCallback(
+    (kind: SnoozeTarget, id: string, snoozedUntil: number | null) => {
+      snooze.mutate({ kind, id, snoozedUntil });
+    },
+    [snooze],
   );
 
   // Triaging ideas are live work, not snoozed items — only show them in the
@@ -305,6 +368,14 @@ export function Inbox() {
                   index={i}
                   onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
                   onOpen={() => openDecision(d)}
+                  snoozeControl={
+                    <SnoozeControl
+                      view={view}
+                      disabled={snooze.isPending}
+                      snoozedUntil={d.snoozedUntil ?? null}
+                      onSnooze={(until) => handleSnooze("decision", d.id, until)}
+                    />
+                  }
                 />
               </SelectableWrapper>
             );
@@ -313,14 +384,37 @@ export function Inbox() {
             const p = item.row;
             return (
               <SelectableWrapper key={p.id} active={isSelected}>
-                <PlanCard plan={p} index={i} onOpen={() => openPlan(p)} />
+                <PlanCard
+                  plan={p}
+                  index={i}
+                  onOpen={() => openPlan(p)}
+                  snoozeControl={
+                    <SnoozeControl
+                      view={view}
+                      disabled={snooze.isPending}
+                      snoozedUntil={p.snoozedUntil ?? null}
+                      onSnooze={(until) => handleSnooze("plan", p.id, until)}
+                    />
+                  }
+                />
               </SelectableWrapper>
             );
           }
           if (item.kind === "feedback") {
             return (
               <SelectableWrapper key={item.row.id} active={isSelected}>
-                <FeedbackCard row={item.row} onOpen={() => openFeedback(item.row)} />
+                <FeedbackCard
+                  row={item.row}
+                  onOpen={() => openFeedback(item.row)}
+                  snoozeControl={
+                    <SnoozeControl
+                      view={view}
+                      disabled={snooze.isPending}
+                      snoozedUntil={item.row.snoozedUntil ?? null}
+                      onSnooze={(until) => handleSnooze("feedback", item.row.id, until)}
+                    />
+                  }
+                />
               </SelectableWrapper>
             );
           }
@@ -332,6 +426,14 @@ export function Inbox() {
                 projectName={projectNameById.get(a.projectId) ?? null}
                 index={i}
                 onOpen={() => openAudit(a)}
+                snoozeControl={
+                  <SnoozeControl
+                    view={view}
+                    disabled={snooze.isPending}
+                    snoozedUntil={a.snoozedUntil ?? null}
+                    onSnooze={(until) => handleSnooze("audit", a.id, until)}
+                  />
+                }
               />
             </SelectableWrapper>
           );
@@ -382,7 +484,15 @@ function SelectableWrapper({ active, children }: { active: boolean; children: Re
   );
 }
 
-function FeedbackCard({ row, onOpen }: { row: FeedbackInboxRow; onOpen: () => void }) {
+function FeedbackCard({
+  row,
+  onOpen,
+  snoozeControl,
+}: {
+  row: FeedbackInboxRow;
+  onOpen: () => void;
+  snoozeControl?: React.ReactNode;
+}) {
   const elapsed = Math.max(0, Math.floor((Date.now() - row.createdAt) / 1000));
   const elapsedLabel =
     elapsed < 60
@@ -391,30 +501,122 @@ function FeedbackCard({ row, onOpen }: { row: FeedbackInboxRow; onOpen: () => vo
         ? `${Math.floor(elapsed / 60)}m`
         : `${Math.floor(elapsed / 3600)}h`;
   return (
-    <Link
-      to={`/feedback/${row.id}`}
-      onClick={(e) => {
-        if (isDesktopViewport()) {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
-      className="surface drop-in px-4 py-3 flex flex-col gap-1.5 active:bg-[var(--color-bg-2)]"
+    <div className="surface drop-in relative active:bg-[var(--color-bg-2)]">
+      <Link
+        to={`/feedback/${row.id}`}
+        onClick={(e) => {
+          if (isDesktopViewport()) {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
+        className="block px-4 py-3 pr-12"
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <span className="chip flex items-center gap-1.5">
+            {row.vote === "up" ? <ThumbsUp size={11} /> : <ThumbsDown size={11} />}
+            feedback
+          </span>
+          {row.contextHint ? <span className="chip">{row.contextHint}</span> : null}
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+            {elapsedLabel} ago
+          </span>
+        </div>
+        <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)] line-clamp-2">
+          {row.body}
+        </p>
+      </Link>
+      <div className="absolute right-3 top-3">{snoozeControl}</div>
+    </div>
+  );
+}
+
+function SnoozeControl({
+  view,
+  snoozedUntil,
+  disabled,
+  onSnooze,
+}: {
+  view: InboxView;
+  snoozedUntil: number | null;
+  disabled?: boolean;
+  onSnooze: (snoozedUntil: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const isSnoozed = view === "snoozed" || (snoozedUntil != null && snoozedUntil > Date.now());
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative" data-card-skip-open>
+      <button
+        type="button"
+        aria-label={isSnoozed ? "change snooze" : "snooze"}
+        disabled={disabled}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="h-7 w-7 inline-flex items-center justify-center text-[var(--color-fg-2)] hover:text-[var(--color-accent)] disabled:opacity-50"
+      >
+        <Clock size={15} />
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-8 z-20 surface-2 shadow-[var(--shadow-elev)] py-1 min-w-[176px] text-[13px]">
+          {view === "snoozed" ? (
+            <SnoozeMenuItem
+              label="wake now"
+              icon={<RotateCcw size={13} />}
+              onClick={() => {
+                onSnooze(null);
+                setOpen(false);
+              }}
+            />
+          ) : null}
+          {SNOOZE_PRESETS.map((preset) => (
+            <SnoozeMenuItem
+              key={preset.label}
+              label={preset.label}
+              onClick={() => {
+                onSnooze(Date.now() + preset.ms);
+                setOpen(false);
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SnoozeMenuItem({
+  label,
+  onClick,
+  icon,
+}: {
+  label: string;
+  onClick: () => void;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={onClick}
+      className="w-full text-left px-3 py-2 hover:bg-[var(--color-bg-3)] flex items-center gap-2 text-[var(--color-fg-1)]"
     >
-      <div className="flex items-center gap-2 mb-1">
-        <span className="chip flex items-center gap-1.5">
-          {row.vote === "up" ? <ThumbsUp size={11} /> : <ThumbsDown size={11} />}
-          feedback
-        </span>
-        {row.contextHint ? <span className="chip">{row.contextHint}</span> : null}
-        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
-          {elapsedLabel} ago
-        </span>
-      </div>
-      <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)] line-clamp-2">
-        {row.body}
-      </p>
-    </Link>
+      {icon}
+      {label}
+    </button>
   );
 }
 
