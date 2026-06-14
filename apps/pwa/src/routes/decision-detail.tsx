@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Link as LinkIcon } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { decisionProjectLabel } from "../components/decision-card.tsx";
@@ -7,6 +7,7 @@ import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
 import { RecoveryPrompt } from "../components/recovery-prompt.tsx";
+import { SourceIssueLink, sourceIssueLabel } from "../components/source-issue-link.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -269,12 +270,16 @@ export function DecisionDetail() {
   const isPending = d.status === "pending";
   const score = d.weightedScore != null ? d.weightedScore.toFixed(2) : "—";
   const uncertainty = d.uncertainty != null ? d.uncertainty.toFixed(2) : "—";
+  const issueNumber = typeof payload.number === "number" ? payload.number : null;
+  const issueTitle = typeof payload.title === "string" ? payload.title : "";
+  const issueHtmlUrl =
+    typeof payload.htmlUrl === "string" && payload.htmlUrl.length > 0 ? payload.htmlUrl : null;
   const headline = isMergeFailure
     ? `merge to main failed${payload.taskId ? ` for ${payload.taskId}` : ""} — ${payload.reason ?? "unknown"}`
     : isAgentDecision
       ? (payload.summary ?? d.outcome)
       : isIssueIntake
-        ? `#${payload.number ?? "?"} ${payload.title ?? ""}`.trim()
+        ? sourceIssueLabel(issueNumber, issueTitle)
         : isReleaseProposal
           ? `release ${payload.version ?? "(version pending)"}`
           : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
@@ -317,7 +322,18 @@ export function DecisionDetail() {
           </span>
         </div>
 
-        <h1 className="display text-[22px] leading-snug text-[var(--color-fg)] mt-1">{headline}</h1>
+        <h1 className="display text-[22px] leading-snug text-[var(--color-fg)] mt-1 break-words [overflow-wrap:anywhere]">
+          {isIssueIntake ? (
+            <SourceIssueLink
+              number={issueNumber}
+              title={issueTitle}
+              href={issueHtmlUrl}
+              className="break-words [overflow-wrap:anywhere]"
+            />
+          ) : (
+            headline
+          )}
+        </h1>
 
         {isTriage ? (
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -438,22 +454,17 @@ export function DecisionDetail() {
       {isIssueIntake ? (
         <Section title="github issue">
           <div className="px-4 py-3 space-y-2 text-[14px] leading-relaxed text-[var(--color-fg-1)]">
-            <p>
-              <span className="mono text-[var(--color-fg-3)]">#{payload.number ?? "?"}</span> filed
-              by <span className="text-[var(--color-fg)]">@{payload.author ?? "unknown"}</span> on
+            <p className="break-words [overflow-wrap:anywhere]">
+              <SourceIssueLink
+                number={issueNumber}
+                title={issueTitle}
+                href={issueHtmlUrl}
+                className="font-medium break-words [overflow-wrap:anywhere]"
+              />{" "}
+              filed by{" "}
+              <span className="text-[var(--color-fg)]">@{payload.author ?? "unknown"}</span> on
               GitHub.
             </p>
-            {payload.htmlUrl ? (
-              <a
-                href={payload.htmlUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-accent)] hover:text-[var(--color-fg)]"
-              >
-                <LinkIcon size={13} />
-                open on GitHub
-              </a>
-            ) : null}
             <p className="text-[13px] text-[var(--color-fg-2)]">
               promote to adopt it as a task on this project — Factory takes over the issue (the
               comment thread becomes run context; runs comment back as the bot). dismiss leaves the

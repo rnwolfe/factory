@@ -1,8 +1,9 @@
-import { ArrowRight, Link as LinkIcon, ThumbsDown, ThumbsUp } from "lucide-react";
+import { ArrowRight, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { AuditRow } from "./audit-card.tsx";
 import { type DecisionRow, decisionProjectLabel } from "./decision-card.tsx";
 import type { PlanRow } from "./plan-card.tsx";
+import { SourceIssueLink } from "./source-issue-link.tsx";
 
 interface FeedbackInboxRow {
   id: string;
@@ -71,14 +72,16 @@ function DetailShell({
   children,
 }: {
   chips: React.ReactNode;
-  title: string;
+  title: React.ReactNode;
   fullHref: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="surface p-5">
       <div className="flex flex-wrap items-center gap-1.5 mb-3">{chips}</div>
-      <h2 className="display text-[18px] leading-snug text-[var(--color-fg)] mb-4">{title}</h2>
+      <h2 className="display text-[18px] leading-snug text-[var(--color-fg)] mb-4 break-words [overflow-wrap:anywhere]">
+        {title}
+      </h2>
       <div className="space-y-3 text-[13px] leading-relaxed text-[var(--color-fg-1)]">
         {children}
       </div>
@@ -124,24 +127,20 @@ function DecisionDetail({
             </span>
           </>
         }
-        title={`#${number ?? "?"} ${issueTitle}`.trim()}
+        title={
+          <SourceIssueLink
+            number={number}
+            title={issueTitle}
+            href={htmlUrl}
+            className="break-words [overflow-wrap:anywhere]"
+          />
+        }
         fullHref={`/decisions/${row.id}`}
       >
         <p className="text-[var(--color-fg-2)]">
           filed by @{author ?? "unknown"} on GitHub — promote to adopt it as a task (the comment
           thread becomes run context; runs comment back as the bot).
         </p>
-        {htmlUrl ? (
-          <a
-            href={htmlUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-accent)] hover:text-[var(--color-fg)]"
-          >
-            <LinkIcon size={13} />
-            open on GitHub
-          </a>
-        ) : null}
         <div className="flex flex-wrap gap-2 pt-2">
           <button
             type="button"
