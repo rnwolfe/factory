@@ -1,11 +1,11 @@
 ---
 id: task-039
 title: Carry feedback triage thread context into promoted task/plan
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T11:09:13.535Z
-updated: 2026-06-14T11:09:13.535Z
+updated: 2026-06-14T23:17:06.427Z
 labels:
   - feedback
 ---
@@ -25,3 +25,4 @@ Feedback promotion (`apps/daemon/src/feedback/promote.ts`) drops the inbox conve
 ## Acceptance
 
 - [ ] (TBD)
+
