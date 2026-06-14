@@ -2,11 +2,11 @@
 id: task-038
 title: Render feedback triage as a suggestion card; hide raw fields, keep
   reasoning visible
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T11:04:55.814Z
-updated: 2026-06-14T11:04:55.814Z
+updated: 2026-06-14T23:12:54.541Z
 labels:
   - feedback
 ---
@@ -26,3 +26,4 @@ In `feedback-detail.tsx`, when a comment has a `resultingDraft`, render a struct
 ## Acceptance
 
 - [ ] (TBD)
+
