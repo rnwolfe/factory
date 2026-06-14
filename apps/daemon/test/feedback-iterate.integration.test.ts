@@ -14,6 +14,7 @@ import {
 } from "../src/feedback/iterate.ts";
 import { PromoteError, promoteToPlan, promoteToTask } from "../src/feedback/promote.ts";
 import { appendFeedback } from "../src/feedback/store.ts";
+import { readTaskFile } from "../src/projects/tasks.ts";
 
 interface Harness {
   config: FactoryConfig;
@@ -188,6 +189,23 @@ describe("feedback promote", () => {
       const config = { ...h.config, factoryProjectId: meta.id };
       const fb = appendFeedback(h.db, { vote: "down", body: "the dashboard inbox is too crowded" });
       if (!fb) throw new Error("seed failed");
+      await appendOperatorComment(h.db, fb.id, "Can we preserve the filters but reduce noise?");
+      h.db
+        .insert(schema.feedbackComments)
+        .values({
+          id: createId(),
+          feedbackId: fb.id,
+          role: "agent",
+          body: "Promote this as a small plan so we can compare inbox grouping options.",
+          resultingDraft: JSON.stringify({
+            kind: "plan",
+            title: "Reduce dashboard inbox crowding",
+            summary: "Explore a tighter inbox grouping model without hiding actionable items.",
+            reasoning: "This needs decomposition across UI and data affordances.",
+          }),
+          createdAt: Date.now() + 1,
+        })
+        .run();
 
       const result = await promoteToPlan({ config, db: h.db, feedbackId: fb.id });
       expect(result.planId).toBeTruthy();
@@ -196,6 +214,18 @@ describe("feedback promote", () => {
       expect(plan?.kind).toBe("feature_plan");
       expect(plan?.projectId).toBe(meta.id);
       expect(plan?.status).toBe("drafting");
+      const draft = JSON.parse(plan?.draft ?? "{}");
+      expect(draft.goal).toBe("Reduce dashboard inbox crowding");
+      expect(draft.summary).toContain(
+        "Explore a tighter inbox grouping model without hiding actionable items.",
+      );
+      expect(draft.summary).toContain("## Triage context");
+      expect(draft.summary).toContain("### Operator - ");
+      expect(draft.summary).toContain("Can we preserve the filters but reduce noise?");
+      expect(draft.summary).toContain("### Agent - ");
+      expect(draft.summary).toContain(
+        "Promote this as a small plan so we can compare inbox grouping options.",
+      );
 
       const fbAfter = h.db
         .select()
@@ -216,10 +246,38 @@ describe("feedback promote", () => {
       const config = { ...h.config, factoryProjectId: meta.id };
       const fb = appendFeedback(h.db, { vote: "down", body: "the inbox is crowded" });
       if (!fb) throw new Error("seed failed");
+      await appendOperatorComment(h.db, fb.id, "The promoted task should include this context.");
+      h.db
+        .insert(schema.feedbackComments)
+        .values({
+          id: createId(),
+          feedbackId: fb.id,
+          role: "agent",
+          body: "Recommended a narrow task that carries the discussion forward.",
+          resultingDraft: JSON.stringify({
+            kind: "task",
+            title: "Carry feedback triage context into promoted tasks",
+            summary: "Append the feedback thread when promoting a task.",
+            reasoning: "Single promotion-path fix.",
+          }),
+          createdAt: Date.now() + 1,
+        })
+        .run();
 
       const result = await promoteToTask({ config, db: h.db, feedbackId: fb.id });
       expect(result.projectId).toBe(meta.id);
       expect(result.taskId.startsWith("task-")).toBe(true);
+      const task = await readTaskFile({ workdirPath: meta.workdir }, result.taskId);
+      expect(task?.frontmatter.title).toBe("Carry feedback triage context into promoted tasks");
+      expect(task?.body).toContain("## Agent's draft");
+      expect(task?.body).toContain("Append the feedback thread when promoting a task.");
+      expect(task?.body).toContain("## Triage context");
+      expect(task?.body).toContain("### Operator - ");
+      expect(task?.body).toContain("The promoted task should include this context.");
+      expect(task?.body).toContain("### Agent - ");
+      expect(task?.body).toContain(
+        "Recommended a narrow task that carries the discussion forward.",
+      );
 
       const fbAfter = h.db
         .select()
