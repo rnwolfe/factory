@@ -1,11 +1,11 @@
 ---
 id: task-027
 title: Persist snooze state for inbox-backed items
-status: blocked
+status: done
 priority: med
 estimate: medium
 created: 2026-06-13T14:39:41.248Z
-updated: 2026-06-13T14:42:45.928Z
+updated: 2026-06-14T10:51:21.985Z
 labels:
   - feature-plan-task
 ---
@@ -19,5 +19,6 @@ labels:
 ## Notes
 
 Emitted by feature plan aqtei72j: "Snooze inbox items with timed resurfacing"
+
 
 
