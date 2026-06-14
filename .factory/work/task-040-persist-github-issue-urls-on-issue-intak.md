@@ -1,11 +1,11 @@
 ---
 id: task-040
 title: Persist GitHub issue URLs on issue intake decisions
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T11:16:07.255Z
-updated: 2026-06-14T11:16:07.255Z
+updated: 2026-06-14T22:43:27.149Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan hhw18821: "Surface source links wherever provenance exists (starting with issue_intake)"
+
 

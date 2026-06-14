@@ -22,6 +22,7 @@ export interface GithubWebhookPayload {
   issue?: {
     number?: number;
     title?: string;
+    html_url?: string;
     user?: { login?: string };
     labels?: Array<{ name: string } | string>;
     pull_request?: unknown;
@@ -34,7 +35,7 @@ export interface WebhookResult {
   reason: string;
   projectId?: string;
   /** Present when an externally-authored issue should be offered for intake. */
-  intake?: { number: number; title: string; author: string };
+  intake?: { number: number; title: string; author: string; htmlUrl?: string };
 }
 
 /** Timing-safe verification of the `X-Hub-Signature-256` header. */
@@ -107,6 +108,7 @@ export function classifyWebhook(
         number: payload.issue?.number ?? 0,
         title: payload.issue?.title ?? "(untitled)",
         author: payload.issue?.user?.login ?? payload.sender?.login ?? "unknown",
+        ...(payload.issue?.html_url ? { htmlUrl: payload.issue.html_url } : {}),
       },
     };
   }
@@ -148,6 +150,7 @@ export async function handleGithubWebhook(
         number: result.intake.number,
         title: result.intake.title,
         author: result.intake.author,
+        ...(result.intake.htmlUrl ? { htmlUrl: result.intake.htmlUrl } : {}),
       },
       status: "pending",
       createdAt: Date.now(),

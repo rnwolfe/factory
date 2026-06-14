@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Link as LinkIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { decisionProjectLabel } from "../components/decision-card.tsx";
@@ -82,6 +82,7 @@ interface DecisionPayload {
   number?: number;
   title?: string;
   author?: string;
+  htmlUrl?: string;
   // release_proposal shape — model-resolved version + rendered release body
   version?: string | null;
   body?: string;
@@ -442,6 +443,17 @@ export function DecisionDetail() {
               by <span className="text-[var(--color-fg)]">@{payload.author ?? "unknown"}</span> on
               GitHub.
             </p>
+            {payload.htmlUrl ? (
+              <a
+                href={payload.htmlUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-accent)] hover:text-[var(--color-fg)]"
+              >
+                <LinkIcon size={13} />
+                open on GitHub
+              </a>
+            ) : null}
             <p className="text-[13px] text-[var(--color-fg-2)]">
               promote to adopt it as a task on this project — Factory takes over the issue (the
               comment thread becomes run context; runs comment back as the bot). dismiss leaves the
