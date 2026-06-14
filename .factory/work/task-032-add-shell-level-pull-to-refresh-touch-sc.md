@@ -2,11 +2,11 @@
 id: task-032
 title: Add shell-level pull-to-refresh (touch, scroll-at-top → invalidate active
   queries)
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T10:41:34.232Z
-updated: 2026-06-14T10:41:37.224Z
+updated: 2026-06-14T13:16:02.843Z
 labels:
   - feedback
 ---
@@ -28,4 +28,5 @@ Gate on touch + scroll-at-top so desktop pointer scrolling and normal mobile scr
 ## Acceptance
 
 - [ ] (TBD)
+
 
