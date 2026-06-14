@@ -2,8 +2,9 @@ import type { FeaturePlanDraft } from "@factory/db";
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { inboxViewInput, snoozeWhere } from "../inbox-snooze.ts";
 import { applyFeaturePlanFreeze } from "../plans/apply-feature-plan.ts";
 import { applyProjectVisionFreeze } from "../plans/apply-project-vision.ts";
 import { applyTaskTemplateFreeze, seedTaskTemplateDraft } from "../plans/apply-task-template.ts";
@@ -23,7 +24,7 @@ import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 export const plansRouter = router({
-  inbox: protectedProcedure.query(async ({ ctx }) => {
+  inbox: protectedProcedure.input(inboxViewInput).query(async ({ ctx, input }) => {
     const now = Date.now();
     return ctx.db
       .select()
@@ -31,7 +32,7 @@ export const plansRouter = router({
       .where(
         and(
           eq(schema.plans.status, "drafting"),
-          or(isNull(schema.plans.snoozedUntil), lte(schema.plans.snoozedUntil, now)),
+          snoozeWhere(schema.plans.snoozedUntil, input.view, now),
         ),
       )
       .orderBy(desc(schema.plans.createdAt))

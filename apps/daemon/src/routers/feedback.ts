@@ -8,6 +8,7 @@ import {
   listOpenFeedback,
   setFeedbackStatus,
 } from "../feedback/store.ts";
+import { inboxViewInput } from "../inbox-snooze.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const VoteEnum = z.enum(["up", "down"]);
@@ -57,8 +58,8 @@ export const feedbackRouter = router({
       return row;
     }),
 
-  inbox: protectedProcedure.query(async ({ ctx }) => {
-    return listOpenFeedback(ctx.db);
+  inbox: protectedProcedure.input(inboxViewInput).query(async ({ ctx, input }) => {
+    return listOpenFeedback(ctx.db, input.view);
   }),
 
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {

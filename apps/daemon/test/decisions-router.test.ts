@@ -124,4 +124,60 @@ describe("decisionsRouter", () => {
       h.cleanup();
     }
   });
+
+  test("snooze view filters the default inbox and exposes snoozed items", async () => {
+    const h = setupHarness();
+    try {
+      const now = Date.now();
+      const liveId = createId();
+      const expiredId = createId();
+      const snoozedId = createId();
+      await h.db.insert(schema.decisions).values([
+        {
+          id: liveId,
+          kind: "triage",
+          projectId: null,
+          outcome: "greenlit",
+          payload: { title_suggestion: "live" },
+          status: "pending",
+          snoozedUntil: null,
+          createdAt: now,
+        },
+        {
+          id: expiredId,
+          kind: "triage",
+          projectId: null,
+          outcome: "greenlit",
+          payload: { title_suggestion: "expired snooze" },
+          status: "pending",
+          snoozedUntil: now - 1_000,
+          createdAt: now,
+        },
+        {
+          id: snoozedId,
+          kind: "triage",
+          projectId: null,
+          outcome: "greenlit",
+          payload: { title_suggestion: "still snoozed" },
+          status: "pending",
+          snoozedUntil: now + 60_000,
+          createdAt: now,
+        },
+      ]);
+
+      // Default (active) view: null + expired snooze surface; future snooze hidden.
+      const active = await h.caller.inbox();
+      const activeIds = active.map((r) => r.id);
+      expect(activeIds).toContain(liveId);
+      expect(activeIds).toContain(expiredId);
+      expect(activeIds).not.toContain(snoozedId);
+
+      // Snoozed view: only the currently-snoozed item.
+      const snoozed = await h.caller.inbox({ view: "snoozed" });
+      const snoozedIds = snoozed.map((r) => r.id);
+      expect(snoozedIds).toEqual([snoozedId]);
+    } finally {
+      h.cleanup();
+    }
+  });
 });

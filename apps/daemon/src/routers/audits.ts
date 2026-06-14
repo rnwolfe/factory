@@ -1,7 +1,7 @@
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { appendOperatorComment, listAuditComments, runAgentReply } from "../audits/comments.ts";
 import { runExecAudit } from "../audits/exec-iterate.ts";
@@ -11,6 +11,7 @@ import { bridgePromoteFindings } from "../audits/promote.ts";
 import { computeSkillVersion } from "../audits/prompts.ts";
 import { commitApprovedAuditReport } from "../audits/report-commit.ts";
 import { installAuditTemplate, listAuditTemplates } from "../audits/templates.ts";
+import { inboxViewInput, snoozeWhere } from "../inbox-snooze.ts";
 import { seedTaskPlanDraft } from "../plans/iterate.ts";
 import { listAuditSkills, readAuditSkill } from "../projects/audit-skills.ts";
 import { createTask } from "../projects/tasks.ts";
@@ -60,7 +61,7 @@ export const auditsRouter = router({
    * completedAt desc. Surfaced in the inbox alongside drafting plans + pending
    * decisions.
    */
-  inbox: protectedProcedure.query(async ({ ctx }) => {
+  inbox: protectedProcedure.input(inboxViewInput).query(async ({ ctx, input }) => {
     const now = Date.now();
     return ctx.db
       .select()
@@ -68,7 +69,7 @@ export const auditsRouter = router({
       .where(
         and(
           eq(schema.audits.status, "completed"),
-          or(isNull(schema.audits.snoozedUntil), lte(schema.audits.snoozedUntil, now)),
+          snoozeWhere(schema.audits.snoozedUntil, input.view, now),
         ),
       )
       .orderBy(desc(schema.audits.startedAt))

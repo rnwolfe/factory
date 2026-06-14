@@ -1,6 +1,7 @@
 import { type Db, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
-import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { type InboxView, snoozeWhere } from "../inbox-snooze.ts";
 
 export interface AppendInput {
   vote: "up" | "down";
@@ -29,7 +30,7 @@ export function getFeedback(db: Db, id: string) {
   return db.select().from(schema.feedback).where(eq(schema.feedback.id, id)).get() ?? null;
 }
 
-export function listOpenFeedback(db: Db) {
+export function listOpenFeedback(db: Db, view: InboxView = "active") {
   const now = Date.now();
   return db
     .select()
@@ -37,7 +38,7 @@ export function listOpenFeedback(db: Db) {
     .where(
       and(
         inArray(schema.feedback.status, ["open", "in_progress"]),
-        or(isNull(schema.feedback.snoozedUntil), lte(schema.feedback.snoozedUntil, now)),
+        snoozeWhere(schema.feedback.snoozedUntil, view, now),
       ),
     )
     .orderBy(desc(schema.feedback.createdAt))
