@@ -1,11 +1,11 @@
 ---
 id: task-030
 title: Add snooze controls to inbox item UI
-status: ready
+status: blocked
 priority: med
 estimate: medium
 created: 2026-06-13T14:39:41.278Z
-updated: 2026-06-13T14:39:41.278Z
+updated: 2026-06-14T22:50:23.067Z
 labels:
   - feature-plan-task
 ---
@@ -20,4 +20,5 @@ labels:
 ## Notes
 
 Emitted by feature plan aqtei72j: "Snooze inbox items with timed resurfacing"
+
 
