@@ -1,11 +1,13 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useCallback } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { useInboxCount } from "../lib/use-inbox-count.ts";
 import { DashboardTickerMobile } from "./dashboard-ticker.tsx";
 import { DesktopTopBar } from "./desktop-top-bar.tsx";
 import { FeedbackFab } from "./feedback-fab.tsx";
+import { PullToRefresh } from "./pull-to-refresh.tsx";
 import { Sidebar } from "./sidebar.tsx";
 
 const NAV: Array<{ to: string; label: string; icon: typeof InboxIcon }> = [
@@ -25,6 +27,16 @@ export function Shell({ children }: { children: ReactNode }) {
   };
   const title = titleByRoute[loc.pathname] ?? "Heimdall";
   const inboxCount = useInboxCount(true);
+
+  // Pull-to-refresh refetches the active route's data without per-route
+  // wiring: invalidate every query but only refetch the ones with live
+  // observers (the mounted route). The promise settles when those refetches
+  // do, so the indicator holds until the data is fresh.
+  const queryClient = useQueryClient();
+  const onRefresh = useCallback(
+    () => queryClient.invalidateQueries({ refetchType: "active" }),
+    [queryClient],
+  );
 
   return (
     // 100lvh, not 100dvh: in this installed PWA, dvh/svh/vh all resolve to the
@@ -56,9 +68,12 @@ export function Shell({ children }: { children: ReactNode }) {
           <DashboardTickerMobile />
         </header>
 
-        <main className="flex-1 min-h-0 overflow-y-auto px-3 pt-3 pb-3 md:px-6 md:pt-5 md:pb-6 md:max-w-[1400px] md:w-full md:mx-auto">
+        <PullToRefresh
+          onRefresh={onRefresh}
+          className="flex-1 min-h-0 overflow-y-auto px-3 pt-3 pb-3 md:px-6 md:pt-5 md:pb-6 md:max-w-[1400px] md:w-full md:mx-auto"
+        >
           {children}
-        </main>
+        </PullToRefresh>
 
         <nav
           className="md:hidden shrink-0 z-30 border-t border-[var(--color-line)] bg-[var(--color-bg-1)]"
