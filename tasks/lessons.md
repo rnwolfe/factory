@@ -3,6 +3,17 @@
 Rules-for-future-Claude distilled from corrections in this repo. Read at
 session start; update after any user correction.
 
+- **A code-changing run can't cleanly push to origin — it lives in a per-run
+  `factory/run-*` worktree, and `mergeIntoMain` (worktree.ts) merges into the
+  project's *local* `main` only, after the run, and never pushes.** So any
+  task body that tells the agent to "push `main`" pushes a stale ref (the run's
+  commit isn't on `main` until the post-run merge). Anything that must update
+  origin (a release: bump + tag + push) needs the push to happen from the
+  project main checkout *after* the merge — a post-merge step — not from inside
+  the run. Designing release execution as "just a normal run driven by the task
+  body" (ADR-008's first cut) was wrong for exactly this reason; living with it
+  on a real project surfaced it. (2026-06-14)
+
 ## Read the diff before defending architecture
 
 When investigating a regression, look at the actual commit diffs before
