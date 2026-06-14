@@ -4,6 +4,23 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.23.0 — 2026-06-14
+
+### Added
+- **Release as a confirm-in-inbox templated function.** Cutting a release no
+  longer asks for a version number: the `release-project` template resolves the
+  version from the change set (semver-from-conventional-commits) and drafts the
+  "what's new" prose, then lands a release proposal in the decisions inbox.
+  Confirming it cuts the release (bump + changelog + tag); dismiss discards. Two
+  reusable template capabilities underpin it — model-resolved variables
+  (`resolver: { kind: "agent" }`) and `confirmInInbox` templates. See ADR-008.
+- **Snoozed-items filter view in the inbox** — review what you've snoozed.
+
+### Fixed
+- **Newly created plans auto-draft.** Plans created via triage-approve (and
+  startRefinement) now kick off their first iteration immediately instead of
+  sitting idle in `drafting`.
+
 ## v0.22.0 — 2026-06-14
 
 ### Added
