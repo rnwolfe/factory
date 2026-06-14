@@ -1,11 +1,11 @@
 ---
 id: task-028
 title: Add inbox filtering for active snoozes
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-13T14:39:41.261Z
-updated: 2026-06-13T14:39:41.261Z
+updated: 2026-06-14T13:06:45.386Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan aqtei72j: "Snooze inbox items with timed resurfacing"
+
 
