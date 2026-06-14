@@ -1,11 +1,11 @@
 ---
 id: task-037
 title: Color feedback vote buttons green/red on select in feedback-drawer
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T11:01:21.615Z
-updated: 2026-06-14T11:01:21.615Z
+updated: 2026-06-14T11:11:48.246Z
 labels:
   - feedback
 ---
@@ -25,3 +25,4 @@ In `apps/pwa/src/components/feedback-drawer.tsx`, make the selected vote state s
 ## Acceptance
 
 - [ ] (TBD)
+
