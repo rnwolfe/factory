@@ -8,6 +8,8 @@ import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import type { DaemonContext } from "../src/context.ts";
 import { type DaemonEvent, EventBus } from "../src/events.ts";
+import type { PlanIterationScheduleRequest } from "../src/plans/schedule.ts";
+import { createTask } from "../src/projects/tasks.ts";
 import { plansRouter } from "../src/routers/plans.ts";
 import { ScriptRegistry } from "../src/scripts/registry.ts";
 import { createCallerFactory } from "../src/trpc.ts";
@@ -19,7 +21,9 @@ const createCaller = createCallerFactory(plansRouter);
 interface Harness {
   db: ReturnType<typeof createDb>;
   published: DaemonEvent[];
+  scheduled: PlanIterationScheduleRequest[];
   caller: ReturnType<typeof createCaller>;
+  projectsRoot: string;
   cleanup: () => void;
 }
 
@@ -34,6 +38,7 @@ function setupHarness(): Harness {
   const db = createDb(dbPath);
   const events = new EventBus();
   const published: DaemonEvent[] = [];
+  const scheduled: PlanIterationScheduleRequest[] = [];
   events.subscribe((e) => published.push(e));
   const config: FactoryConfig = {
     port: 0,
@@ -60,11 +65,14 @@ function setupHarness(): Harness {
     config,
     scripts: new ScriptRegistry(events),
     authorized: true,
+    planIterationScheduler: (request) => scheduled.push(request),
   };
   return {
     db,
     published,
+    scheduled,
     caller: createCaller(ctx),
+    projectsRoot,
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -94,6 +102,74 @@ async function seedPlan(h: Harness, status: PlanStatus): Promise<string> {
 }
 
 describe("plans router", () => {
+  test("startProjectFoundry creates a project_spec plan and schedules its first draft", async () => {
+    const h = setupHarness();
+    try {
+      const decisionId = createId();
+      await h.db.insert(schema.decisions).values({
+        id: decisionId,
+        kind: "triage",
+        outcome: "greenlit",
+        payload: {
+          outcome: "greenlit",
+          title_suggestion: "Inbox Plan",
+          spec_stub: {
+            summary: "Turn an approved triage card into a plan.",
+            initial_tasks: [],
+          },
+        },
+        status: "pending",
+        createdAt: Date.now(),
+      });
+
+      const result = await h.caller.startProjectFoundry({ decisionId });
+
+      const row = await h.db
+        .select()
+        .from(schema.plans)
+        .where(eq(schema.plans.id, result.planId))
+        .get();
+      expect(row?.kind).toBe("project_spec");
+      expect(h.scheduled).toEqual([{ planId: result.planId }]);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("startRefinement creates a refinement plan and schedules its first draft", async () => {
+    const h = setupHarness();
+    try {
+      const projectId = createId();
+      const workdirPath = path.join(h.projectsRoot, "demo");
+      mkdirSync(path.join(workdirPath, ".factory", "work"), { recursive: true });
+      await h.db.insert(schema.projects).values({
+        id: projectId,
+        slug: "demo",
+        name: "Demo",
+        ceremony: "personal",
+        workdirPath,
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+      });
+      const task = await createTask(
+        { workdirPath },
+        { title: "Tighten acceptance", body: "Make the task sharper." },
+      );
+
+      const result = await h.caller.startRefinement({ projectId, taskId: task.id });
+
+      const row = await h.db
+        .select()
+        .from(schema.plans)
+        .where(eq(schema.plans.id, result.planId))
+        .get();
+      expect(row?.kind).toBe("refinement");
+      expect(h.scheduled).toEqual([{ planId: result.planId, projectId }]);
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test.each([
     "drafting",
     "frozen",
