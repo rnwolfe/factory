@@ -4,6 +4,18 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.21.9 — 2026-06-14
+
+### Fixed
+- **GitHub `issue_intake` decisions render correctly and notify.** Externally
+  filed issues land in the inbox as `issue_intake` decisions, but the kind was
+  only half-wired into the UI: the full decision view showed a "tag change" chip
+  and a bare "intake" headline, the desktop split-pane showed an empty body, and
+  the push notification used the generic "decision needs review" copy. The
+  decision route and split-pane now show "issue · intake", a "#<n> <title>"
+  headline, who filed it, and a promote-to-task action; the push notification
+  reads "new GitHub issue · #<n> <title> · @<author>".
+
 ## v0.21.8 — 2026-06-13
 
 ### Fixed
