@@ -8,7 +8,6 @@ created: 2026-06-14T10:54:33.432Z
 updated: 2026-06-14T10:54:39.775Z
 labels:
   - feedback
-model: claude-opus-4-8
 ---
 
 ## Source

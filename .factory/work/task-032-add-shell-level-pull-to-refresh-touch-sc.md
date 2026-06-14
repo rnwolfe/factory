@@ -9,7 +9,6 @@ created: 2026-06-14T10:41:34.232Z
 updated: 2026-06-14T10:41:37.224Z
 labels:
   - feedback
-model: claude-sonnet-4-6
 ---
 
 ## Source

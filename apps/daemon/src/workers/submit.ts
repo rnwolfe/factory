@@ -3,7 +3,13 @@ import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, desc, eq } from "drizzle-orm";
-import { AGENT_NAMES, type AgentName, getAgentDescriptor } from "../agents/registry.ts";
+import {
+  AGENT_NAMES,
+  type AgentName,
+  agentForModel,
+  clampModelToAgent,
+  getAgentDescriptor,
+} from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { readTaskFile } from "../projects/tasks.ts";
@@ -244,6 +250,25 @@ export async function submitRun(
       const fromSettings = normalizeAgent(ops.defaultAgent);
       if (fromSettings) effectiveAgent = fromSettings;
     }
+  }
+
+  // Cross-agent model backstop. Agent and model resolve on independent ladders
+  // above, so a model id pinned for one agent (e.g. `claude-opus-4-8` in a
+  // task's frontmatter) can land on a run that resolved to a different agent
+  // (e.g. codex, from the project default). The provider then gets a model it
+  // can't run and dies within seconds with no factory-status footer — surfacing
+  // as a "blocked run" with no actionable reason. When the model is definitively
+  // owned by a *different* registered agent, drop it so the resolved agent uses
+  // its own default. Models no descriptor claims (experimental/gated like
+  // Fable 5, or future ids) are left opaque — only a known collision clamps.
+  const clampedModel = clampModelToAgent(effectiveAgent, effectiveModel);
+  if (clampedModel !== effectiveModel) {
+    console.warn(
+      `[submit] model "${effectiveModel}" belongs to agent "${agentForModel(effectiveModel ?? "")}" ` +
+        `but this run resolved to "${effectiveAgent}" — dropping the model so ${effectiveAgent} ` +
+        `uses its default (task ${input.taskId ?? "—"}, project ${project.id}).`,
+    );
+    effectiveModel = clampedModel;
   }
 
   // Parity-block precheck: when the operator selected an agent that does not

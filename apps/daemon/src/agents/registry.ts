@@ -165,6 +165,36 @@ export function getAgentDescriptor(id: string | null | undefined): AgentDescript
 }
 
 /**
+ * Which agent's model set claims this model id, or `null` if no registered
+ * agent lists it. Used by the run-submit backstop to detect a cross-agent
+ * model id (e.g. a `claude-*` id resolved onto a codex run) so it can be
+ * dropped before the provider chokes on it. Intentionally returns `null` for
+ * ids no descriptor lists (experimental/gated models like Fable 5, or future
+ * ids) — submission treats those as opaque pass-through, so they're left
+ * untouched rather than clamped.
+ */
+export function agentForModel(modelId: string): AgentName | null {
+  for (const name of AGENT_NAMES) {
+    if (AGENT_REGISTRY[name].models.some((m) => m.id === modelId)) return name;
+  }
+  return null;
+}
+
+/**
+ * Run-submit cross-agent backstop. Returns `model` unchanged unless it is
+ * definitively owned by a *different* registered agent than `agent`, in which
+ * case it returns `null` so the resolved agent falls back to its own default.
+ * A model id no descriptor claims (experimental/gated like Fable 5, or a future
+ * id) is treated as opaque and passes through untouched. Pulled out as a pure
+ * function so the clamp decision is unit-testable independent of `submitRun`.
+ */
+export function clampModelToAgent(agent: AgentName, model: string | null): string | null {
+  if (!model) return model;
+  const owner = agentForModel(model);
+  return owner && owner !== agent ? null : model;
+}
+
+/**
  * Throws if the agent id isn't supported. Used at the boundary between
  * untrusted input (DB rows, request payloads) and code that wants a typed
  * AgentName narrowly. Prefer {@link getAgentDescriptor} when missing is
