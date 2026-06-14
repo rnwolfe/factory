@@ -1,11 +1,11 @@
 ---
 id: task-034
 title: Surface project association on inbox decision cards and detail view
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T10:57:45.690Z
-updated: 2026-06-14T10:57:45.690Z
+updated: 2026-06-14T11:05:27.154Z
 labels:
   - feedback
 ---
@@ -25,3 +25,4 @@ Add a project chip to the inbox decision card and detail pane, sourced from the 
 ## Acceptance
 
 - [ ] (TBD)
+
