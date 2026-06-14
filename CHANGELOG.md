@@ -4,6 +4,31 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.22.0 — 2026-06-14
+
+### Added
+- **Pull-to-refresh on the app shell.** Touch and scroll-at-top invalidates the
+  active queries, so a pull at the top of any screen refreshes its data.
+- **Snooze storage for inbox items.** Database layer backing inbox-item snooze.
+- **Per-task agent + model picker.** The task page exposes a fused
+  AgentModelPicker, so the model options shown switch to match the selected
+  agent (codex and claude have disjoint model ids).
+
+### Fixed
+- **Codex runs no longer die when handed a Claude model.** Agent and model
+  resolve on independent ladders at run submit, so a model pinned for one agent
+  (e.g. a `claude-*` id in a task's frontmatter) could land on a run that
+  resolved to a different agent (codex, from the project default). Codex got a
+  model it can't run, exited within seconds without a factory-status footer, and
+  surfaced as a "blocked run" with no actionable reason. Submit now clamps a
+  cross-agent model id to the resolved agent's default (unknown/experimental ids
+  pass through untouched).
+- **Push notifications carry run context.** The notification body now includes
+  the project and task for a run, not just a bare status.
+- **Decision inbox items show their project.** Inbox decision cards and the
+  detail view surface the originating project.
+- **Feedback vote buttons color on selection** (green for up, red for down).
+
 ## v0.21.9 — 2026-06-14
 
 ### Fixed
