@@ -1,11 +1,11 @@
 ---
 id: task-036
 title: Enrich push notifications with project, task, and run context
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T11:00:21.390Z
-updated: 2026-06-14T11:00:21.390Z
+updated: 2026-06-14T11:07:33.903Z
 labels:
   - feedback
 ---
@@ -25,3 +25,4 @@ Notifications in `apps/daemon/src/push/dispatcher.ts` are context-thin — "run 
 ## Acceptance
 
 - [ ] (TBD)
+
