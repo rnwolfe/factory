@@ -105,40 +105,45 @@ Output the markdown entry body only (no \`## v{version}\` header — that's adde
         {
           heading: "Acceptance",
           kind: "static",
-          body: `- [ ] Working tree is clean and on the project's primary branch (\`main\` unless the project says otherwise).
+          body: `- [ ] Used the project's own release tooling if it has any (a release script, a \`release\` package.json/Make/just target, or \`skills/release/SKILL.md\`) — only hand-rolled the steps if the project genuinely has none.
+- [ ] Project gates ran and **passed** before the tag: typecheck + lint + tests. **No checks-skipping flags** (\`--skip-checks\`, \`--no-verify\`, \`--no-test\`).
 - [ ] Version bumped to **{version}** in every file that carries one (root \`package.json\` + workspaces, or the project's equivalent).
-- [ ] Changelog entry added at the top of the project's release notes file (e.g. \`CHANGELOG.md\`), summarising user-visible changes since the prior release.
+- [ ] Changelog entry prepended to the project's release-notes file (e.g. \`CHANGELOG.md\`); body = the confirmed **What's new** prose above.
 - [ ] Single release commit on the primary branch: \`chore(release): {version}\`.
-- [ ] Annotated git tag \`{version}\` pointing at the release commit, carrying the changelog entry in the tag message.
-- [ ] Push commands surfaced for the operator (we do NOT push tags from inside Factory — that's an operator-authorized action).
-- [ ] Optional: any project-specific post-tag steps (e.g. \`factory upgrade\`, deploy trigger, npm publish) called out in the run summary.`,
+- [ ] Annotated git tag \`{version}\` at the release commit, carrying the changelog entry in the tag message.
+- [ ] **\`main\` and the tag \`{version}\` pushed to origin** — the inbox confirmation authorized this push.
+- [ ] Any post-tag step (deploy, \`factory upgrade\`, npm publish) called out in the run summary.`,
         },
         {
           heading: "Recipe",
           kind: "agent",
-          body: `You are cutting a release for this project. Drive the release flow end-to-end up to (but not including) the tag push.
+          body: `You are cutting a release for this project. This release was confirmed by the operator in the inbox — that confirmation **authorizes the push**, so you push \`main\` and the tag at the end (unlike an ordinary run, which never pushes).
 
-# Authoritative source
+The version **{version}** was resolved from the change set and confirmed in the inbox — treat it as authoritative; don't re-derive or change it. The **What's new** section above is the operator-confirmed changelog prose — use it as the entry body, don't rewrite from scratch.
 
-If \`skills/release/SKILL.md\` exists in the project root, **follow that file's instructions verbatim**. It carries the project's specific release recipe (which files to bump, where the changelog lives, what the tag format is, what post-tag steps run). Do not invent steps the skill doesn't mention; if a step looks wrong, surface the disagreement in your status \`summary\` instead of improvising.
+# Use the project's own release tooling — do not improvise if it exists
 
-If \`skills/release/SKILL.md\` does **not** exist, fall back to the generic semver-bump recipe below.
+Find the project's real release path before doing anything by hand, in this order:
 
-# Generic recipe (fallback)
+1. **A release script** — e.g. \`scripts/release.ts\`, a \`release\` entry in \`package.json\` scripts, or a Make/just \`release\` target. **Run it with its push flag and its checks ON** — e.g. \`bun scripts/release.ts --push\`. **Never** pass a checks-skipping flag (\`--skip-checks\` / \`--no-verify\` / \`--no-test\`): the gates running before the tag is the entire point. If the script computes its own version, reconcile it to **{version}** and surface any mismatch in your \`summary\`.
+2. **\`skills/release/SKILL.md\`** if present — follow it verbatim (it may itself call the release script). If a step looks wrong, surface it in your \`summary\` instead of improvising.
+3. **The generic recipe below** — only if the project has neither.
 
-The version **{version}** was resolved from the change set and confirmed by the operator in the inbox — treat it as authoritative; do not re-derive or change it. The **What's new** section above is the operator-confirmed changelog prose — use it as the entry body, don't rewrite it from scratch.
+# Generic recipe (only when the project has no release tooling)
 
-1. Verify preconditions: clean working tree, on primary branch (\`main\`), in sync with \`origin\`, project tests pass.
-2. Update **{version}** in every file that carries the project's version. Common patterns: root \`package.json\`, every workspace's \`package.json\`, or a \`VERSION\` file.
-3. Write the changelog entry: if a \`CHANGELOG.md\` or \`HISTORY.md\` exists, prepend a new \`## {version} — <today>\` section whose body is the **What's new** prose above (lightly reconcile against the actual commits if anything drifted).
-4. Single commit: \`chore(release): {version}\`.
-5. Annotated tag: \`git tag -a {version} -m "<version>\\n\\n<changelog entry body>"\`.
-6. Print the push commands (\`git push origin <branch>\` then \`git push origin {version}\`) and any project-specific post-tag step. **Do not run the push commands yourself** — push to a shared remote is operator-authorized.
+1. Preconditions: clean working tree, on the primary branch (\`main\`), in sync with \`origin\`.
+2. **Run the project's gates and STOP if any fail** — typecheck, lint, and tests (whatever the project defines, e.g. \`bun run typecheck && bun run check && bun test\`). Do not skip them; do not \`--no-verify\` the commit.
+3. Update **{version}** in every file that carries the project's version (root \`package.json\` + workspaces, a \`VERSION\` file, etc.).
+4. Prepend a \`## {version} — <today>\` section to the changelog; body = the **What's new** prose above (lightly reconcile against the actual commits if anything drifted).
+5. Single commit: \`chore(release): {version}\`.
+6. Annotated tag: \`git tag -a {version} -m "<version>\\n\\n<changelog entry body>"\`.
+7. **Push** \`main\` and the tag (\`git push origin <branch>\` then \`git push origin {version}\`). The inbox confirm authorized this — do not stop at "printing the commands." Then call out any post-tag step (deploy, \`factory upgrade\`, npm publish) in your \`summary\`.
 
 # Reading list
 
-- Project's recent commit log (\`git log <last-tag>..HEAD\`) so the changelog entry is accurate.
-- Project's \`AGENTS.md\` for any release-related architectural contracts.
+- The project's release tooling: a release script, \`package.json\` scripts, \`skills/release/SKILL.md\` — find the real path before improvising.
+- Recent commit log (\`git log <last-tag>..HEAD\`) so the changelog is accurate.
+- The project's \`AGENTS.md\` for any release-related contracts.
 - The prior changelog entry — match its tone and section layout.`,
         },
       ],
