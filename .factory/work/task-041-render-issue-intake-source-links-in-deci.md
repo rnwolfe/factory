@@ -1,11 +1,11 @@
 ---
 id: task-041
 title: Render issue intake source links in decision surfaces
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T11:16:07.270Z
-updated: 2026-06-14T11:16:07.270Z
+updated: 2026-06-14T23:32:48.943Z
 labels:
   - feature-plan-task
 ---
@@ -20,4 +20,5 @@ labels:
 ## Notes
 
 Emitted by feature plan hhw18821: "Surface source links wherever provenance exists (starting with issue_intake)"
+
 

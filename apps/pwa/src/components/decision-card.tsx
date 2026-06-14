@@ -1,4 +1,4 @@
-import { ArrowRight, Link as LinkIcon, MoreHorizontal, Trash2 } from "lucide-react";
+import { ArrowRight, MoreHorizontal, Trash2 } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { cn } from "../lib/cn.ts";
+import { SourceIssueLink, sourceIssueLabel } from "./source-issue-link.tsx";
 
 export interface DecisionRow {
   id: string;
@@ -201,6 +202,12 @@ export function DecisionCard({
   const isAgentDecision = decision.kind === "agent_decision";
   const isIssueIntake = decision.kind === "issue_intake";
   const isReleaseProposal = decision.kind === "release_proposal";
+  const issueNumber = typeof decision.payload.number === "number" ? decision.payload.number : null;
+  const issueTitle = typeof decision.payload.title === "string" ? decision.payload.title : "";
+  const issueHtmlUrl =
+    typeof decision.payload.htmlUrl === "string" && decision.payload.htmlUrl.length > 0
+      ? decision.payload.htmlUrl
+      : null;
 
   const blockedHeadline = isBlockedRun
     ? (decision.payload.summary ??
@@ -217,9 +224,7 @@ export function DecisionCard({
 
   const agentDecisionHeadline = isAgentDecision ? (decision.payload.summary ?? null) : null;
 
-  const issueIntakeHeadline = isIssueIntake
-    ? `#${decision.payload.number ?? "?"} ${decision.payload.title ?? ""}`.trim()
-    : null;
+  const issueIntakeHeadline = isIssueIntake ? sourceIssueLabel(issueNumber, issueTitle) : null;
 
   const releaseHeadline = isReleaseProposal
     ? `release ${decision.payload.version ?? "(version pending)"}`
@@ -302,16 +307,28 @@ export function DecisionCard({
           </div>
         </div>
 
-        <button type="button" onClick={onOpen} className="w-full text-left px-4 pb-3">
-          <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2">
-            {headline}
+        {isIssueIntake ? (
+          <div className="w-full text-left px-4 pb-3">
+            <SourceIssueLink
+              number={issueNumber}
+              title={issueTitle}
+              href={issueHtmlUrl}
+              onClick={(e) => e.stopPropagation()}
+              className="display block text-[17px] leading-snug line-clamp-2 break-words [overflow-wrap:anywhere]"
+            />
           </div>
-          {decision.payload.rationale ? (
-            <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--color-fg-2)] line-clamp-2">
-              {decision.payload.rationale}
-            </p>
-          ) : null}
-        </button>
+        ) : (
+          <button type="button" onClick={onOpen} className="w-full text-left px-4 pb-3">
+            <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2 break-words [overflow-wrap:anywhere]">
+              {headline}
+            </div>
+            {decision.payload.rationale ? (
+              <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--color-fg-2)] line-clamp-2">
+                {decision.payload.rationale}
+              </p>
+            ) : null}
+          </button>
+        )}
 
         {isTriage ? (
           <div className="px-4 pb-3 flex items-center gap-2 mono text-[10.5px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
@@ -350,19 +367,6 @@ export function DecisionCard({
         ) : isIssueIntake ? (
           <div className="px-4 pb-3 flex flex-wrap items-center gap-2 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
             <span>filed by @{decision.payload.author ?? "unknown"} on GitHub</span>
-            {typeof decision.payload.htmlUrl === "string" && decision.payload.htmlUrl.length > 0 ? (
-              <a
-                href={decision.payload.htmlUrl}
-                target="_blank"
-                rel="noreferrer"
-                data-card-skip-open
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-[var(--color-accent)] hover:text-[var(--color-fg)]"
-              >
-                <LinkIcon size={12} />
-                source
-              </a>
-            ) : null}
           </div>
         ) : isReleaseProposal ? (
           <div className="px-4 pb-3 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">

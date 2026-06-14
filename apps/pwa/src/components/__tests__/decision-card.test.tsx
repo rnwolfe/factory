@@ -52,5 +52,6 @@ describe("DecisionCard issue_intake", () => {
     const link = container.getElementsByTagName("a").item(0);
     expect(link).not.toBeNull();
     expect(link.getAttribute("href")).toBe("https://github.com/rnwolfe/factory/issues/43");
+    expect(link.textContent).toContain("#43 Linked issue");
   });
 });
