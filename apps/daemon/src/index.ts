@@ -11,6 +11,7 @@ import { EventBus } from "./events.ts";
 import { githubAppClientFromConfig } from "./github/app-auth.ts";
 import { githubWebhookRoute } from "./github/webhook.ts";
 import { buildHealth } from "./health.ts";
+import { startInboxSnoozeResurfacer } from "./inbox-resurface.ts";
 import {
   recoverOrphanedInterventions,
   tmuxNameForIntervention,
@@ -189,6 +190,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // Auto-resume runs halted by a usage cap once their reset time passes.
   const stopUsageCapResumer = startUsageCapResumer({ config, db, events, runs, pool });
 
+  // Timed inbox snoozes are daemon-owned. The inbox queries already treat
+  // expired timestamps as active; this loop makes expiry proactive by clearing
+  // the snooze and publishing the same event path as a newly-landed item.
+  const stopInboxSnoozeResurfacer = startInboxSnoozeResurfacer({ db, events });
+
   const buildCtx = (req: Request): DaemonContext => ({
     config,
     db,
@@ -358,6 +364,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     scripts.killAll();
     stopPushDispatcher();
     stopUsageCapResumer();
+    stopInboxSnoozeResurfacer();
     await pool.drain();
     console.log("[factoryd] shutdown complete.");
   };
