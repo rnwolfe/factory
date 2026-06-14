@@ -1,7 +1,7 @@
 import { type Db, type FeaturePlanDraft, schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import { createTask } from "../projects/tasks.ts";
 import type { FeedbackDraft } from "./iterate.ts";
@@ -36,6 +36,49 @@ export function latestDraft(db: Db, feedbackId: string): FeedbackDraft | null {
   } catch {
     return null;
   }
+}
+
+function feedbackSourceLine(feedbackId: string, fb: typeof schema.feedback.$inferSelect): string {
+  return `Captured from feedback ${feedbackId} (${fb.contextHint ?? "—"} on ${fb.contextRoute ?? "—"}).`;
+}
+
+function renderFeedbackThread(db: Db, feedbackId: string): string | null {
+  const thread = db
+    .select()
+    .from(schema.feedbackComments)
+    .where(eq(schema.feedbackComments.feedbackId, feedbackId))
+    .orderBy(asc(schema.feedbackComments.createdAt))
+    .all();
+  if (thread.length === 0) return null;
+  return thread
+    .map((c) => {
+      const role = c.role === "operator" ? "Operator" : "Agent";
+      return `### ${role} - ${new Date(c.createdAt).toISOString()}\n\n${c.body}`;
+    })
+    .join("\n\n");
+}
+
+function appendFeedbackContext(
+  summary: string,
+  feedbackId: string,
+  fb: typeof schema.feedback.$inferSelect,
+  thread: string | null,
+): string {
+  const sections = [
+    summary,
+    "",
+    "## Source",
+    "",
+    feedbackSourceLine(feedbackId, fb),
+    "",
+    "## Operator's note",
+    "",
+    fb.body,
+  ];
+  if (thread) {
+    sections.push("", "## Triage context", "", thread);
+  }
+  return sections.join("\n");
 }
 
 interface PromoteContext {
@@ -74,7 +117,8 @@ export async function promoteToPlan(ctx: PromoteContext): Promise<{ planId: stri
 
   const draft = latestDraft(db, feedbackId);
   const goal = draft?.title || `feedback: ${fb.body.slice(0, 60)}`;
-  const summary = draft?.summary || fb.body;
+  const thread = renderFeedbackThread(db, feedbackId);
+  const summary = appendFeedbackContext(draft?.summary || fb.body, feedbackId, fb, thread);
 
   const featurePlan: FeaturePlanDraft = {
     kind: "feature_plan",
@@ -145,15 +189,17 @@ export async function promoteToTask(ctx: PromoteContext): Promise<{
 
   const draft = latestDraft(db, feedbackId);
   const title = draft?.title || `feedback: ${fb.body.slice(0, 60)}`;
+  const thread = renderFeedbackThread(db, feedbackId);
   const body = [
     "## Source",
     "",
-    `Captured from feedback ${feedbackId} (${fb.contextHint ?? "—"} on ${fb.contextRoute ?? "—"}).`,
+    feedbackSourceLine(feedbackId, fb),
     "",
     "## Operator's note",
     "",
     fb.body,
     draft?.summary ? `\n## Agent's draft\n\n${draft.summary}` : "",
+    thread ? `\n## Triage context\n\n${thread}` : "",
     "",
     "## Acceptance",
     "",
