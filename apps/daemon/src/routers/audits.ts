@@ -1,7 +1,7 @@
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { appendOperatorComment, listAuditComments, runAgentReply } from "../audits/comments.ts";
 import { runExecAudit } from "../audits/exec-iterate.ts";
@@ -61,10 +61,16 @@ export const auditsRouter = router({
    * decisions.
    */
   inbox: protectedProcedure.query(async ({ ctx }) => {
+    const now = Date.now();
     return ctx.db
       .select()
       .from(schema.audits)
-      .where(eq(schema.audits.status, "completed"))
+      .where(
+        and(
+          eq(schema.audits.status, "completed"),
+          or(isNull(schema.audits.snoozedUntil), lte(schema.audits.snoozedUntil, now)),
+        ),
+      )
       .orderBy(desc(schema.audits.startedAt))
       .all();
   }),

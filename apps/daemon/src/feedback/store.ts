@@ -1,6 +1,6 @@
 import { type Db, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 
 export interface AppendInput {
   vote: "up" | "down";
@@ -30,10 +30,16 @@ export function getFeedback(db: Db, id: string) {
 }
 
 export function listOpenFeedback(db: Db) {
+  const now = Date.now();
   return db
     .select()
     .from(schema.feedback)
-    .where(inArray(schema.feedback.status, ["open", "in_progress"]))
+    .where(
+      and(
+        inArray(schema.feedback.status, ["open", "in_progress"]),
+        or(isNull(schema.feedback.snoozedUntil), lte(schema.feedback.snoozedUntil, now)),
+      ),
+    )
     .orderBy(desc(schema.feedback.createdAt))
     .all();
 }

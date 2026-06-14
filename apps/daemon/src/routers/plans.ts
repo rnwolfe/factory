@@ -2,7 +2,7 @@ import type { FeaturePlanDraft } from "@factory/db";
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { applyFeaturePlanFreeze } from "../plans/apply-feature-plan.ts";
 import { applyProjectVisionFreeze } from "../plans/apply-project-vision.ts";
@@ -24,10 +24,16 @@ import { protectedProcedure, router } from "../trpc.ts";
 
 export const plansRouter = router({
   inbox: protectedProcedure.query(async ({ ctx }) => {
+    const now = Date.now();
     return ctx.db
       .select()
       .from(schema.plans)
-      .where(eq(schema.plans.status, "drafting"))
+      .where(
+        and(
+          eq(schema.plans.status, "drafting"),
+          or(isNull(schema.plans.snoozedUntil), lte(schema.plans.snoozedUntil, now)),
+        ),
+      )
       .orderBy(desc(schema.plans.createdAt))
       .all();
   }),

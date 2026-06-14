@@ -393,6 +393,8 @@ export const decisions = sqliteTable("decisions", {
   uncertainty: real("uncertainty"),
   weightedScore: real("weighted_score"),
   status: text("status", { enum: decisionStatusEnum }).notNull().default("pending"),
+  /** Nullable epoch-ms timestamp. Pending decisions resurface when this is null or in the past. */
+  snoozedUntil: integer("snoozed_until"),
   createdAt: integer("created_at").notNull(),
   actionedAt: integer("actioned_at"),
 });
@@ -538,6 +540,8 @@ export const plans = sqliteTable(
     goal: text("goal").notNull(),
     /** Current draft payload (PlanDraft union, JSON-stringified). */
     draft: text("draft").notNull(),
+    /** Nullable epoch-ms timestamp. Drafting plans resurface when this is null or in the past. */
+    snoozedUntil: integer("snoozed_until"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
     frozenAt: integer("frozen_at"),
@@ -617,6 +621,8 @@ export const audits = sqliteTable(
     completedAt: integer("completed_at"),
     /** First-open by operator. */
     reviewedAt: integer("reviewed_at"),
+    /** Nullable epoch-ms timestamp. Completed audits resurface when this is null or in the past. */
+    snoozedUntil: integer("snoozed_until"),
     approvedAt: integer("approved_at"),
     rejectedAt: integer("rejected_at"),
     /** Populated on completion. */
@@ -741,6 +747,8 @@ export const feedback = sqliteTable(
     contextRoute: text("context_route"),
     contextHint: text("context_hint"),
     status: text("status", { enum: feedbackStatusEnum }).notNull().default("open"),
+    /** Nullable epoch-ms timestamp. Open feedback resurfaces when this is null or in the past. */
+    snoozedUntil: integer("snoozed_until"),
     createdAt: integer("created_at").notNull(),
     resolvedAt: integer("resolved_at"),
     /** "plan:<id>" | "task:<projectId>:<taskId>" | null. Set by promote (D2). */
