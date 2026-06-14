@@ -61,9 +61,18 @@ export function FeedbackDrawer({ onClose, contextRoute, contextHint }: Props) {
           <button
             type="button"
             onClick={() => setVote("up")}
+            aria-pressed={vote === "up"}
+            style={
+              vote === "up"
+                ? {
+                    borderColor: "var(--color-verdict-greenlit)",
+                    backgroundColor: "var(--color-verdict-greenlit-soft)",
+                  }
+                : undefined
+            }
             className={`flex-1 surface flex items-center justify-center gap-1.5 h-10 text-[13px] ${
               vote === "up"
-                ? "border-[var(--color-accent)] text-[var(--color-fg)]"
+                ? "text-[var(--color-verdict-greenlit)]"
                 : "border-[var(--color-line)] text-[var(--color-fg-2)]"
             } border`}
           >
@@ -72,9 +81,18 @@ export function FeedbackDrawer({ onClose, contextRoute, contextHint }: Props) {
           <button
             type="button"
             onClick={() => setVote("down")}
+            aria-pressed={vote === "down"}
+            style={
+              vote === "down"
+                ? {
+                    borderColor: "var(--color-verdict-trashed)",
+                    backgroundColor: "var(--color-verdict-trashed-soft)",
+                  }
+                : undefined
+            }
             className={`flex-1 surface flex items-center justify-center gap-1.5 h-10 text-[13px] ${
               vote === "down"
-                ? "border-[var(--color-verdict-trashed)] text-[var(--color-fg)]"
+                ? "text-[var(--color-verdict-trashed)]"
                 : "border-[var(--color-line)] text-[var(--color-fg-2)]"
             } border`}
           >
