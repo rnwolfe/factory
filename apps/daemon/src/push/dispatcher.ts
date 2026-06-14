@@ -3,6 +3,7 @@ import { schema } from "@factory/db";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { DaemonEvent, EventBus } from "../events.ts";
+import { readTaskFile, type TaskTarget } from "../projects/tasks.ts";
 
 /**
  * Web Push notification payload shipped to enrolled browsers. The service
@@ -42,26 +43,21 @@ export async function payloadFor(
     if (!config.notifyOnRunComplete) return null;
 
     const run = await db
-      .select({ projectId: schema.runs.projectId, summary: schema.runs.summary })
+      .select({
+        projectId: schema.runs.projectId,
+        summary: schema.runs.summary,
+        taskId: schema.runs.taskId,
+      })
       .from(schema.runs)
       .where(eq(schema.runs.id, event.runId))
       .get();
     if (!run) return null;
 
-    const project = await db
-      .select({ name: schema.projects.name })
-      .from(schema.projects)
-      .where(eq(schema.projects.id, run.projectId))
-      .get();
-
-    const projectName = project?.name ?? "project";
+    const context = await runContext(db, run.projectId, run.taskId, event.runId);
     const summary = run.summary?.trim();
     return {
       title: "run complete",
-      body:
-        summary && summary.length > 0
-          ? `${projectName} · ${summary.slice(0, 140)}`
-          : `${projectName} · run finished`,
+      body: runBody(context, "completed", summary),
       url: `/projects/${run.projectId}/runs/${event.runId}`,
       tag: `run:${event.runId}`,
     };
@@ -69,7 +65,12 @@ export async function payloadFor(
 
   if (event.kind === "decision_created") {
     const decision = await db
-      .select()
+      .select({
+        kind: schema.decisions.kind,
+        outcome: schema.decisions.outcome,
+        payload: schema.decisions.payload,
+        projectId: schema.decisions.projectId,
+      })
       .from(schema.decisions)
       .where(eq(schema.decisions.id, event.decisionId))
       .get();
@@ -87,7 +88,7 @@ export async function payloadFor(
       if (project?.autonomyMode === "autonomous") return null;
     }
 
-    const { title, body } = describeDecision(decision);
+    const { title, body } = await describeDecision(decision, db);
     return {
       title,
       body,
@@ -123,20 +124,125 @@ interface DecisionRow {
   kind: string;
   outcome: string | null;
   payload: unknown;
+  projectId?: string | null;
 }
 
-function describeDecision(d: DecisionRow): { title: string; body: string } {
+interface RunContext {
+  projectName: string;
+  taskLabel: string;
+  runLabel: string | null;
+}
+
+function payloadString(payload: unknown, key: string): string | null {
+  const value = (payload as Record<string, unknown> | null | undefined)?.[key];
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function shortId(id: string | null | undefined): string | null {
+  const trimmed = id?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed.slice(0, 8) : null;
+}
+
+function cleanSegment(value: string | null | undefined): string | null {
+  const trimmed = value?.replace(/\s+/g, " ").trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+async function projectForContext(db: Db, projectId: string | null | undefined) {
+  if (!projectId) return null;
+  return await db
+    .select({
+      name: schema.projects.name,
+      workdirPath: schema.projects.workdirPath,
+      taskBackend: schema.projects.taskBackend,
+      githubRemote: schema.projects.githubRemote,
+      githubInstallationId: schema.projects.githubInstallationId,
+    })
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+}
+
+async function taskLabelFor(project: TaskTarget | null, taskId: string | null): Promise<string> {
+  if (!taskId) return "ad-hoc";
+  if (!project) return taskId;
+  try {
+    const task = await readTaskFile(project, taskId);
+    return cleanSegment(task?.frontmatter.title) ?? taskId;
+  } catch {
+    return taskId;
+  }
+}
+
+async function runContext(
+  db: Db,
+  projectId: string | null | undefined,
+  taskId: string | null | undefined,
+  runId: string | null | undefined,
+): Promise<RunContext> {
+  const project = await projectForContext(db, projectId);
+  return {
+    projectName: cleanSegment(project?.name) ?? "project",
+    taskLabel: await taskLabelFor(project ?? null, taskId ?? null),
+    runLabel: shortId(runId),
+  };
+}
+
+function runBody(context: RunContext, status: string, detail: string | null | undefined): string {
+  const parts = [context.projectName, context.taskLabel, status];
+  if (context.runLabel) parts.push(`run ${context.runLabel}`);
+  const prefix = parts.join(" · ");
+  const cleanedDetail = cleanSegment(detail);
+  return cleanedDetail ? `${prefix} — ${truncate(cleanedDetail, 120)}` : prefix;
+}
+
+async function describeDecision(d: DecisionRow, db: Db): Promise<{ title: string; body: string }> {
   const outcome = (d.outcome ?? "").trim();
   if (d.kind === "blocked_run") {
+    const context = await runContext(
+      db,
+      d.projectId,
+      payloadString(d.payload, "taskId"),
+      payloadString(d.payload, "runId"),
+    );
+    const failed = (d.payload as { failed?: unknown } | null | undefined)?.failed === true;
+    const usageCapped =
+      (d.payload as { usageCapped?: unknown } | null | undefined)?.usageCapped === true;
+    const status = usageCapped ? "usage capped" : failed ? "failed" : "blocked";
+    const summary = payloadString(d.payload, "summary");
     return {
       title: "run blocked",
-      body: outcome.length > 0 ? outcome : "the agent stopped and is asking for guidance.",
+      body: runBody(
+        context,
+        status,
+        summary ?? (outcome.length > 0 ? outcome : "the agent stopped and is asking for guidance."),
+      ),
     };
   }
   if (d.kind === "merge_failure") {
+    const context = await runContext(
+      db,
+      d.projectId,
+      payloadString(d.payload, "taskId"),
+      payloadString(d.payload, "runId"),
+    );
+    const reason = payloadString(d.payload, "reason");
+    const message = payloadString(d.payload, "message");
     return {
       title: "merge failed",
-      body: outcome.length > 0 ? outcome : "a successful run couldn't merge to main.",
+      body: runBody(
+        context,
+        "merge failed",
+        message ??
+          reason ??
+          (outcome.length > 0 ? outcome : "a successful run couldn't merge to main."),
+      ),
     };
   }
   if (d.kind === "agent_decision") {

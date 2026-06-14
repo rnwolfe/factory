@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
+import { sql } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import { payloadFor } from "../src/push/dispatcher.ts";
 
@@ -25,9 +26,10 @@ const cfg: FactoryConfig = {
   vapid: { publicKey: "", privateKey: "", subject: "mailto:t@t" },
 };
 
-function tempDb(): { dbPath: string; cleanup: () => void } {
+function tempDb(): { root: string; dbPath: string; cleanup: () => void } {
   const root = mkdtempSync(path.join(tmpdir(), "factory-push-test-"));
   return {
+    root,
     dbPath: path.join(root, "data.db"),
     cleanup: () => {
       try {
@@ -41,27 +43,28 @@ function tempDb(): { dbPath: string; cleanup: () => void } {
 
 interface Setup {
   db: ReturnType<typeof createDb>;
+  root: string;
   cleanup: () => void;
 }
 
 function setup(): Setup {
-  const { dbPath, cleanup } = tempDb();
+  const { root, dbPath, cleanup } = tempDb();
   runMigrations(dbPath);
   const db = createDb(dbPath);
-  return { db, cleanup };
+  return { db, root, cleanup };
 }
 
 async function insertProject(
   db: Setup["db"],
-  opts: { autonomyMode: "collaborative" | "autonomous" },
+  opts: { autonomyMode: "collaborative" | "autonomous"; name?: string; workdirPath?: string },
 ): Promise<string> {
   const id = createId();
   const now = Date.now();
   await db.insert(schema.projects).values({
     id,
     slug: `proj-${id.slice(0, 6)}`,
-    name: "test",
-    workdirPath: `/tmp/${id}`,
+    name: opts.name ?? "test",
+    workdirPath: opts.workdirPath ?? `/tmp/${id}`,
     createdAt: now,
     lastActivityAt: now,
     ceremony: opts.autonomyMode === "autonomous" ? "tinker" : "personal",
@@ -72,7 +75,7 @@ async function insertProject(
 
 async function insertRun(
   db: Setup["db"],
-  opts: { projectId: string; summary?: string | null },
+  opts: { projectId: string; summary?: string | null; taskId?: string | null },
 ): Promise<string> {
   const id = createId();
   const now = Date.now();
@@ -85,8 +88,19 @@ async function insertRun(
     startedAt: now,
     budgetSeconds: 60,
     summary: opts.summary ?? null,
+    taskId: opts.taskId ?? null,
   });
   return id;
+}
+
+function writeTask(projectPath: string, taskId: string, title: string): void {
+  const dir = path.join(projectPath, ".factory", "work");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    path.join(dir, `${taskId}-test.md`),
+    `---\nid: ${taskId}\ntitle: ${title}\nstatus: ready\n---\n\nbody\n`,
+    "utf8",
+  );
 }
 
 async function insertDecision(
@@ -99,15 +113,20 @@ async function insertDecision(
   },
 ): Promise<string> {
   const id = createId();
-  await db.insert(schema.decisions).values({
-    id,
-    kind: opts.kind,
-    projectId: opts.projectId,
-    outcome: opts.outcome ?? "decided: something",
-    payload: opts.payload ?? {},
-    status: "pending",
-    createdAt: Date.now(),
-  });
+  await db.run(sql`
+    insert into ${schema.decisions}
+      (id, kind, project_id, outcome, payload, status, created_at)
+    values
+      (
+        ${id},
+        ${opts.kind},
+        ${opts.projectId},
+        ${opts.outcome ?? "decided: something"},
+        ${JSON.stringify(opts.payload ?? {})},
+        'pending',
+        ${Date.now()}
+      )
+  `);
   return id;
 }
 
@@ -179,6 +198,42 @@ describe("push dispatcher · payloadFor", () => {
     }
   });
 
+  test("blocked_run body includes project, task title, status, and run id", async () => {
+    const { db, root, cleanup } = setup();
+    try {
+      const projectPath = path.join(root, "project");
+      writeTask(projectPath, "task-007", "Add contextual notifications");
+      const projectId = await insertProject(db, {
+        autonomyMode: "collaborative",
+        name: "Factory",
+        workdirPath: projectPath,
+      });
+      const decisionId = await insertDecision(db, {
+        kind: "blocked_run",
+        projectId,
+        payload: {
+          runId: "abcdef123456",
+          taskId: "task-007",
+          summary: "needs operator guidance",
+        },
+        outcome: "blocked",
+      });
+      const payload = await payloadFor(
+        { channel: "inbox", kind: "decision_created", decisionId, projectId },
+        db,
+        cfg,
+      );
+      expect(payload).not.toBeNull();
+      expect(payload?.body).toContain("Factory");
+      expect(payload?.body).toContain("Add contextual notifications");
+      expect(payload?.body).toContain("blocked");
+      expect(payload?.body).toContain("run abcdef12");
+      expect(payload?.body).toContain("needs operator guidance");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("merge_failure always pushes", async () => {
     const { db, cleanup } = setup();
     try {
@@ -187,6 +242,12 @@ describe("push dispatcher · payloadFor", () => {
         kind: "merge_failure",
         projectId,
         outcome: "merge conflict on schema.ts",
+        payload: {
+          runId: "123456789",
+          taskId: "task-404",
+          reason: "conflict",
+          message: "schema.ts conflict",
+        },
       });
       const payload = await payloadFor(
         { channel: "inbox", kind: "decision_created", decisionId, projectId },
@@ -195,6 +256,11 @@ describe("push dispatcher · payloadFor", () => {
       );
       expect(payload).not.toBeNull();
       expect(payload?.title).toBe("merge failed");
+      expect(payload?.body).toContain("test");
+      expect(payload?.body).toContain("task-404");
+      expect(payload?.body).toContain("merge failed");
+      expect(payload?.body).toContain("run 12345678");
+      expect(payload?.body).toContain("schema.ts conflict");
     } finally {
       cleanup();
     }
@@ -331,10 +397,20 @@ describe("push dispatcher · payloadFor", () => {
   });
 
   test("agent_exit success pushes when notifyOnRunComplete is on", async () => {
-    const { db, cleanup } = setup();
+    const { db, root, cleanup } = setup();
     try {
-      const projectId = await insertProject(db, { autonomyMode: "collaborative" });
-      const runId = await insertRun(db, { projectId, summary: "added auth gate" });
+      const projectPath = path.join(root, "project");
+      writeTask(projectPath, "task-009", "Add auth gate");
+      const projectId = await insertProject(db, {
+        autonomyMode: "collaborative",
+        name: "Operator Portal",
+        workdirPath: projectPath,
+      });
+      const runId = await insertRun(db, {
+        projectId,
+        summary: "added auth gate",
+        taskId: "task-009",
+      });
       const payload = await payloadFor(
         {
           channel: "events",
@@ -349,6 +425,10 @@ describe("push dispatcher · payloadFor", () => {
       );
       expect(payload).not.toBeNull();
       expect(payload?.title).toBe("run complete");
+      expect(payload?.body).toContain("Operator Portal");
+      expect(payload?.body).toContain("Add auth gate");
+      expect(payload?.body).toContain("completed");
+      expect(payload?.body).toContain(`run ${runId.slice(0, 8)}`);
       expect(payload?.body).toContain("added auth gate");
       expect(payload?.url).toBe(`/projects/${projectId}/runs/${runId}`);
       expect(payload?.tag).toBe(`run:${runId}`);
