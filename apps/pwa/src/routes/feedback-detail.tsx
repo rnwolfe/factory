@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CheckCircle2, ListPlus, Loader2, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { MarkdownBlock } from "../components/markdown-block.tsx";
 import { useFeedbackChannel } from "../lib/channels.ts";
+import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
 
 interface FeedbackRow {
@@ -27,8 +29,33 @@ interface FeedbackComment {
   createdAt: number;
 }
 
+interface FeedbackDraft {
+  kind: "plan" | "task" | "dismiss";
+  title: string;
+  summary: string;
+  reasoning: string;
+}
+
 function fmtDate(ts: number): string {
   return new Date(ts).toISOString().slice(0, 16).replace("T", " ");
+}
+
+function parseFeedbackDraft(raw: string | null): FeedbackDraft | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<FeedbackDraft>;
+    if (parsed.kind !== "plan" && parsed.kind !== "task" && parsed.kind !== "dismiss") {
+      return null;
+    }
+    return {
+      kind: parsed.kind,
+      title: typeof parsed.title === "string" ? parsed.title : "",
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseTarget(t: string | null):
@@ -47,6 +74,12 @@ function parseTarget(t: string | null):
     return { kind: "task", projectId: taskMatch[1], taskId: taskMatch[2] };
   }
   return null;
+}
+
+function draftChipClass(kind: FeedbackDraft["kind"]): string {
+  if (kind === "plan") return "chip-accent";
+  if (kind === "task") return "chip-greenlit";
+  return "chip-parked";
 }
 
 export function FeedbackDetail() {
@@ -154,6 +187,11 @@ export function FeedbackDetail() {
   const lastIsOperator = thread.length > 0 && thread[thread.length - 1]?.role === "operator";
   const promoteAvailable = Boolean(config.data?.factoryProjectId);
   const target = parseTarget(r.resolvedTarget);
+  const latestDraftCommentId = [...thread]
+    .reverse()
+    .find((c) => c.role === "agent" && parseFeedbackDraft(c.resultingDraft))?.id;
+  const hasDraftSuggestion = Boolean(latestDraftCommentId);
+  const isMutable = r.status === "open" || r.status === "in_progress";
 
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
@@ -203,38 +241,42 @@ export function FeedbackDetail() {
             )}
           </div>
         ) : null}
-        {r.status === "open" || r.status === "in_progress" ? (
+        {isMutable ? (
           <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => promotePlan.mutate()}
-              disabled={!promoteAvailable || promotePlan.isPending}
-              title={
-                promoteAvailable ? undefined : "set factoryProjectId in ~/.factory/config.yaml"
-              }
-              className="btn btn-primary text-[12px]"
-            >
-              {promotePlan.isPending ? (
-                <>
-                  <Loader2 size={12} className="animate-spin" /> promoting…
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 size={12} /> promote to plan
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => promoteTask.mutate()}
-              disabled={!promoteAvailable || promoteTask.isPending}
-              title={
-                promoteAvailable ? undefined : "set factoryProjectId in ~/.factory/config.yaml"
-              }
-              className="btn btn-ghost text-[12px]"
-            >
-              <ListPlus size={12} /> promote to task
-            </button>
+            {!hasDraftSuggestion ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => promotePlan.mutate()}
+                  disabled={!promoteAvailable || promotePlan.isPending}
+                  title={
+                    promoteAvailable ? undefined : "set factoryProjectId in ~/.factory/config.yaml"
+                  }
+                  className="btn btn-primary text-[12px]"
+                >
+                  {promotePlan.isPending ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" /> promoting…
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={12} /> promote to plan
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => promoteTask.mutate()}
+                  disabled={!promoteAvailable || promoteTask.isPending}
+                  title={
+                    promoteAvailable ? undefined : "set factoryProjectId in ~/.factory/config.yaml"
+                  }
+                  className="btn btn-ghost text-[12px]"
+                >
+                  <ListPlus size={12} /> promote to task
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               onClick={() => dismiss.mutate()}
@@ -260,24 +302,46 @@ export function FeedbackDetail() {
       </pre>
 
       <div className="space-y-2">
-        {thread.map((c) => (
-          <div
-            key={c.id}
-            className={`surface p-3 ${
-              c.role === "operator" ? "border-l-2 border-[var(--color-accent)]" : ""
-            }`}
-          >
-            <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1 flex items-center gap-2">
-              <span>{c.role}</span>
-              <span>·</span>
-              <span>{fmtDate(c.createdAt)}</span>
-              {c.resultingDraft ? <span className="chip ml-1">draft</span> : null}
+        {thread.map((c) => {
+          const draft = parseFeedbackDraft(c.resultingDraft);
+          const isLatestDraft = c.id === latestDraftCommentId;
+          if (draft) {
+            return (
+              <FeedbackSuggestionCard
+                key={c.id}
+                comment={c}
+                draft={draft}
+                isLatestDraft={isLatestDraft}
+                isMutable={isMutable}
+                promoteAvailable={promoteAvailable}
+                promotePlan={() => promotePlan.mutate()}
+                promoteTask={() => promoteTask.mutate()}
+                dismiss={() => dismiss.mutate()}
+                promotePlanPending={promotePlan.isPending}
+                promoteTaskPending={promoteTask.isPending}
+                dismissPending={dismiss.isPending}
+              />
+            );
+          }
+
+          return (
+            <div
+              key={c.id}
+              className={`surface p-3 ${
+                c.role === "operator" ? "border-l-2 border-[var(--color-accent)]" : ""
+              }`}
+            >
+              <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1 flex items-center gap-2">
+                <span>{c.role}</span>
+                <span>·</span>
+                <span>{fmtDate(c.createdAt)}</span>
+              </div>
+              <pre className="mono text-[12px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap break-words">
+                {c.body}
+              </pre>
             </div>
-            <pre className="mono text-[12px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap break-words">
-              {c.body}
-            </pre>
-          </div>
-        ))}
+          );
+        })}
         {lastIsOperator ? (
           <div className="surface p-3 mono text-[11px] text-[var(--color-fg-3)] flex items-center gap-2">
             <Loader2 size={12} className="animate-spin" /> thinking…
@@ -322,5 +386,159 @@ export function FeedbackDetail() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+interface FeedbackSuggestionCardProps {
+  comment: FeedbackComment;
+  draft: FeedbackDraft;
+  isLatestDraft: boolean;
+  isMutable: boolean;
+  promoteAvailable: boolean;
+  promotePlan: () => void;
+  promoteTask: () => void;
+  dismiss: () => void;
+  promotePlanPending: boolean;
+  promoteTaskPending: boolean;
+  dismissPending: boolean;
+}
+
+function FeedbackSuggestionCard({
+  comment,
+  draft,
+  isLatestDraft,
+  isMutable,
+  promoteAvailable,
+  promotePlan,
+  promoteTask,
+  dismiss,
+  promotePlanPending,
+  promoteTaskPending,
+  dismissPending,
+}: FeedbackSuggestionCardProps) {
+  const primaryAction =
+    draft.kind === "task" ? "task" : draft.kind === "dismiss" ? "dismiss" : "plan";
+  const disabledTitle = promoteAvailable
+    ? undefined
+    : "set factoryProjectId in ~/.factory/config.yaml";
+  const showActions = isLatestDraft && isMutable;
+
+  return (
+    <article className="surface p-3 border-l-2 border-[var(--color-accent-line)]">
+      <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2 flex items-center gap-2 flex-wrap">
+        <span>agent</span>
+        <span>·</span>
+        <span>{fmtDate(comment.createdAt)}</span>
+        <span className={cn("chip ml-1", draftChipClass(draft.kind))}>{draft.kind}</span>
+        {!isLatestDraft ? <span className="chip">superseded</span> : null}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-[15px] leading-snug text-[var(--color-fg)]">
+          {draft.title || "(untitled suggestion)"}
+        </h2>
+        <div className="text-[13.5px] leading-relaxed text-[var(--color-fg-1)]">
+          {draft.summary ? (
+            <MarkdownBlock source={draft.summary} />
+          ) : (
+            <span className="text-[var(--color-fg-3)]">(no summary supplied)</span>
+          )}
+        </div>
+        {draft.reasoning ? (
+          <details className="pt-1">
+            <summary className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] cursor-pointer">
+              reasoning
+            </summary>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
+              {draft.reasoning}
+            </p>
+          </details>
+        ) : null}
+      </div>
+
+      {showActions ? (
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          {primaryAction === "plan" ? (
+            <button
+              type="button"
+              onClick={promotePlan}
+              disabled={!promoteAvailable || promotePlanPending}
+              title={disabledTitle}
+              className="btn btn-primary text-[12px]"
+            >
+              {promotePlanPending ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" /> promoting…
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={12} /> promote to plan
+                </>
+              )}
+            </button>
+          ) : primaryAction === "task" ? (
+            <button
+              type="button"
+              onClick={promoteTask}
+              disabled={!promoteAvailable || promoteTaskPending}
+              title={disabledTitle}
+              className="btn btn-primary text-[12px]"
+            >
+              {promoteTaskPending ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" /> promoting…
+                </>
+              ) : (
+                <>
+                  <ListPlus size={12} /> promote to task
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={dismiss}
+              disabled={dismissPending}
+              className="btn btn-primary text-[12px]"
+            >
+              <X size={12} /> dismiss
+            </button>
+          )}
+
+          {primaryAction !== "plan" ? (
+            <button
+              type="button"
+              onClick={promotePlan}
+              disabled={!promoteAvailable || promotePlanPending}
+              title={disabledTitle}
+              className="btn btn-ghost text-[12px]"
+            >
+              <CheckCircle2 size={12} /> promote to plan
+            </button>
+          ) : null}
+          {primaryAction !== "task" ? (
+            <button
+              type="button"
+              onClick={promoteTask}
+              disabled={!promoteAvailable || promoteTaskPending}
+              title={disabledTitle}
+              className="btn btn-ghost text-[12px]"
+            >
+              <ListPlus size={12} /> promote to task
+            </button>
+          ) : null}
+          {primaryAction !== "dismiss" ? (
+            <button
+              type="button"
+              onClick={dismiss}
+              disabled={dismissPending}
+              className="btn btn-ghost text-[12px]"
+            >
+              <X size={12} /> dismiss
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
   );
 }
