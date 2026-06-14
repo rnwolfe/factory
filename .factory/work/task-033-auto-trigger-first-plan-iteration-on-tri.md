@@ -1,11 +1,11 @@
 ---
 id: task-033
 title: Auto-trigger first plan iteration on triage-approve (and startRefinement)
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T10:54:33.432Z
-updated: 2026-06-14T10:54:39.775Z
+updated: 2026-06-14T13:05:51.070Z
 labels:
   - feedback
 model: claude-opus-4-8
@@ -28,4 +28,5 @@ Add the same fire-and-forget block used by `startTaskPlan`/`startFeaturePlan` (p
 ## Acceptance
 
 - [ ] (TBD)
+
 
