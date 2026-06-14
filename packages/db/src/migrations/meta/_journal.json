@@ -211,6 +211,13 @@
       "when": 1779800000000,
       "tag": "0029_task_backend",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1781434117765,
+      "tag": "0030_snooze_inbox_items",
+      "breakpoints": true
     }
   ]
 }
