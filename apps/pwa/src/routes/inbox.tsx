@@ -42,32 +42,35 @@ function isDesktopViewport(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
 }
 
+type InboxView = "active" | "snoozed";
+
 export function Inbox() {
   const qc = useQueryClient();
   const nav = useNavigate();
   const [selected, setSelected] = useState<InboxDetailItem | null>(null);
+  const [view, setView] = useState<InboxView>("active");
 
   const inbox = useQuery({
-    queryKey: ["decisions.inbox"],
-    queryFn: () => trpc.decisions.inbox.query() as unknown as Promise<DecisionRow[]>,
+    queryKey: ["decisions.inbox", view],
+    queryFn: () => trpc.decisions.inbox.query({ view }) as unknown as Promise<DecisionRow[]>,
     refetchInterval: 6_000,
   });
 
   const planInbox = useQuery({
-    queryKey: ["plans.inbox"],
-    queryFn: () => trpc.plans.inbox.query() as unknown as Promise<PlanRow[]>,
+    queryKey: ["plans.inbox", view],
+    queryFn: () => trpc.plans.inbox.query({ view }) as unknown as Promise<PlanRow[]>,
     refetchInterval: 6_000,
   });
 
   const auditInbox = useQuery({
-    queryKey: ["audits.inbox"],
-    queryFn: () => trpc.audits.inbox.query() as unknown as Promise<AuditRow[]>,
+    queryKey: ["audits.inbox", view],
+    queryFn: () => trpc.audits.inbox.query({ view }) as unknown as Promise<AuditRow[]>,
     refetchInterval: 6_000,
   });
 
   const feedbackInbox = useQuery({
-    queryKey: ["feedback.inbox"],
-    queryFn: () => trpc.feedback.inbox.query() as unknown as Promise<FeedbackInboxRow[]>,
+    queryKey: ["feedback.inbox", view],
+    queryFn: () => trpc.feedback.inbox.query({ view }) as unknown as Promise<FeedbackInboxRow[]>,
     refetchInterval: 6_000,
   });
 
@@ -121,15 +124,15 @@ export function Inbox() {
       action: "approve" | "park" | "trash" | "decompose" | "dismiss";
     }) => trpc.decisions.action.mutate(vars),
     onMutate: async (vars) => {
-      await qc.cancelQueries({ queryKey: ["decisions.inbox"] });
-      const prev = qc.getQueryData<DecisionRow[]>(["decisions.inbox"]);
-      qc.setQueryData<DecisionRow[]>(["decisions.inbox"], (rows) =>
+      await qc.cancelQueries({ queryKey: ["decisions.inbox", view] });
+      const prev = qc.getQueryData<DecisionRow[]>(["decisions.inbox", view]);
+      qc.setQueryData<DecisionRow[]>(["decisions.inbox", view], (rows) =>
         (rows ?? []).filter((r) => r.id !== vars.decisionId),
       );
       return { prev };
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(["decisions.inbox"], ctx.prev);
+      if (ctx?.prev) qc.setQueryData(["decisions.inbox", view], ctx.prev);
     },
     onSuccess: (res) => {
       // Approving a triage decision creates a plan; navigate the operator
@@ -152,7 +155,9 @@ export function Inbox() {
     [action],
   );
 
-  const triagingRows = triaging.data ?? [];
+  // Triaging ideas are live work, not snoozed items — only show them in the
+  // active view.
+  const triagingRows = view === "active" ? (triaging.data ?? []) : [];
 
   if (inbox.isLoading && triagingRows.length === 0 && !planInbox.data) {
     return <InboxSkeleton />;
@@ -201,9 +206,24 @@ export function Inbox() {
   }
 
   if (merged.length === 0 && triagingRows.length === 0) {
+    if (view === "snoozed") {
+      return (
+        <div>
+          <ViewToggle view={view} onChange={setView} />
+          <div className="px-2 pt-8 text-center">
+            <div className="display text-2xl text-[var(--color-fg)] mb-2">nothing snoozed</div>
+            <p className="text-[var(--color-fg-2)] text-sm leading-relaxed">
+              no inbox items are currently snoozed — they'll resurface here when their timer is
+              running.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="px-2 pt-8">
-        <div className="text-center">
+      <div>
+        <ViewToggle view={view} onChange={setView} />
+        <div className="px-2 pt-8 text-center">
           <div className="display text-2xl text-[var(--color-fg)] mb-2">no decisions</div>
           <p className="text-[var(--color-fg-2)] text-sm leading-relaxed mb-6">
             the inbox is empty. capture an idea — Heimdall triages within ~2 min.
@@ -268,6 +288,7 @@ export function Inbox() {
   return (
     <div className="md:grid md:grid-cols-[minmax(320px,400px)_minmax(0,640px)] md:gap-6 md:items-start md:max-w-[1080px] md:mx-auto">
       <div className="space-y-2.5">
+        <ViewToggle view={view} onChange={setView} />
         {triagingRows.map((idea) => (
           <TriagingRow key={idea.id} idea={idea} />
         ))}
@@ -320,6 +341,29 @@ export function Inbox() {
       <div className="hidden md:block md:sticky md:top-5">
         <InboxDetailPane item={selected} onDecisionAction={handleDecisionAction} />
       </div>
+    </div>
+  );
+}
+
+function ViewToggle({ view, onChange }: { view: InboxView; onChange: (v: InboxView) => void }) {
+  const tabs: InboxView[] = ["active", "snoozed"];
+  return (
+    <div className="flex items-center gap-1.5">
+      {tabs.map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onChange(v)}
+          aria-pressed={view === v}
+          className={
+            view === v
+              ? "chip chip-accent"
+              : "chip text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+          }
+        >
+          {v}
+        </button>
+      ))}
     </div>
   );
 }

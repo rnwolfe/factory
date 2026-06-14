@@ -2,8 +2,9 @@ import { schema } from "@factory/db";
 import { mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, isNull, lte, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
+import { inboxViewInput, snoozeWhere } from "../inbox-snooze.ts";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
@@ -150,7 +151,7 @@ const decisionWithProjectSelect = {
 };
 
 export const decisionsRouter = router({
-  inbox: protectedProcedure.query(async ({ ctx }) => {
+  inbox: protectedProcedure.input(inboxViewInput).query(async ({ ctx, input }) => {
     const now = Date.now();
     return ctx.db
       .select(decisionWithProjectSelect)
@@ -159,7 +160,7 @@ export const decisionsRouter = router({
       .where(
         and(
           eq(schema.decisions.status, "pending"),
-          or(isNull(schema.decisions.snoozedUntil), lte(schema.decisions.snoozedUntil, now)),
+          snoozeWhere(schema.decisions.snoozedUntil, input.view, now),
         ),
       )
       .orderBy(desc(schema.decisions.createdAt))
