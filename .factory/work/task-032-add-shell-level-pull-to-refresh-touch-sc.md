@@ -6,9 +6,10 @@ status: ready
 priority: med
 estimate: small
 created: 2026-06-14T10:41:34.232Z
-updated: 2026-06-14T10:41:34.232Z
+updated: 2026-06-14T10:41:37.224Z
 labels:
   - feedback
+model: claude-sonnet-4-6
 ---
 
 ## Source
@@ -28,3 +29,4 @@ Gate on touch + scroll-at-top so desktop pointer scrolling and normal mobile scr
 ## Acceptance
 
 - [ ] (TBD)
+
