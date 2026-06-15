@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import type { AuditFinding } from "./audit-card.tsx";
 import { MarkdownView } from "./markdown-view.tsx";
@@ -6,6 +7,7 @@ interface Props {
   finding: AuditFinding;
   selected?: boolean;
   onToggle?: () => void;
+  promotedHref?: string | null;
 }
 
 const SEVERITY_CHIP: Record<AuditFinding["severity"], string> = {
@@ -15,7 +17,7 @@ const SEVERITY_CHIP: Record<AuditFinding["severity"], string> = {
   enhancement: "chip-accent",
 };
 
-export function FindingCard({ finding, selected, onToggle }: Props) {
+export function FindingCard({ finding, selected, onToggle, promotedHref }: Props) {
   const interactive = typeof onToggle === "function" && finding.promotedTo === null;
   const Wrapper = interactive ? "label" : "div";
   return (
@@ -40,7 +42,11 @@ export function FindingCard({ finding, selected, onToggle }: Props) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className={cn("chip", SEVERITY_CHIP[finding.severity])}>{finding.severity}</span>
-            {finding.promotedTo ? (
+            {finding.promotedTo && promotedHref ? (
+              <Link to={promotedHref} className="chip">
+                {finding.promotedTo.kind === "plan" ? "→ plan" : "→ task"}
+              </Link>
+            ) : finding.promotedTo ? (
               <span className="chip">
                 {finding.promotedTo.kind === "plan" ? "→ plan" : "→ task"}
               </span>

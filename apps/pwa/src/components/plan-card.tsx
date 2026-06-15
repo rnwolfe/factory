@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 
 export type PlanKind =
@@ -71,6 +72,16 @@ export function PlanCard({ plan, hint, index = 0, snoozeControl, onOpen }: Props
       <div className="px-4 pt-3 pb-2 flex items-center gap-2 flex-wrap">
         <span className={cn("chip", "chip-decompose")}>{kindLabel(plan.kind)}</span>
         <span className="chip">{plan.status}</span>
+        {plan.decisionId ? (
+          <Link to={`/decisions/${plan.decisionId}`} className="chip">
+            origin decision
+          </Link>
+        ) : null}
+        {plan.projectId && plan.taskId ? (
+          <Link to={`/projects/${plan.projectId}/tasks/${plan.taskId}`} className="chip">
+            task {plan.taskId}
+          </Link>
+        ) : null}
         <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
           · {timeAgo(plan.updatedAt || plan.createdAt)} ago
         </span>

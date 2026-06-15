@@ -218,6 +218,15 @@ export function PlanDetail() {
         project
       </Link>
     ) : null;
+  const taskLink =
+    p.projectId && p.taskId ? (
+      <Link
+        to={`/projects/${p.projectId}/tasks/${p.taskId}`}
+        className="mono text-[10.5px] text-[var(--color-accent)] underline"
+      >
+        task {p.taskId}
+      </Link>
+    ) : null;
 
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
@@ -243,8 +252,16 @@ export function PlanDetail() {
         <div className="flex items-center gap-2 mt-3 mb-2 flex-wrap">
           <span className={cn("chip", "chip-decompose")}>{kindLabel(p.kind)}</span>
           <span className="chip">{p.status}</span>
+          {p.decisionId ? (
+            <Link
+              to={`/decisions/${p.decisionId}`}
+              className="mono text-[10.5px] text-[var(--color-accent)] underline"
+            >
+              origin decision
+            </Link>
+          ) : null}
           {projectLink}
-          {p.taskId ? <span className="mono text-[11px]">· {p.taskId}</span> : null}
+          {taskLink}
           <MetricsChip ownerKind="plan_iteration" ownerId={p.id} />
           <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
             {fmtDate(p.updatedAt)}

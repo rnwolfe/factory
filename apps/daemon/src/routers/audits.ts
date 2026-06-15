@@ -458,6 +458,8 @@ export const auditsRouter = router({
           body,
           labels: ["bug", "needs-refinement"],
           priority: "med",
+          sourceAuditId: audit.id,
+          sourceFindingIds: selected.map((f) => f.id),
         });
         taskId = created.id;
         promotedTo = { kind: "task", id: created.id };

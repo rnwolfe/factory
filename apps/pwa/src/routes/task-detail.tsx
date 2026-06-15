@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { AgentModelPicker, type AgentName } from "../components/model-picker.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
+import { type ProvenanceLink, ProvenanceLinks } from "../components/source-link.tsx";
 import { trpc } from "../lib/trpc.ts";
 
 interface RunRow {
@@ -163,6 +164,9 @@ export function TaskDetail() {
               <span>{fm.id}</span>
               {fm.estimate ? <span>· {String(fm.estimate)}</span> : null}
               {fm.priority ? <span>· {String(fm.priority)}</span> : null}
+              <ProvenanceLinks
+                links={(task.data.sourceLinks as ProvenanceLink[] | undefined) ?? []}
+              />
             </div>
           </div>
           <span className={`chip status-${fm.status}`}>{fm.status}</span>
