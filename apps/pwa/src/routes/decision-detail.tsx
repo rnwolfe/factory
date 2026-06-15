@@ -7,7 +7,7 @@ import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
 import { RecoveryPrompt } from "../components/recovery-prompt.tsx";
-import { SourceIssueLink, sourceIssueLabel } from "../components/source-issue-link.tsx";
+import { SourceIssueLink, sourceIssueLabel } from "../components/source-link.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -279,7 +279,7 @@ export function DecisionDetail() {
     : isAgentDecision
       ? (payload.summary ?? d.outcome)
       : isIssueIntake
-        ? sourceIssueLabel(issueNumber, issueTitle)
+        ? (sourceIssueLabel(issueNumber, issueTitle) ?? "GitHub issue")
         : isReleaseProposal
           ? `release ${payload.version ?? "(version pending)"}`
           : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));

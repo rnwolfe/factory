@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { AuditRow } from "./audit-card.tsx";
 import { type DecisionRow, decisionProjectLabel } from "./decision-card.tsx";
 import type { PlanRow } from "./plan-card.tsx";
-import { SourceIssueLink } from "./source-issue-link.tsx";
+import { SourceIssueLink } from "./source-link.tsx";
 
 interface FeedbackInboxRow {
   id: string;
