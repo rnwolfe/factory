@@ -1,11 +1,11 @@
 ---
 id: task-043
 title: Apply SourceLink to existing provenance-bearing surfaces
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-14T11:16:07.288Z
-updated: 2026-06-14T11:16:07.288Z
+updated: 2026-06-15T00:20:51.072Z
 labels:
   - feature-plan-task
 ---
@@ -20,4 +20,5 @@ labels:
 ## Notes
 
 Emitted by feature plan hhw18821: "Surface source links wherever provenance exists (starting with issue_intake)"
+
 
