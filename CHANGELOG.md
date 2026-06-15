@@ -4,6 +4,27 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.24.0 — 2026-06-15
+
+### Added
+- **Releases cut from the inbox now push automatically.** Confirming a release
+  proposal runs the gated bump/changelog/tag on the run's branch, and Factory
+  pushes `main` + the tag to origin from the project checkout after the run
+  merges (the run can't push correctly from its worktree, where `main` is
+  stale). Push failures are reported in the run summary for a manual push; the
+  local release stays intact.
+- **Source/provenance links across the inbox** — decision cards and detail
+  views link back to where an item came from (captured feedback, an intake'd
+  GitHub issue, and so on).
+
+### Fixed
+- **The release template runs the project's gates** (typecheck + lint + tests)
+  and prefers the project's own release tooling — no more `--skip-checks`, no
+  more silently not pushing.
+- **Feedback triage context is preserved on promotion**, and agent draft
+  suggestions render in the feedback view.
+- **Inbox snoozes resurface when they expire.**
+
 ## v0.23.0 — 2026-06-14
 
 ### Added
