@@ -31,6 +31,7 @@ import {
   listTasks,
   readTaskFile,
   renderAcceptanceBlock,
+  type TaskFile,
   updateTaskAgent,
   updateTaskBody,
   updateTaskModel,
@@ -47,6 +48,75 @@ const TaskEstimateEnum = z.enum(["small", "medium", "large"]);
 const TaskPriorityEnum = z.enum(["low", "med", "high"]);
 const AutonomyModeEnum = z.enum(["collaborative", "autonomous"]);
 
+interface TaskSourceLink {
+  kind: "issue" | "plan" | "finding" | "audit";
+  label: string;
+  href: string;
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
+function sourceString(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+function sourceStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function githubIssueLink(filePath: string): TaskSourceLink | null {
+  const match = /^github:([^/\s]+)\/([^#\s]+)#(\d+)$/.exec(filePath);
+  if (!match) return null;
+  const [, owner, repo, number] = match;
+  return {
+    kind: "issue",
+    label: `issue #${number}`,
+    href: `https://github.com/${owner}/${repo}/issues/${number}`,
+  };
+}
+
+function taskSourceLinks(projectId: string, task: TaskFile): TaskSourceLink[] {
+  const links: TaskSourceLink[] = [];
+  const issue = githubIssueLink(task.filePath);
+  if (issue) links.push(issue);
+
+  const sourcePlanId = sourceString(task.frontmatter.sourcePlanId);
+  if (sourcePlanId) {
+    links.push({
+      kind: "plan",
+      label: `plan ${shortId(sourcePlanId)}`,
+      href: `/plans/${sourcePlanId}`,
+    });
+  }
+
+  const sourceAuditId = sourceString(task.frontmatter.sourceAuditId);
+  const sourceFindingIds = sourceStringArray(task.frontmatter.sourceFindingIds);
+  if (sourceAuditId && sourceFindingIds.length > 0) {
+    for (const findingId of sourceFindingIds) {
+      links.push({
+        kind: "finding",
+        label: `finding ${shortId(findingId)}`,
+        href: `/projects/${projectId}/audits/${sourceAuditId}#finding-${findingId}`,
+      });
+    }
+  } else if (sourceAuditId) {
+    links.push({
+      kind: "audit",
+      label: `audit ${shortId(sourceAuditId)}`,
+      href: `/projects/${projectId}/audits/${sourceAuditId}`,
+    });
+  }
+
+  return links;
+}
+
+function taskSummary(projectId: string, task: TaskFile) {
+  return { ...task.frontmatter, sourceLinks: taskSourceLinks(projectId, task) };
+}
+
 const tasksRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
@@ -58,7 +128,7 @@ const tasksRouter = router({
         .get();
       if (!project) return [];
       const tasks = await listTasks(project);
-      return tasks.map((t) => t.frontmatter);
+      return tasks.map((t) => taskSummary(project.id, t));
     }),
   get: protectedProcedure
     .input(z.object({ projectId: z.string(), taskId: z.string() }))
@@ -71,7 +141,12 @@ const tasksRouter = router({
       if (!project) return null;
       const task = await readTaskFile(project, input.taskId);
       if (!task) return null;
-      return { frontmatter: task.frontmatter, body: task.body, projectAgent: project.agent };
+      return {
+        frontmatter: task.frontmatter,
+        body: task.body,
+        projectAgent: project.agent,
+        sourceLinks: taskSourceLinks(project.id, task),
+      };
     }),
   updateStatus: protectedProcedure
     .input(
@@ -340,7 +415,7 @@ export const projectsRouter = router({
     }
 
     const tasks = await listTasks(project);
-    return { project: reconciled, tasks: tasks.map((t) => t.frontmatter) };
+    return { project: reconciled, tasks: tasks.map((t) => taskSummary(project.id, t)) };
   }),
 
   tag: protectedProcedure

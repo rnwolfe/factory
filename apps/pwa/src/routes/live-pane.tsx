@@ -387,7 +387,17 @@ export function LivePane() {
         </div>
         <div className="mt-2 flex items-center gap-2">
           <div className="mono text-[11px] text-[var(--color-fg-3)] truncate flex-1 min-w-0">
-            run {runId.slice(0, 12)} · task {run.data?.taskId ?? "ad-hoc"}
+            run {runId.slice(0, 12)} ·{" "}
+            {run.data?.taskId ? (
+              <Link
+                to={`/projects/${id}/tasks/${run.data.taskId}`}
+                className="text-[var(--color-accent)] hover:underline"
+              >
+                task {run.data.taskId}
+              </Link>
+            ) : (
+              "ad-hoc"
+            )}
             {run.data?.retryOfRunId ? (
               <>
                 {" "}

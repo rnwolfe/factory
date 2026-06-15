@@ -27,17 +27,29 @@ const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { sta
 describe("issue body frontmatter", () => {
   test("round-trips metadata + body through the hidden comment", () => {
     const rendered = renderTaskIssueBody(
-      { status: "in_progress", priority: "high", model: "claude-opus-4-8", legacy_id: "task-007" },
+      {
+        status: "in_progress",
+        priority: "high",
+        model: "claude-opus-4-8",
+        legacy_id: "task-007",
+        sourcePlanId: "plan-123",
+        sourceAuditId: "audit-123",
+        sourceFindingIds: ["finding-1", "finding-2"],
+      },
       "Do the thing.\n",
     );
     expect(rendered).toContain("<!-- factory:task");
     expect(rendered).toContain("status: in_progress");
     expect(rendered).toContain("legacy_id: task-007");
+    expect(rendered).toContain("sourcePlanId: plan-123");
     const { meta, body } = parseTaskIssueBody(rendered);
     expect(meta.status).toBe("in_progress");
     expect(meta.priority).toBe("high");
     expect(meta.model).toBe("claude-opus-4-8");
     expect(meta.legacy_id).toBe("task-007");
+    expect(meta.sourcePlanId).toBe("plan-123");
+    expect(meta.sourceAuditId).toBe("audit-123");
+    expect(meta.sourceFindingIds).toEqual(["finding-1", "finding-2"]);
     expect(body.trim()).toBe("Do the thing.");
   });
 

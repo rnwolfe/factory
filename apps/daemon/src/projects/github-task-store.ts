@@ -28,6 +28,9 @@ const META_KEYS = [
   "agent",
   "parent",
   "legacy_id",
+  "sourcePlanId",
+  "sourceAuditId",
+  "sourceFindingIds",
 ] as const;
 
 const META_RE = /<!--\s*factory:task\n([\s\S]*?)\n-->\n?([\s\S]*)$/;
@@ -40,6 +43,9 @@ interface IssueMeta {
   agent?: string;
   parent?: string;
   legacy_id?: string;
+  sourcePlanId?: string;
+  sourceAuditId?: string;
+  sourceFindingIds?: string[];
 }
 
 /** Split an issue body into its Factory metadata + the human-visible body. */
@@ -108,6 +114,9 @@ function issueToTaskFile(owner: string, repo: string, issue: IssueApi): TaskFile
   if (meta.agent) frontmatter.agent = meta.agent;
   if (meta.parent) frontmatter.parent = meta.parent;
   if (meta.legacy_id) frontmatter.legacy_id = meta.legacy_id;
+  if (meta.sourcePlanId) frontmatter.sourcePlanId = meta.sourcePlanId;
+  if (meta.sourceAuditId) frontmatter.sourceAuditId = meta.sourceAuditId;
+  if (meta.sourceFindingIds) frontmatter.sourceFindingIds = meta.sourceFindingIds;
   if (otherLabels.length > 0) frontmatter.labels = otherLabels;
   return {
     id: String(issue.number),
@@ -242,6 +251,9 @@ export class GithubIssuesStore implements TaskStore {
       model: input.model,
       agent: input.agent,
       parent: input.parent,
+      sourcePlanId: input.sourcePlanId,
+      sourceAuditId: input.sourceAuditId,
+      sourceFindingIds: input.sourceFindingIds,
     };
     const labels = [FACTORY_LABEL, `status:${status}`, ...(input.labels ?? [])];
     const res = await this.fetchFn(`${this.base()}/issues`, {

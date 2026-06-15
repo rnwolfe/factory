@@ -118,6 +118,10 @@ export interface CreateTaskInput {
    * frontmatter so it survives across runs that target the task.
    */
   agent?: string;
+  /** Structured provenance for tasks emitted from plans/finding promotion. */
+  sourcePlanId?: string;
+  sourceAuditId?: string;
+  sourceFindingIds?: string[];
 }
 
 /**
@@ -266,6 +270,15 @@ export class FileTaskStore implements TaskStore {
     if (input.parent) frontmatter.parent = input.parent;
     if (input.model && input.model.trim().length > 0) frontmatter.model = input.model.trim();
     if (input.agent && input.agent.trim().length > 0) frontmatter.agent = input.agent.trim();
+    if (input.sourcePlanId && input.sourcePlanId.trim().length > 0) {
+      frontmatter.sourcePlanId = input.sourcePlanId.trim();
+    }
+    if (input.sourceAuditId && input.sourceAuditId.trim().length > 0) {
+      frontmatter.sourceAuditId = input.sourceAuditId.trim();
+    }
+    if (input.sourceFindingIds && input.sourceFindingIds.length > 0) {
+      frontmatter.sourceFindingIds = input.sourceFindingIds.filter((id) => id.trim().length > 0);
+    }
     const file: TaskFile = { id, filePath, frontmatter, body: input.body };
     await writeFile(filePath, renderTaskMarkdown(file), "utf8");
     return file;

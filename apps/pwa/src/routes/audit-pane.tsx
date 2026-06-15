@@ -139,6 +139,10 @@ export function AuditPane() {
   const projectName = project.data?.project?.name ?? "audit";
   const isReviewable = a.status === "completed" || a.status === "reviewed";
   const finalState = a.status === "approved" || a.status === "rejected" || a.status === "failed";
+  const skillCommitHref = `/projects/${projectId}/code?tab=commits&ref=${encodeURIComponent(a.skillVersion)}`;
+  const approvedReportHref = a.approvedReportPath
+    ? `/projects/${projectId}/code?tab=blob&ref=main&path=${encodeURIComponent(a.approvedReportPath)}`
+    : null;
 
   return (
     <div className="space-y-3 md:max-w-3xl md:mx-auto">
@@ -151,7 +155,13 @@ export function AuditPane() {
         </Link>
         <div>
           <div className="display text-[16px] text-[var(--color-fg)]">{a.skillName}</div>
-          <div className="mono text-[10.5px] text-[var(--color-fg-3)]">{projectName}</div>
+          <div className="mono text-[10.5px] text-[var(--color-fg-3)] flex items-center gap-1.5 flex-wrap">
+            <span>{projectName}</span>
+            <span>·</span>
+            <Link to={skillCommitHref} className="text-[var(--color-accent)] hover:underline">
+              skill commit {a.skillVersion.slice(0, 8)}
+            </Link>
+          </div>
         </div>
         <div className="flex-1" />
         <span className="chip">{a.status}</span>
@@ -208,9 +218,16 @@ export function AuditPane() {
           </div>
           <ul className="space-y-1.5">
             {findings.map((f) => (
-              <li key={f.id}>
+              <li key={f.id} id={`finding-${f.id}`}>
                 <FindingCard
                   finding={f}
+                  promotedHref={
+                    f.promotedTo?.kind === "plan"
+                      ? `/plans/${f.promotedTo.id}`
+                      : f.promotedTo?.kind === "task"
+                        ? `/projects/${projectId}/tasks/${f.promotedTo.id}`
+                        : null
+                  }
                   selected={selected.has(f.id)}
                   onToggle={
                     isReviewable && f.promotedTo === null
@@ -255,7 +272,13 @@ export function AuditPane() {
       {a.approvedReportPath ? (
         <div className="surface p-3 mono text-[11px] text-[var(--color-fg-2)]">
           report committed to{" "}
-          <span className="text-[var(--color-fg-1)]">{a.approvedReportPath}</span>
+          {approvedReportHref ? (
+            <Link to={approvedReportHref} className="text-[var(--color-accent)] underline">
+              {a.approvedReportPath}
+            </Link>
+          ) : (
+            <span className="text-[var(--color-fg-1)]">{a.approvedReportPath}</span>
+          )}
         </div>
       ) : null}
 

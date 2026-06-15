@@ -15,6 +15,7 @@ export interface ApplyRefinementInput {
   db: Db;
   projectId: string;
   taskId: string;
+  planId: string;
   draft: PlanDraft;
 }
 
@@ -36,7 +37,7 @@ export interface ApplyRefinementResult {
 export async function applyRefinementFreeze(
   input: ApplyRefinementInput,
 ): Promise<ApplyRefinementResult> {
-  const { config, db, projectId, taskId, draft } = input;
+  const { config, db, projectId, taskId, planId, draft } = input;
   if (draft.kind !== "refinement") {
     throw new Error(`applyRefinementFreeze called with non-refinement draft: ${draft.kind}`);
   }
@@ -70,6 +71,7 @@ export async function applyRefinementFreeze(
         priority: "med",
         parent: taskId,
         labels: ["refinement-followup"],
+        sourcePlanId: planId,
       });
       followupTaskIds.push(created.id);
     }

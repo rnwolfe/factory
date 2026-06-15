@@ -23,7 +23,8 @@ export interface ApplyFeaturePlanResult {
  * so the next run sees the new tasks.
  *
  * Routes through `tasks.createTask` so the storage seam stays single-pointed.
- * The plan id is stored on each task's `plan` frontmatter for audit trail.
+ * The plan id is stored on each task's `sourcePlanId` frontmatter for audit
+ * trail and UI provenance links.
  */
 export async function applyFeaturePlanFreeze(
   input: ApplyFeaturePlanInput,
@@ -47,6 +48,7 @@ export async function applyFeaturePlanFreeze(
       estimate: t.estimate ?? "small",
       priority: "med",
       labels: ["feature-plan-task"],
+      sourcePlanId: planId,
     });
     taskIds.push(created.id);
   }

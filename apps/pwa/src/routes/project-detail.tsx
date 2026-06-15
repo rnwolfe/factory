@@ -28,6 +28,7 @@ import { PublishGithubModal } from "../components/publish-github-modal.tsx";
 import { type ProjectRole, RolePicker } from "../components/role-picker.tsx";
 import { ScriptsSection } from "../components/scripts-section.tsx";
 import { SessionsList } from "../components/sessions-list.tsx";
+import { type ProvenanceLink, ProvenanceLinks } from "../components/source-link.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
 import { cn } from "../lib/cn.ts";
@@ -248,6 +249,7 @@ export function ProjectDetail() {
       title: string;
       estimate: string | null;
       model?: string | null;
+      sourceLinks?: ProvenanceLink[];
     }>;
   };
   const allRuns = runs.data ?? [];
@@ -602,9 +604,8 @@ export function ProjectDetail() {
                       : `$${m.totalCostUsd.toFixed(2)}`
                     : null;
                 return (
-                  <Link
+                  <div
                     key={r.id}
-                    to={`/projects/${id}/runs/${r.id}`}
                     className={`block px-3 py-2.5 hover:bg-[var(--color-bg-2)] ${
                       isActive ? "bg-[var(--color-bg-2)]/60" : ""
                     }`}
@@ -612,9 +613,22 @@ export function ProjectDetail() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <RunStatusChip status={r.status} />
-                        <span className="mono text-[11px] text-[var(--color-fg-3)] truncate">
-                          {r.id.slice(0, 8)} · {r.taskId ?? "ad-hoc"}
-                        </span>
+                        <Link
+                          to={`/projects/${id}/runs/${r.id}`}
+                          className="mono text-[11px] text-[var(--color-fg-3)] truncate hover:text-[var(--color-accent)]"
+                        >
+                          {r.id.slice(0, 8)}
+                        </Link>
+                        {r.taskId ? (
+                          <Link
+                            to={`/projects/${id}/tasks/${r.taskId}`}
+                            className="mono text-[11px] text-[var(--color-accent)] truncate"
+                          >
+                            task {r.taskId}
+                          </Link>
+                        ) : (
+                          <span className="mono text-[11px] text-[var(--color-fg-3)]">ad-hoc</span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         {costLabel ? (
@@ -627,7 +641,7 @@ export function ProjectDetail() {
                         </span>
                       </div>
                     </div>
-                  </Link>
+                  </div>
                 );
               })
             ) : (
@@ -911,6 +925,7 @@ function TaskRow({
     title: string;
     estimate: string | null;
     model?: string | null;
+    sourceLinks?: ProvenanceLink[];
   };
   activeRun: RunRow | null;
   onStart: () => void;
@@ -920,15 +935,23 @@ function TaskRow({
   const modelShort = shortModelLabel(task.model);
   return (
     <div className="flex items-stretch">
-      <Link
-        to={`/projects/${projectId}/tasks/${task.id}`}
-        className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]"
-      >
+      <div className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]">
         <span className={`chip status-${task.status}`}>{task.status}</span>
         <div className="min-w-0 flex-1">
-          <div className="text-[14px] truncate">{task.title}</div>
-          <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
-            {task.id} · {String(task.estimate ?? "—")}
+          <Link
+            to={`/projects/${projectId}/tasks/${task.id}`}
+            className="block text-[14px] truncate hover:text-[var(--color-accent)]"
+          >
+            {task.title}
+          </Link>
+          <div className="mono text-[10.5px] text-[var(--color-fg-3)] flex items-center gap-1.5 flex-wrap">
+            <Link
+              to={`/projects/${projectId}/tasks/${task.id}`}
+              className="hover:text-[var(--color-accent)]"
+            >
+              {task.id} · {String(task.estimate ?? "—")}
+            </Link>
+            <ProvenanceLinks links={task.sourceLinks} />
           </div>
         </div>
         {modelShort ? (
@@ -937,7 +960,7 @@ function TaskRow({
           </span>
         ) : null}
         <ChevronRight size={14} className="text-[var(--color-fg-3)] shrink-0" />
-      </Link>
+      </div>
       <div className="flex items-center px-2 border-l border-[var(--color-line)]">
         {activeRun ? (
           <Link

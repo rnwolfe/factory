@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { AuditMetricsChip } from "./metrics-chip.tsx";
 
@@ -7,6 +8,7 @@ export interface AuditRow {
   id: string;
   projectId: string;
   skillName: string;
+  skillVersion: string;
   status: AuditStatus;
   startedAt: number;
   completedAt: number | null;
@@ -78,6 +80,14 @@ export function AuditCard({ audit, projectName, index = 0, snoozeControl, onOpen
       <div className="px-4 pt-3 pb-2 flex items-center gap-2 flex-wrap">
         <span className={cn("chip", "chip-accent")}>audit · {audit.skillName}</span>
         <span className="chip">{audit.status}</span>
+        {audit.skillVersion ? (
+          <Link
+            to={`/projects/${audit.projectId}/code?tab=commits&ref=${encodeURIComponent(audit.skillVersion)}`}
+            className="chip"
+          >
+            commit {audit.skillVersion.slice(0, 8)}
+          </Link>
+        ) : null}
         {findings.length > 0 ? (
           <span className="mono text-[10.5px] text-[var(--color-fg-2)]">{histogram}</span>
         ) : null}

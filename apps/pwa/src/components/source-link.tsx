@@ -1,7 +1,14 @@
 import type { MouseEventHandler, ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 
 type SourceLinkVariant = "inline" | "chip";
+
+export interface ProvenanceLink {
+  kind: "issue" | "plan" | "finding" | "audit";
+  label: string;
+  href: string;
+}
 
 export function sourceIssueLabel(
   number: number | null | undefined,
@@ -92,5 +99,42 @@ export function SourceIssueLink({
       onClick={onClick}
       variant={variant}
     />
+  );
+}
+
+export function ProvenanceLinks({
+  links,
+  className,
+  variant = "chip",
+}: {
+  links?: ProvenanceLink[] | null;
+  className?: string;
+  variant?: SourceLinkVariant;
+}) {
+  if (!links || links.length === 0) return null;
+  return (
+    <span className={cn("inline-flex max-w-full items-center gap-1 flex-wrap", className)}>
+      {links.map((link) => {
+        const classes = variantClass(variant);
+        if (link.href.startsWith("/")) {
+          return (
+            <Link key={`${link.kind}:${link.href}`} to={link.href} className={classes}>
+              {link.label}
+            </Link>
+          );
+        }
+        return (
+          <a
+            key={`${link.kind}:${link.href}`}
+            href={link.href}
+            target="_blank"
+            rel="noreferrer"
+            className={classes}
+          >
+            {link.label}
+          </a>
+        );
+      })}
+    </span>
   );
 }

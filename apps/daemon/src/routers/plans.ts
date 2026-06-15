@@ -543,6 +543,7 @@ export const plansRouter = router({
           db: ctx.db,
           projectId: plan.projectId,
           taskId: plan.taskId,
+          planId: plan.id,
           draft: parseStoredDraft(plan.draft),
         });
       } else if (plan.kind === "feature_plan") {
