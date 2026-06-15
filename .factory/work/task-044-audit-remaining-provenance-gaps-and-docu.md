@@ -1,11 +1,11 @@
 ---
 id: task-044
 title: Audit remaining provenance gaps and document follow-up
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-14T11:16:07.296Z
-updated: 2026-06-14T11:16:07.296Z
+updated: 2026-06-15T00:25:12.788Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan hhw18821: "Surface source links wherever provenance exists (starting with issue_intake)"
+
 
