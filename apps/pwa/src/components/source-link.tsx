@@ -29,8 +29,41 @@ function hasVisibleLabel(label: ReactNode): boolean {
   return true;
 }
 
-function cleanHref(href: string | null | undefined): string | null {
-  return typeof href === "string" && href.trim().length > 0 ? href.trim() : null;
+export function trustedSourceHref(href: string | null | undefined): string | null {
+  const target = typeof href === "string" ? href.trim() : "";
+  if (!target) return null;
+
+  if (target.startsWith("/") && !target.startsWith("//")) return target;
+
+  try {
+    const url = new URL(target);
+    if (url.protocol === "https:") return url.href;
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+export function trustedGithubIssueHref(
+  href: string | null | undefined,
+  number?: number | null,
+): string | null {
+  const target = trustedSourceHref(href);
+  if (!target || target.startsWith("/")) return null;
+
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return null;
+  }
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (url.protocol !== "https:" || url.hostname !== "github.com") return null;
+  if (parts.length !== 4 || parts[2] !== "issues") return null;
+  if (typeof number === "number" && parts[3] !== String(number)) return null;
+  return url.href;
 }
 
 function variantClass(variant: SourceLinkVariant): string {
@@ -56,7 +89,7 @@ export function SourceLink({
 }) {
   if (!hasVisibleLabel(label)) return null;
 
-  const target = cleanHref(href);
+  const target = trustedSourceHref(href);
   if (!target) {
     return <span className={className}>{label}</span>;
   }
@@ -94,7 +127,7 @@ export function SourceIssueLink({
   return (
     <SourceLink
       label={sourceIssueLabel(number, title) ?? fallbackLabel}
-      href={href}
+      href={trustedGithubIssueHref(href, number)}
       className={className}
       onClick={onClick}
       variant={variant}
@@ -116,17 +149,25 @@ export function ProvenanceLinks({
     <span className={cn("inline-flex max-w-full items-center gap-1 flex-wrap", className)}>
       {links.map((link) => {
         const classes = variantClass(variant);
-        if (link.href.startsWith("/")) {
+        const target = trustedSourceHref(link.href);
+        if (!target) {
           return (
-            <Link key={`${link.kind}:${link.href}`} to={link.href} className={classes}>
+            <span key={`${link.kind}:${link.label}`} className={classes}>
+              {link.label}
+            </span>
+          );
+        }
+        if (target.startsWith("/")) {
+          return (
+            <Link key={`${link.kind}:${target}`} to={target} className={classes}>
               {link.label}
             </Link>
           );
         }
         return (
           <a
-            key={`${link.kind}:${link.href}`}
-            href={link.href}
+            key={`${link.kind}:${target}`}
+            href={target}
             target="_blank"
             rel="noreferrer"
             className={classes}
