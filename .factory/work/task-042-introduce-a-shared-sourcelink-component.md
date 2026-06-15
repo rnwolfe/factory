@@ -1,11 +1,11 @@
 ---
 id: task-042
 title: Introduce a shared SourceLink component
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-14T11:16:07.278Z
-updated: 2026-06-14T11:16:07.278Z
+updated: 2026-06-15T00:12:09.632Z
 labels:
   - feature-plan-task
 ---
@@ -19,4 +19,5 @@ labels:
 ## Notes
 
 Emitted by feature plan hhw18821: "Surface source links wherever provenance exists (starting with issue_intake)"
+
 

@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { cn } from "../lib/cn.ts";
-import { SourceIssueLink, sourceIssueLabel } from "./source-issue-link.tsx";
+import { SourceIssueLink, sourceIssueLabel } from "./source-link.tsx";
 
 export interface DecisionRow {
   id: string;
@@ -224,7 +224,9 @@ export function DecisionCard({
 
   const agentDecisionHeadline = isAgentDecision ? (decision.payload.summary ?? null) : null;
 
-  const issueIntakeHeadline = isIssueIntake ? sourceIssueLabel(issueNumber, issueTitle) : null;
+  const issueIntakeHeadline = isIssueIntake
+    ? (sourceIssueLabel(issueNumber, issueTitle) ?? "GitHub issue")
+    : null;
 
   const releaseHeadline = isReleaseProposal
     ? `release ${decision.payload.version ?? "(version pending)"}`
