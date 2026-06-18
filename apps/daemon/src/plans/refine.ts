@@ -7,7 +7,9 @@ import {
   createTask,
   readTaskFile,
   renderAcceptanceBlock,
+  type TaskFrontmatter,
   updateTaskBody,
+  updateTaskStatus,
 } from "../projects/tasks.ts";
 
 export interface ApplyRefinementInput {
@@ -21,14 +23,16 @@ export interface ApplyRefinementInput {
 
 export interface ApplyRefinementResult {
   rewroteAcceptance: boolean;
+  reopenedTask: boolean;
   followupTaskIds: string[];
 }
 
 /**
  * Apply a frozen refinement plan to the project's task files. Rewrites the
  * target task body's `## Acceptance` section when `revisedAcceptance` is
- * present, and emits each followup as a new task file. Commits everything
- * on `main` so the next run sees the change.
+ * present, re-opens completed/review tasks so auto-advance can re-run the
+ * corrected plan, and emits each followup as a new task file. Commits
+ * everything on `main` so the next run sees the change.
  *
  * If the agent returned neither `revisedAcceptance` nor `followups`, the
  * call is a no-op aside from the commit being skipped — the plan itself is
@@ -54,12 +58,18 @@ export async function applyRefinementFreeze(
 
   const refinement = draft as RefinementDraft;
   let rewroteAcceptance = false;
+  let reopenedTask = false;
   const followupTaskIds: string[] = [];
 
   if (refinement.revisedAcceptance && refinement.revisedAcceptance.length > 0) {
     const newBody = rewriteAcceptanceSection(task.body, refinement.revisedAcceptance);
     await updateTaskBody(project, taskId, newBody);
     rewroteAcceptance = true;
+
+    if (shouldReopenTask(task.frontmatter.status)) {
+      await updateTaskStatus(project, taskId, "ready");
+      reopenedTask = true;
+    }
   }
 
   if (refinement.followups && refinement.followups.length > 0) {
@@ -80,6 +90,7 @@ export async function applyRefinementFreeze(
   if (rewroteAcceptance || followupTaskIds.length > 0) {
     const summary = [
       rewroteAcceptance ? `revised acceptance for ${taskId}` : null,
+      reopenedTask ? "re-opened task" : null,
       followupTaskIds.length > 0 ? `+${followupTaskIds.length} follow-up(s)` : null,
     ]
       .filter(Boolean)
@@ -91,7 +102,7 @@ export async function applyRefinementFreeze(
     );
   }
 
-  return { rewroteAcceptance, followupTaskIds };
+  return { rewroteAcceptance, reopenedTask, followupTaskIds };
 }
 
 const ACCEPTANCE_HEADER_RE = /(^|\n)##\s+Acceptance\s*\n/i;
@@ -118,4 +129,8 @@ function rewriteAcceptanceSection(body: string, criteria: string[]): string {
   const nextHeaderRel = /\n##\s+/.exec(tail);
   const sectionEnd = nextHeaderRel ? afterHeader + nextHeaderRel.index + 1 : body.length;
   return `${body.slice(0, headerStart)}${newSection}\n${body.slice(sectionEnd)}`;
+}
+
+function shouldReopenTask(status: TaskFrontmatter["status"]): boolean {
+  return status === "done" || status === "review";
 }
