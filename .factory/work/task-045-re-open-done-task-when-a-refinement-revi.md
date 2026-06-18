@@ -5,9 +5,10 @@ status: ready
 priority: med
 estimate: small
 created: 2026-06-18T03:06:51.847Z
-updated: 2026-06-18T03:06:51.847Z
+updated: 2026-06-18T03:06:55.107Z
 labels:
   - feedback
+model: gpt-5.5
 ---
 
 ## Source
@@ -59,3 +60,4 @@ I'd route this as a single discrete task, not a plan — it's a known one-file c
 ## Acceptance
 
 - [ ] (TBD)
+
