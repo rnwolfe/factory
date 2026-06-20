@@ -868,9 +868,26 @@ export const sessions = sqliteTable(
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
-export const interventionStatusEnum = ["active", "resumed", "cancelled", "orphaned"] as const;
+export const interventionStatusEnum = [
+  "active",
+  "resumed",
+  "cancelled",
+  "orphaned",
+  // dialog interventions: the blocker→reply→re-run chain finished and the
+  // retry reached a terminal state. `outcome` carries the retry's run status.
+  "resolved",
+] as const;
 export const interventionDecisionKindEnum = ["blocked_run", "merge_failure"] as const;
+/**
+ * What kind of intervention this row records.
+ *   - worktree_repair: the v0.7 operator-jumps-into-a-tmux-worktree flow.
+ *   - dialog: the lighter blocker→operator-reply→re-run loop (task-049),
+ *     first-class so the chain is queryable rather than scattered across
+ *     decisions + runs columns. No worktree/tmux session of its own.
+ */
+export const interventionTypeEnum = ["worktree_repair", "dialog"] as const;
 export type InterventionStatus = (typeof interventionStatusEnum)[number];
+export type InterventionType = (typeof interventionTypeEnum)[number];
 
 /**
  * v0.7 — operator-driven repair on a blocked run or merge failure. An
@@ -905,18 +922,37 @@ export const interventions = sqliteTable(
       .references(() => decisions.id)
       .notNull(),
     decisionKind: text("decision_kind", { enum: interventionDecisionKindEnum }).notNull(),
+    /** worktree_repair (default, v0.7) or dialog (blocker→reply→re-run, task-049). */
+    type: text("type", { enum: interventionTypeEnum }).notNull().default("worktree_repair"),
     projectId: text("project_id")
       .references(() => projects.id)
       .notNull(),
     /** Run id when decision_kind='blocked_run'; null for merge_failure. */
     sourceRunId: text("source_run_id"),
+    /**
+     * For worktree_repair, the worktree/tmux the operator jumped into. For
+     * dialog interventions (which have no session of their own) these mirror
+     * the source run's worktree/tmux so the column constraints hold without a
+     * table rebuild — the dialog logically happened in that run's context.
+     */
     worktreePath: text("worktree_path").notNull(),
     tmuxSessionName: text("tmux_session_name").notNull(),
+    /** dialog: the agent's blocker questions (JSON string[]). */
+    blockerQuestions: text("blocker_questions", { mode: "json" }).$type<string[]>(),
+    /** dialog: the operator's reply that drove the re-run. */
+    operatorReply: text("operator_reply"),
+    /** dialog: the run the operator's reply spawned. */
+    retryRunId: text("retry_run_id"),
+    /** dialog: the retry run's terminal status, set on close. */
+    outcome: text("outcome"),
     status: text("status", { enum: interventionStatusEnum }).notNull().default("active"),
     startedAt: integer("started_at").notNull(),
     endedAt: integer("ended_at"),
   },
-  (t) => [index("interventions_decision_status_idx").on(t.decisionId, t.status)],
+  (t) => [
+    index("interventions_decision_status_idx").on(t.decisionId, t.status),
+    index("interventions_source_run_idx").on(t.sourceRunId),
+  ],
 );
 
 export type Intervention = typeof interventions.$inferSelect;

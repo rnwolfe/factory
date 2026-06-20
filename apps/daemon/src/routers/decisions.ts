@@ -383,6 +383,27 @@ export const decisionsRouter = router({
         );
         retryRunId = result.runId;
         projectId = source.projectId;
+
+        // Record the blocker→reply→re-run loop as a first-class dialog
+        // intervention (task-049) so the chain is queryable, not scattered
+        // across runs/decision_comments. Best-effort — never block the retry.
+        try {
+          const { interventionLog } = await import("../interventions/log.ts");
+          await interventionLog(ctx.db).recordDialog({
+            decisionId: decision.id,
+            projectId: source.projectId,
+            sourceRunId: payload.runId,
+            worktreePath: source.worktreePath,
+            tmuxSessionName: source.tmuxSession ?? "",
+            blockerQuestions: Array.isArray(payload.questions) ? payload.questions : [],
+            operatorReply: operatorContext,
+            retryRunId: result.runId,
+          });
+        } catch (err) {
+          console.error(
+            `[intervention-log] ${decision.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
       if (input.action === "approve" && decision.kind === "triage") {

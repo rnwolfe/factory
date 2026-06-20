@@ -571,6 +571,18 @@ export async function executeRun(
       .set({ lastActivityAt: Date.now() })
       .where(eq(schema.projects.id, project.id));
 
+    // Close any open dialog intervention this run was the retry for (task-049),
+    // stamping its terminal status as the outcome. No-op when this run wasn't a
+    // blocker→reply→re-run retry.
+    try {
+      const { interventionLog } = await import("../interventions/log.ts");
+      await interventionLog(db).closeDialogForRetry(runId, finalStatus);
+    } catch (err) {
+      console.warn(
+        `[intervention-log] close for ${runId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
     // Stamp the task file's terminal status — but in the run's worktree, not
     // in the project's main tree. Committing it here means the upcoming
     // merge into main brings the status update along with the agent's work.
@@ -817,11 +829,7 @@ export async function executeRun(
     // `usage_capped` has its own resolution path above (auto-resume or
     // `capFallbackDecision`), and `deferred`/`aborted`/`completed` don't need
     // operator attention — so we only surface the two stuck terminal states.
-    if (
-      finalStatus === "blocked" ||
-      finalStatus === "failed" ||
-      finalStatus === "needs_review"
-    ) {
+    if (finalStatus === "blocked" || finalStatus === "failed" || finalStatus === "needs_review") {
       const decisionId = createId();
       await db.insert(schema.decisions).values({
         id: decisionId,

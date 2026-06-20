@@ -194,6 +194,26 @@ export function DecisionDetail() {
     enabled: id.length > 0,
   });
 
+  // The blocker→reply→re-run dialog chain (task-049) — a queryable history of
+  // how this blocked run was unblocked.
+  const dialogChain = useQuery({
+    queryKey: ["interventions.dialogChain", id],
+    queryFn: () =>
+      trpc.interventions.dialogChain.query({ decisionId: id }) as unknown as Promise<
+        Array<{
+          id: string;
+          blockerQuestions: string[] | null;
+          operatorReply: string | null;
+          retryRunId: string | null;
+          status: string;
+          outcome: string | null;
+          startedAt: number;
+          endedAt: number | null;
+        }>
+      >,
+    enabled: id.length > 0,
+  });
+
   const startIntervention = useMutation({
     mutationFn: () => trpc.interventions.start.mutate({ decisionId: id }),
     onSuccess: () => {
@@ -770,6 +790,51 @@ export function DecisionDetail() {
               </Link>
               {payload.branch ? ` · ${payload.branch}` : ""}
             </p>
+          ) : null}
+          {dialogChain.data && dialogChain.data.length > 0 ? (
+            <Section title="intervention history">
+              <ul className="divide-y divide-[var(--color-line)]">
+                {dialogChain.data.map((iv) => (
+                  <li key={iv.id} className="px-4 py-3 space-y-1.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+                        blocker → reply → re-run
+                      </span>
+                      <span
+                        className={cn(
+                          "chip",
+                          iv.outcome === "completed"
+                            ? "chip-greenlit"
+                            : iv.outcome === "needs_review"
+                              ? "chip-decompose"
+                              : iv.status === "active"
+                                ? "chip-accent"
+                                : "chip-trashed",
+                        )}
+                      >
+                        {iv.outcome ?? iv.status}
+                      </span>
+                    </div>
+                    {iv.operatorReply ? (
+                      <div className="text-[13px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap line-clamp-4">
+                        {iv.operatorReply}
+                      </div>
+                    ) : null}
+                    {iv.retryRunId && d.projectId ? (
+                      <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                        retry ·{" "}
+                        <Link
+                          to={`/projects/${d.projectId}/runs/${iv.retryRunId}`}
+                          className="text-[var(--color-accent)] underline"
+                        >
+                          {iv.retryRunId.slice(0, 8)}
+                        </Link>
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </Section>
           ) : null}
           <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
             retry resumes from this run's branch tip — partial work and the auto-commit ride
