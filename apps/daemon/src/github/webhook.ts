@@ -1,9 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Db, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
+import { and, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { parseGithubRepo } from "./app-auth.ts";
+import {
+  appendOperatorComment,
+  BOT_COMMENT_MARKER,
+  type IssueIntakeProject,
+  runIssueIntakeReply,
+} from "./issue-triage.ts";
 
 /**
  * GitHub App webhook handling (ADR-007 Phase 3). The App has one app-level
@@ -22,10 +29,15 @@ export interface GithubWebhookPayload {
   issue?: {
     number?: number;
     title?: string;
+    body?: string;
     html_url?: string;
     user?: { login?: string };
     labels?: Array<{ name: string } | string>;
     pull_request?: unknown;
+  };
+  comment?: {
+    body?: string;
+    user?: { login?: string };
   };
   sender?: { login?: string };
 }
@@ -35,7 +47,9 @@ export interface WebhookResult {
   reason: string;
   projectId?: string;
   /** Present when an externally-authored issue should be offered for intake. */
-  intake?: { number: number; title: string; author: string; htmlUrl?: string };
+  intake?: { number: number; title: string; author: string; htmlUrl?: string; body?: string };
+  /** Present for an inbound human comment on a tracked issue (task-048). */
+  comment?: { number: number; author: string; body: string };
 }
 
 /** Timing-safe verification of the `X-Hub-Signature-256` header. */
@@ -109,6 +123,33 @@ export function classifyWebhook(
         title: payload.issue?.title ?? "(untitled)",
         author: payload.issue?.user?.login ?? payload.sender?.login ?? "unknown",
         ...(payload.issue?.html_url ? { htmlUrl: payload.issue.html_url } : {}),
+        ...(payload.issue?.body ? { body: payload.issue.body } : {}),
+      },
+    };
+  }
+
+  // Inbound human comment on a tracked issue — route to the issue_intake
+  // thread for an agent reply (task-048). Loop guard: ignore the bot's own
+  // echoed comments (marker) and any `[bot]` author, so factory's replies
+  // don't re-trigger triage.
+  if (event === "issue_comment" && payload.action === "created") {
+    const commentBody = payload.comment?.body ?? "";
+    const author = payload.comment?.user?.login ?? "";
+    const isBot = author.endsWith("[bot]") || commentBody.includes(BOT_COMMENT_MARKER);
+    if (isBot) {
+      return { status: "ignored", reason: "bot-authored comment (loop guard)" };
+    }
+    if (payload.issue?.number == null) {
+      return { status: "ignored", reason: "comment without an issue number" };
+    }
+    return {
+      status: "processed",
+      reason: `issue_comment on #${payload.issue.number}`,
+      projectId: project.id,
+      comment: {
+        number: payload.issue.number,
+        author: author || payload.sender?.login || "unknown",
+        body: commentBody,
       },
     };
   }
@@ -124,15 +165,17 @@ export function classifyWebhook(
  * input never silently becomes runnable work.
  */
 export async function handleGithubWebhook(
-  deps: { db: Db; events: EventBus },
+  deps: { db: Db; events: EventBus; config?: FactoryConfig },
   event: string,
   payload: GithubWebhookPayload,
 ): Promise<WebhookResult> {
-  const { db, events } = deps;
+  const { db, events, config } = deps;
   const projects = await db
     .select({
       id: schema.projects.id,
+      agent: schema.projects.agent,
       githubRemote: schema.projects.githubRemote,
+      githubInstallationId: schema.projects.githubInstallationId,
       taskBackend: schema.projects.taskBackend,
     })
     .from(schema.projects)
@@ -140,6 +183,7 @@ export async function handleGithubWebhook(
   const result = classifyWebhook(event, payload, projects);
 
   if (result.status === "processed" && result.intake && result.projectId) {
+    const project = projects.find((p) => p.id === result.projectId);
     const decisionId = createId();
     await db.insert(schema.decisions).values({
       id: decisionId,
@@ -151,6 +195,7 @@ export async function handleGithubWebhook(
         title: result.intake.title,
         author: result.intake.author,
         ...(result.intake.htmlUrl ? { htmlUrl: result.intake.htmlUrl } : {}),
+        ...(result.intake.body ? { body: result.intake.body } : {}),
       },
       status: "pending",
       createdAt: Date.now(),
@@ -161,9 +206,72 @@ export async function handleGithubWebhook(
       decisionId,
       projectId: result.projectId,
     });
+
+    // Auto-triage on landing (task-048): produce a plan/task suggestion and
+    // echo it to the issue, matching the file backend's inbox behavior.
+    // Fire-and-forget; the reply broadcasts over /ws/inbox when it lands.
+    if (config && project) {
+      fireIssueIntakeReply({ db, events, config, project }, decisionId);
+    }
+  }
+
+  // Inbound human comment on a tracked issue: append to the matching
+  // issue_intake thread and let the agent reply (task-048).
+  if (result.status === "processed" && result.comment && result.projectId && config) {
+    const project = projects.find((p) => p.id === result.projectId);
+    const decision = await findIssueIntakeDecision(db, result.projectId, result.comment.number);
+    if (decision && project) {
+      await appendOperatorComment(db, decision.id, result.comment.body);
+      events.publish({
+        channel: "inbox",
+        kind: "comment_added",
+        decisionId: decision.id,
+        role: "operator",
+      });
+      fireIssueIntakeReply({ db, events, config, project }, decision.id);
+    }
   }
 
   return result;
+}
+
+/** Find the pending issue_intake decision for a given project + issue number. */
+async function findIssueIntakeDecision(
+  db: Db,
+  projectId: string,
+  issueNumber: number,
+): Promise<{ id: string } | null> {
+  const rows = await db
+    .select({ id: schema.decisions.id, payload: schema.decisions.payload })
+    .from(schema.decisions)
+    .where(
+      and(
+        eq(schema.decisions.kind, "issue_intake"),
+        eq(schema.decisions.projectId, projectId),
+        eq(schema.decisions.status, "pending"),
+      ),
+    )
+    .all();
+  const match = rows.find((r) => (r.payload as { number?: number })?.number === issueNumber);
+  return match ? { id: match.id } : null;
+}
+
+/** Fire-and-forget the issue-intake reply, surfacing the agent reply event. */
+function fireIssueIntakeReply(
+  deps: { db: Db; events: EventBus; config: FactoryConfig; project: IssueIntakeProject },
+  decisionId: string,
+): void {
+  void (async () => {
+    try {
+      await runIssueIntakeReply(deps, decisionId);
+      deps.events.publish({ channel: "inbox", kind: "comment_added", decisionId, role: "agent" });
+      deps.events.publish({ channel: "inbox", kind: "decision_updated", decisionId });
+    } catch (err) {
+      console.error(
+        `[issue-triage] ${decisionId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  })();
 }
 
 /**
@@ -190,7 +298,7 @@ export async function githubWebhookRoute(
   } catch {
     return new Response("bad json", { status: 400 });
   }
-  const result = await handleGithubWebhook({ db, events }, event, payload);
+  const result = await handleGithubWebhook({ db, events, config }, event, payload);
   console.log(`[webhook] ${event}.${payload.action ?? ""} → ${result.status}: ${result.reason}`);
   return Response.json({ ok: true, ...result }, { status: 200 });
 }

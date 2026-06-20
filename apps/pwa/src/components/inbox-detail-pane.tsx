@@ -447,5 +447,7 @@ function kindLabel(kind: DecisionRow["kind"]): string {
       return "issue · intake";
     case "release_proposal":
       return "release";
+    case "queue_empty":
+      return "queue empty";
   }
 }

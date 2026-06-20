@@ -151,6 +151,19 @@ export const interventionsRouter = router({
     }),
 
   /**
+   * The blocker→reply→re-run dialog chain for a decision (task-049) — the
+   * queryable record of how a blocked run was unblocked. Read through the
+   * InterventionLog interface so the storage backend stays swappable.
+   */
+  dialogChain: protectedProcedure
+    .input(z.object({ decisionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { interventionLog } = await import("../interventions/log.ts");
+      const all = await interventionLog(ctx.db).listForDecision(input.decisionId);
+      return all.filter((i) => i.type === "dialog");
+    }),
+
+  /**
    * Read the tail of the intervention's tmux pipe-pane log so a
    * reconnecting PWA tab sees prior scrollback before live bytes
    * arrive (same pattern as sessions.tail).

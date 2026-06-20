@@ -111,6 +111,56 @@ export async function ensureWorktree(opts: EnsureWorktreeOpts): Promise<EnsureWo
   return { worktreePath, branch: opts.branch, baseHead, created: true };
 }
 
+export interface EnsureDepsResult {
+  /** "installed" ran bun install; "present" deps already there; "skipped" not a bun project. */
+  status: "installed" | "present" | "skipped" | "failed";
+  detail?: string;
+}
+
+/**
+ * Make a fresh worktree's dependencies resolvable before the agent and the
+ * quality checks run. A git worktree does not carry the parent's gitignored
+ * `node_modules`, so a freshly-created worktree has none — which surfaces as
+ * `tsc` errors like "Cannot find type definition file for 'bun-types'/'bun'"
+ * that flip typecheck red on otherwise-clean runs (a false signal, not a code
+ * defect). Best-effort: for a Bun project (package.json + a bun lockfile) with
+ * no node_modules, run `bun install --frozen-lockfile` once. Never throws —
+ * dep setup failing must not fail the run; the worst case is the pre-existing
+ * missing-deps behavior. Non-Bun projects (no bun lockfile) are skipped; their
+ * package manager is out of scope here.
+ */
+export async function ensureWorktreeDeps(worktreePath: string): Promise<EnsureDepsResult> {
+  if (!existsSync(path.join(worktreePath, "package.json"))) {
+    return { status: "skipped", detail: "no package.json" };
+  }
+  if (existsSync(path.join(worktreePath, "node_modules"))) {
+    return { status: "present" };
+  }
+  const hasBunLock =
+    existsSync(path.join(worktreePath, "bun.lock")) ||
+    existsSync(path.join(worktreePath, "bun.lockb"));
+  if (!hasBunLock) {
+    return { status: "skipped", detail: "no bun lockfile" };
+  }
+  const bun = process.env.FACTORY_RUNTIME_BUN || "bun";
+  try {
+    const proc = bunSpawn({
+      cmd: [bun, "install", "--frozen-lockfile"],
+      cwd: worktreePath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      return { status: "failed", detail: stderr.trim().slice(-500) };
+    }
+    return { status: "installed" };
+  } catch (err) {
+    return { status: "failed", detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Returns true if the worktree has no staged or unstaged changes.
  */

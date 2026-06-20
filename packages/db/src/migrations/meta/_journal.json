@@ -225,6 +225,13 @@
       "when": 1781478800000,
       "tag": "0031_run_release_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1781962572625,
+      "tag": "0032_special_sebastian_shaw",
+      "breakpoints": true
     }
   ]
 }

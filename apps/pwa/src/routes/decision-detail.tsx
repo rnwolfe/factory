@@ -194,6 +194,26 @@ export function DecisionDetail() {
     enabled: id.length > 0,
   });
 
+  // The blocker→reply→re-run dialog chain (task-049) — a queryable history of
+  // how this blocked run was unblocked.
+  const dialogChain = useQuery({
+    queryKey: ["interventions.dialogChain", id],
+    queryFn: () =>
+      trpc.interventions.dialogChain.query({ decisionId: id }) as unknown as Promise<
+        Array<{
+          id: string;
+          blockerQuestions: string[] | null;
+          operatorReply: string | null;
+          retryRunId: string | null;
+          status: string;
+          outcome: string | null;
+          startedAt: number;
+          endedAt: number | null;
+        }>
+      >,
+    enabled: id.length > 0,
+  });
+
   const startIntervention = useMutation({
     mutationFn: () => trpc.interventions.start.mutate({ decisionId: id }),
     onSuccess: () => {
@@ -608,7 +628,8 @@ export function DecisionDetail() {
         </Section>
       ) : null}
 
-      {(isTriage || isBlockedRun) && (isPending || (comments.data && comments.data.length > 0)) ? (
+      {(isTriage || isBlockedRun || isIssueIntake) &&
+      (isPending || (comments.data && comments.data.length > 0)) ? (
         <Section title="thread">
           {comments.data && comments.data.length > 0 ? (
             <ul className="divide-y divide-[var(--color-line)]">
@@ -638,7 +659,7 @@ export function DecisionDetail() {
                   show a thinking placeholder while we wait for the reply.
                   blocked_run has no re-pass — the operator's answers ride
                   forward into the retry instead, so no placeholder. */}
-              {isTriage &&
+              {(isTriage || isIssueIntake) &&
               (sendComment.isPending ||
                 (comments.data.length > 0 &&
                   comments.data[comments.data.length - 1]?.role === "operator")) ? (
@@ -680,7 +701,9 @@ export function DecisionDetail() {
                     ? payload.failed
                       ? "add context for the retry — what went wrong, what should the agent do differently?"
                       : "answer the agent's questions or add context — your reply rides forward when you retry…"
-                    : "reply to the agent — answer questions, push back, add context…"
+                    : isIssueIntake
+                      ? "reply to the agent — your message posts to the GitHub issue and the agent responds…"
+                      : "reply to the agent — answer questions, push back, add context…"
                 }
                 rows={3}
                 className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)] resize-y"
@@ -690,7 +713,9 @@ export function DecisionDetail() {
                 <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
                   {isBlockedRun
                     ? "saved as operator answers — folded into retry"
-                    : "the agent will re-score using the rubric"}
+                    : isIssueIntake
+                      ? "posts to the GitHub issue — the agent replies"
+                      : "the agent will re-score using the rubric"}
                 </span>
                 <button
                   type="submit"
@@ -765,6 +790,51 @@ export function DecisionDetail() {
               </Link>
               {payload.branch ? ` · ${payload.branch}` : ""}
             </p>
+          ) : null}
+          {dialogChain.data && dialogChain.data.length > 0 ? (
+            <Section title="intervention history">
+              <ul className="divide-y divide-[var(--color-line)]">
+                {dialogChain.data.map((iv) => (
+                  <li key={iv.id} className="px-4 py-3 space-y-1.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+                        blocker → reply → re-run
+                      </span>
+                      <span
+                        className={cn(
+                          "chip",
+                          iv.outcome === "completed"
+                            ? "chip-greenlit"
+                            : iv.outcome === "needs_review"
+                              ? "chip-decompose"
+                              : iv.status === "active"
+                                ? "chip-accent"
+                                : "chip-trashed",
+                        )}
+                      >
+                        {iv.outcome ?? iv.status}
+                      </span>
+                    </div>
+                    {iv.operatorReply ? (
+                      <div className="text-[13px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap line-clamp-4">
+                        {iv.operatorReply}
+                      </div>
+                    ) : null}
+                    {iv.retryRunId && d.projectId ? (
+                      <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                        retry ·{" "}
+                        <Link
+                          to={`/projects/${d.projectId}/runs/${iv.retryRunId}`}
+                          className="text-[var(--color-accent)] underline"
+                        >
+                          {iv.retryRunId.slice(0, 8)}
+                        </Link>
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </Section>
           ) : null}
           <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
             retry resumes from this run's branch tip — partial work and the auto-commit ride

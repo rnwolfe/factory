@@ -1,7 +1,7 @@
 ---
 id: task-046
 title: Rescue committed work when codex omits the factory-status footer
-status: ready
+status: done
 priority: high
 estimate: small
 created: 2026-06-20T05:00:00.000Z

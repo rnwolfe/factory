@@ -20,6 +20,7 @@ interface SettingsSnapshot {
     defaultModel: string | null;
     defaultAgent: string | null;
     experimentalFable5: boolean;
+    notifyOnQueueEmpty: boolean;
   };
   overridden: Record<string, boolean>;
 }
@@ -977,6 +978,16 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
       qc.invalidateQueries({ queryKey: ["agents.list"] });
     },
   });
+  const setQueueEmpty = useMutation({
+    mutationFn: (on: boolean) =>
+      trpc.settings.set.mutate({
+        key: "notify-on-queue-empty" as never,
+        value: on ? "true" : "false",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+    },
+  });
   const saving = setDefaultModel.isPending || setDefaultAgent.isPending;
   return (
     <>
@@ -1042,6 +1053,28 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
               onClick={() => setFable5.mutate(on)}
               disabled={setFable5.isPending}
               className={`chip ${snap.ops.experimentalFable5 === on ? "chip-accent" : ""}`}
+            >
+              {on ? "on" : "off"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-[13px] text-[var(--color-fg-1)]">notify on empty queue</span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            inbox nudge when a project runs out of ready tasks
+          </span>
+        </div>
+        <div className="flex gap-1">
+          {([true, false] as const).map((on) => (
+            <button
+              key={String(on)}
+              type="button"
+              onClick={() => setQueueEmpty.mutate(on)}
+              disabled={setQueueEmpty.isPending}
+              className={`chip ${snap.ops.notifyOnQueueEmpty === on ? "chip-accent" : ""}`}
             >
               {on ? "on" : "off"}
             </button>

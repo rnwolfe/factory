@@ -383,6 +383,27 @@ export const decisionsRouter = router({
         );
         retryRunId = result.runId;
         projectId = source.projectId;
+
+        // Record the blocker→reply→re-run loop as a first-class dialog
+        // intervention (task-049) so the chain is queryable, not scattered
+        // across runs/decision_comments. Best-effort — never block the retry.
+        try {
+          const { interventionLog } = await import("../interventions/log.ts");
+          await interventionLog(ctx.db).recordDialog({
+            decisionId: decision.id,
+            projectId: source.projectId,
+            sourceRunId: payload.runId,
+            worktreePath: source.worktreePath,
+            tmuxSessionName: source.tmuxSession ?? "",
+            blockerQuestions: Array.isArray(payload.questions) ? payload.questions : [],
+            operatorReply: operatorContext,
+            retryRunId: result.runId,
+          });
+        } catch (err) {
+          console.error(
+            `[intervention-log] ${decision.id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
       if (input.action === "approve" && decision.kind === "triage") {
@@ -704,7 +725,11 @@ export const decisionsRouter = router({
       // the agent's questions; they're stored verbatim and ride forward
       // as `operatorContext` when the operator approves the retry. Other
       // decision kinds don't have a meaningful comment semantics yet.
-      if (decision.kind !== "triage" && decision.kind !== "blocked_run") {
+      if (
+        decision.kind !== "triage" &&
+        decision.kind !== "blocked_run" &&
+        decision.kind !== "issue_intake"
+      ) {
         throw new Error(`comments are not supported on ${decision.kind} decisions`);
       }
 
@@ -723,6 +748,46 @@ export const decisionsRouter = router({
         decisionId: input.decisionId,
         role: "operator",
       });
+
+      // issue_intake: an operator comment from the PWA gets an agent reply
+      // (re-triage), echoed back to the GitHub issue as factory[bot] — the
+      // github-issues parity for the file backend's comment loop (task-048).
+      if (decision.kind === "issue_intake") {
+        const project = decision.projectId
+          ? await ctx.db
+              .select()
+              .from(schema.projects)
+              .where(eq(schema.projects.id, decision.projectId))
+              .get()
+          : null;
+        if (project) {
+          void (async () => {
+            try {
+              const { runIssueIntakeReply } = await import("../github/issue-triage.ts");
+              await runIssueIntakeReply(
+                { db: ctx.db, events: ctx.events, config: ctx.config, project },
+                input.decisionId,
+              );
+              ctx.events.publish({
+                channel: "inbox",
+                kind: "comment_added",
+                decisionId: input.decisionId,
+                role: "agent",
+              });
+              ctx.events.publish({
+                channel: "inbox",
+                kind: "decision_updated",
+                decisionId: input.decisionId,
+              });
+            } catch (err) {
+              console.error(
+                `[issue-triage] ${input.decisionId}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          })();
+        }
+        return { commentId };
+      }
 
       // For blocked_run, the comment is operator answers — there's no
       // agent re-pass at comment time. The retry happens later when the

@@ -34,6 +34,7 @@ export const settingsRouter = router({
         defaultModel: snap.ops.defaultModel,
         defaultAgent: snap.ops.defaultAgent,
         experimentalFable5: snap.ops.experimentalFable5,
+        notifyOnQueueEmpty: snap.ops.notifyOnQueueEmpty,
       },
       overridden: snap.overridden,
     };
@@ -101,6 +102,16 @@ export const settingsRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "experimental-fable-5: 'true' or 'false'",
+        });
+      }
+      if (
+        input.key === "notify-on-queue-empty" &&
+        input.value !== "true" &&
+        input.value !== "false"
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "notify-on-queue-empty: 'true' or 'false'",
         });
       }
       if (input.key === "landing-route" && input.value !== "inbox" && input.value !== "ops") {

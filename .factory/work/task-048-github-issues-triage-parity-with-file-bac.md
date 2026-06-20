@@ -1,7 +1,7 @@
 ---
 id: task-048
 title: GitHub-issues backend triage parity with the file backend
-status: ready
+status: done
 priority: high
 estimate: medium
 created: 2026-06-20T05:02:00.000Z

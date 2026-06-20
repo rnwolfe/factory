@@ -5,6 +5,7 @@ import {
   attachExistingWorktree,
   commitAllChanges,
   ensureWorktree,
+  ensureWorktreeDeps,
   getHeadRef,
   isWorktreeClean,
   listCommitsSince,
@@ -68,6 +69,16 @@ class HostRuntime implements Runtime {
         baseRef,
         worktreePath: spec.worktreePath,
       });
+    }
+
+    // A fresh worktree has no node_modules (git doesn't carry the parent's
+    // gitignored deps), which otherwise surfaces as bun-types `tsc` false-reds
+    // in the quality report. Best-effort; never fails the run.
+    if (wt.created) {
+      const deps = await ensureWorktreeDeps(wt.worktreePath);
+      if (deps.status === "failed") {
+        console.warn(`[runtime] worktree dep install failed for ${spec.runId}: ${deps.detail}`);
+      }
     }
 
     const iteration = 1;
