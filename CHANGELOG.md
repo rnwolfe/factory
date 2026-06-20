@@ -4,6 +4,41 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.25.0 — 2026-06-20
+
+### Added
+- **Auto-triage parity for GitHub-issue projects.** An external issue now lands
+  in the inbox with an agent triage suggestion (plan/task + reasoning), and
+  operator replies — from the PWA or from the GitHub issue itself — get an agent
+  response echoed back to the issue thread as the bot. Previously github-issues
+  projects got a bare intake card with no analysis and no comment loop.
+- **Runs that commit work but skip the status footer are preserved, not
+  discarded.** A run that exits cleanly with commits but no `factory-status`
+  footer (notably some codex runs) now resolves to a new `needs_review` state —
+  surfaced in the inbox with its branch intact — instead of being marked
+  `failed` and thrown away.
+- **First-class intervention history.** The blocker → operator-reply → re-run
+  loop is now recorded as a queryable intervention and shown on the blocked-run
+  decision (blocker → reply → retry → outcome), instead of being scattered
+  across run and comment records.
+- **Queue-empty nudge (opt-in).** With the new "notify on empty queue" setting
+  enabled, a project whose ready queue drains surfaces a single inbox nudge to
+  re-fill or archive, so projects don't stall silently. Off by default.
+- **Real favicon + PWA icons** from the Heimdall mark.
+
+### Fixed
+- **Quality checks no longer false-fail on missing types.** Fresh run worktrees
+  install dependencies before quality checks, fixing spurious `bun-types`/`bun`
+  typecheck errors on otherwise-clean runs.
+- **Refinements re-open completed tasks.** A refinement that revises a done
+  task's acceptance re-opens it so the corrected plan actually runs.
+- **`factory upgrade` records state under the daemon's home.** Upgrade
+  bookkeeping (`last-good.sha`, upgrade log) lands in the daemon's
+  `FACTORY_HOME` instead of the default `~/.factory`, so `factory channel` and
+  `factory status` report the truth on hosts with more than one home.
+- **Repaired the Drizzle migration snapshot chain** — a missing `0031` snapshot
+  made `db:generate` emit broken migrations.
+
 ## v0.24.0 — 2026-06-15
 
 ### Added
