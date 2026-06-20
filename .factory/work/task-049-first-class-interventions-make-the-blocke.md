@@ -1,7 +1,7 @@
 ---
 id: task-049
 title: First-class interventions — make the blocker→reply→re-run loop queryable
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-20T05:10:00.000Z

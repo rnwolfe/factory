@@ -1,7 +1,7 @@
 ---
 id: task-047
 title: Guarantee deps installed in fresh worktree before quality checks
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-20T05:01:00.000Z

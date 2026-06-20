@@ -1,7 +1,7 @@
 ---
 id: task-050
 title: Queue-empty nudge (settings-flag gated) when a project runs out of runway
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-20T05:11:00.000Z
