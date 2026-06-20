@@ -1,5 +1,5 @@
-import { createId } from "@paralleldrive/cuid2";
 import { type Db, schema } from "@factory/db";
+import { createId } from "@paralleldrive/cuid2";
 import { and, eq } from "drizzle-orm";
 import type { EventBus } from "../events.ts";
 import { readAllSettings } from "../settings/store.ts";

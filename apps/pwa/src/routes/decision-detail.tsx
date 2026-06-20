@@ -608,7 +608,8 @@ export function DecisionDetail() {
         </Section>
       ) : null}
 
-      {(isTriage || isBlockedRun) && (isPending || (comments.data && comments.data.length > 0)) ? (
+      {(isTriage || isBlockedRun || isIssueIntake) &&
+      (isPending || (comments.data && comments.data.length > 0)) ? (
         <Section title="thread">
           {comments.data && comments.data.length > 0 ? (
             <ul className="divide-y divide-[var(--color-line)]">
@@ -638,7 +639,7 @@ export function DecisionDetail() {
                   show a thinking placeholder while we wait for the reply.
                   blocked_run has no re-pass — the operator's answers ride
                   forward into the retry instead, so no placeholder. */}
-              {isTriage &&
+              {(isTriage || isIssueIntake) &&
               (sendComment.isPending ||
                 (comments.data.length > 0 &&
                   comments.data[comments.data.length - 1]?.role === "operator")) ? (
@@ -680,7 +681,9 @@ export function DecisionDetail() {
                     ? payload.failed
                       ? "add context for the retry — what went wrong, what should the agent do differently?"
                       : "answer the agent's questions or add context — your reply rides forward when you retry…"
-                    : "reply to the agent — answer questions, push back, add context…"
+                    : isIssueIntake
+                      ? "reply to the agent — your message posts to the GitHub issue and the agent responds…"
+                      : "reply to the agent — answer questions, push back, add context…"
                 }
                 rows={3}
                 className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)] resize-y"
@@ -690,7 +693,9 @@ export function DecisionDetail() {
                 <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
                   {isBlockedRun
                     ? "saved as operator answers — folded into retry"
-                    : "the agent will re-score using the rubric"}
+                    : isIssueIntake
+                      ? "posts to the GitHub issue — the agent replies"
+                      : "the agent will re-score using the rubric"}
                 </span>
                 <button
                   type="submit"

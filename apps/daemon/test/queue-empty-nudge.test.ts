@@ -51,7 +51,14 @@ function setup() {
         ),
       )
       .all().length;
-  return { db, events, project, setFlag, pendingCount, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return {
+    db,
+    events,
+    project,
+    setFlag,
+    pendingCount,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
 }
 
 describe("queue-empty nudge (task-050)", () => {
