@@ -68,7 +68,11 @@ type RunStatus = (typeof schema.runStatusEnum)[number];
  * signal over the prose `status`. This keeps half-finished work out of
  * the auto-merge path.
  */
-function runStatusFor(parsed: FactoryStatus | null, aborted: boolean): RunStatus {
+export function runStatusFor(
+  parsed: FactoryStatus | null,
+  aborted: boolean,
+  opts: { hasCommits: boolean; exitCode: number } = { hasCommits: false, exitCode: 0 },
+): RunStatus {
   if (parsed) {
     switch (parsed.status) {
       case "done": {
@@ -83,6 +87,13 @@ function runStatusFor(parsed: FactoryStatus | null, aborted: boolean): RunStatus
     }
   }
   if (aborted) return "aborted";
+  // Null parse, but the agent exited cleanly AND left commits on the branch:
+  // work provably landed (the codex code path reproduces the factory-status
+  // footer less reliably than claude-code). Rather than discard committed
+  // work as `failed`, route it to `needs_review` — preserved, not merged,
+  // surfaced for the operator. A null parse with NO commits (or a non-zero
+  // exit) stays `failed` exactly as before; the honesty contract is intact.
+  if (opts.exitCode === 0 && opts.hasCommits) return "needs_review";
   return "failed";
 }
 
@@ -468,7 +479,10 @@ export async function executeRun(
       ? "usage_capped"
       : defer
         ? "deferred"
-        : runStatusFor(parsed, aborted);
+        : runStatusFor(parsed, aborted, {
+            hasCommits: result.commits.length > 0,
+            exitCode: result.exitCode,
+          });
 
     // Usage-cap resolution. Auto-resume at the parsed reset time when we have
     // one and the cap hasn't already recurred for this task; otherwise fall
@@ -502,10 +516,9 @@ export async function executeRun(
       }
     }
 
-    // If parsing returned null and the runtime spawn nonetheless emitted commits,
-    // that's *some* signal of work done — but we deliberately keep this as
-    // failed. The operator should see a blank status block as a bug to fix in
-    // the prompt, not as a silent pass.
+    // Null parse + clean exit + commits resolves to `needs_review` (see
+    // runStatusFor) — work landed, so we preserve and surface it instead of
+    // discarding it as `failed`. Null parse with no commits still fails.
     const acceptanceDowngraded =
       parsed?.status === "done" && finalStatus === "blocked" && parsed.acceptance.length > 0;
     const baseSummary = capped
@@ -525,7 +538,9 @@ export async function executeRun(
             ? "Run completed without an explicit summary."
             : finalStatus === "aborted"
               ? "Run was aborted by the operator."
-              : "Run ended without a status block — the agent may have stopped early.");
+              : finalStatus === "needs_review"
+                ? "Agent exited cleanly with commits but emitted no factory-status footer — work is preserved on the run branch for review (not merged)."
+                : "Run ended without a status block — the agent may have stopped early.");
     const summary = acceptanceDowngraded
       ? `${baseSummary}\n\n_Note: agent declared done but ${parsed?.acceptance.filter((a) => !a.met).length ?? 0} acceptance criterion(s) reported as unmet — downgraded to blocked._`
       : baseSummary;
@@ -802,7 +817,11 @@ export async function executeRun(
     // `usage_capped` has its own resolution path above (auto-resume or
     // `capFallbackDecision`), and `deferred`/`aborted`/`completed` don't need
     // operator attention — so we only surface the two stuck terminal states.
-    if (finalStatus === "blocked" || finalStatus === "failed") {
+    if (
+      finalStatus === "blocked" ||
+      finalStatus === "failed" ||
+      finalStatus === "needs_review"
+    ) {
       const decisionId = createId();
       await db.insert(schema.decisions).values({
         id: decisionId,
@@ -820,6 +839,11 @@ export async function executeRun(
           // blocked with questions). Same retry mechanics; different framing
           // in the inbox card and decision detail.
           ...(finalStatus === "failed" ? { failed: true } : {}),
+          // needs_review: agent exited cleanly with committed work but no
+          // footer. The branch holds reviewable commits — the operator can
+          // inspect and merge, or retry — so the card frames it as "review",
+          // not "failed".
+          ...(finalStatus === "needs_review" ? { needsReview: true } : {}),
         },
         status: "pending",
         createdAt: Date.now(),
@@ -874,9 +898,19 @@ export async function executeRun(
     // gates to github backends (no-op for file-backed) and is best-effort.
     if (
       row.taskId &&
-      (finalStatus === "completed" || finalStatus === "blocked" || finalStatus === "failed")
+      (finalStatus === "completed" ||
+        finalStatus === "blocked" ||
+        finalStatus === "failed" ||
+        finalStatus === "needs_review")
     ) {
-      const icon = finalStatus === "completed" ? "✅" : finalStatus === "blocked" ? "⏸️" : "❌";
+      const icon =
+        finalStatus === "completed"
+          ? "✅"
+          : finalStatus === "blocked"
+            ? "⏸️"
+            : finalStatus === "needs_review"
+              ? "🔍"
+              : "❌";
       const lines = [`${icon} **Run ${finalStatus}** \`${runId.slice(0, 8)}\``, "", summary.trim()];
       if (mergeSha) lines.push("", `Merged to \`main\`: \`${mergeSha.slice(0, 10)}\``);
       if (qualityReport && qualityReport.overall !== "skipped") {

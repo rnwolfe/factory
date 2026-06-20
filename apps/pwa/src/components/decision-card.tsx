@@ -40,10 +40,13 @@ export interface DecisionRow {
     summary?: string;
     questions?: string[];
     branch?: string;
-    // blocked_run variants — distinguish the three causes that all route
-    // through this decision kind. Default (neither set) = agent self-blocked.
+    // blocked_run variants — distinguish the causes that all route
+    // through this decision kind. Default (none set) = agent self-blocked.
     usageCapped?: boolean;
     failed?: boolean;
+    // needs_review: agent exited cleanly with committed work but no
+    // factory-status footer — branch holds reviewable commits, not merged.
+    needsReview?: boolean;
     // merge_failure-only
     reason?: string;
     message?: string;
@@ -96,7 +99,8 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
     case "tag_change":
       return "tag";
     case "blocked_run":
-      // Same kind, three causes: framing follows the cause.
+      // Same kind, several causes: framing follows the cause.
+      if (payload?.needsReview) return "needs review";
       if (payload?.failed) return "failed run";
       if (payload?.usageCapped) return "usage cap";
       return "blocked run";
@@ -212,7 +216,11 @@ export function DecisionCard({
   const blockedHeadline = isBlockedRun
     ? (decision.payload.summary ??
       `run ${decision.payload.runId?.slice(0, 8) ?? ""} ${
-        decision.payload.failed ? "failed" : "blocked"
+        decision.payload.needsReview
+          ? "needs review"
+          : decision.payload.failed
+            ? "failed"
+            : "blocked"
       }${decision.payload.taskId ? ` on ${decision.payload.taskId}` : ""}`)
     : null;
 

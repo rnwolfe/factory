@@ -520,10 +520,12 @@ function RunStatusChip({ status }: { status: string }) {
       ? "chip-greenlit"
       : status === "running" || status === "queued"
         ? "chip-accent"
-        : status === "failed" || status === "aborted" || status === "blocked"
-          ? "chip-trashed"
-          : "";
-  return <span className={`chip ${tone}`}>{status}</span>;
+        : status === "needs_review"
+          ? "chip-decompose"
+          : status === "failed" || status === "aborted" || status === "blocked"
+            ? "chip-trashed"
+            : "";
+  return <span className={`chip ${tone}`}>{status === "needs_review" ? "review" : status}</span>;
 }
 
 function timeAgo(ts: number): string {

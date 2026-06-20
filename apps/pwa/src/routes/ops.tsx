@@ -92,7 +92,8 @@ function statusChip(status: string): string {
   if (status === "completed") return "chip-greenlit";
   if (status === "failed" || status === "blocked" || status === "aborted") return "chip-trashed";
   if (status === "running" || status === "queued") return "chip-accent";
-  if (status === "usage_capped" || status === "deferred") return "chip-decompose";
+  if (status === "usage_capped" || status === "deferred" || status === "needs_review")
+    return "chip-decompose";
   return "";
 }
 

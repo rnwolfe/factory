@@ -33,6 +33,11 @@ export const runStatusEnum = [
   "blocked",
   "deferred",
   "usage_capped",
+  // Agent exited cleanly (exitCode 0) and produced commits, but emitted no
+  // parseable factory-status footer. The work is real and preserved on the
+  // run branch — NOT auto-merged — and surfaced to the operator to review
+  // rather than discarded as `failed`. See runStatusFor in workers/runner.ts.
+  "needs_review",
 ] as const;
 export const taskStatusEnum = [
   "ready",

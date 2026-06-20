@@ -687,7 +687,7 @@ function chipForStatus(s: string): string {
   if (s === "completed") return "chip-greenlit";
   if (s === "running") return "chip-accent";
   if (s === "failed" || s === "aborted" || s === "blocked") return "chip-trashed";
-  if (s === "deferred") return "chip-decompose";
+  if (s === "deferred" || s === "needs_review") return "chip-decompose";
   return "";
 }
 
