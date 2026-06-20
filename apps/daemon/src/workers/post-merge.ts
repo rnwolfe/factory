@@ -139,6 +139,9 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
       // id after `run.taskId`; stops if nothing later is ready.
       const next = pickNextReadyTask(tasks, run.taskId);
       if (next) {
+        // Queue is not empty after all — clear any stale queue-empty nudge.
+        const { resolveQueueEmptyNudges } = await import("../inbox/queue-empty.ts");
+        await resolveQueueEmptyNudges(db, events, project.id);
         // Dynamic import to break the cycle: submit.ts → runner.ts (via
         // executeRun), and runner.ts imports this module.
         const { submitRun } = await import("./submit.ts");
@@ -146,6 +149,11 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
           { config, db, events, runs, pool },
           { projectId: project.id, taskId: next.id },
         );
+      } else {
+        // Auto-advance ran but found nothing ready to pick up — the project's
+        // queue just drained. Nudge the operator (flag-gated, de-duped).
+        const { maybeEmitQueueEmptyNudge } = await import("../inbox/queue-empty.ts");
+        await maybeEmitQueueEmptyNudge(db, events, project);
       }
     }
   }

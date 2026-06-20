@@ -34,6 +34,11 @@ export const SETTING_KEYS = [
   "github-app-webhook-secret",
   "factory-project-id",
   "notify-on-run-complete",
+  // Feature flag (default off): when auto-advance drains a project's ready
+  // queue, emit a `queue_empty` inbox nudge so the project doesn't stall
+  // silently. "true" | "false". Behavior-side; read directly from the DB in
+  // inbox/queue-empty.ts, not wired through FactoryConfig.
+  "notify-on-queue-empty",
   // Ops dashboard + model defaults — display-side, not wired through FactoryConfig.
   "landing-route", // "inbox" | "ops"
   // System-level default Claude model id (e.g. "claude-sonnet-4-6"). Empty/null
@@ -225,6 +230,11 @@ export interface OpsSettings {
    * experimental Fable 5 model. Off by default.
    */
   experimentalFable5: boolean;
+  /**
+   * Feature flag — when true, auto-advance emits a `queue_empty` inbox nudge
+   * once a project's ready queue drains. Off by default.
+   */
+  notifyOnQueueEmpty: boolean;
 }
 
 export interface SettingsView {
@@ -295,5 +305,6 @@ export function readOpsSettings(map: Map<SettingKey, string>): OpsSettings {
     defaultModel: defaultModelRaw && defaultModelRaw.length > 0 ? defaultModelRaw : null,
     defaultAgent: defaultAgentRaw && defaultAgentRaw.length > 0 ? defaultAgentRaw : null,
     experimentalFable5: map.get("experimental-fable-5") === "true",
+    notifyOnQueueEmpty: map.get("notify-on-queue-empty") === "true",
   };
 }

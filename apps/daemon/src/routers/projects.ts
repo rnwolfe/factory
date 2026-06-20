@@ -697,6 +697,10 @@ export const projectsRouter = router({
         }
         throw err;
       }
+      // An archived project is out of scope for the queue-empty nudge — drop
+      // any open one so it doesn't linger in the inbox.
+      const { resolveQueueEmptyNudges } = await import("../inbox/queue-empty.ts");
+      await resolveQueueEmptyNudges(ctx.db, ctx.events, input.id);
       return { ok: true };
     }),
 

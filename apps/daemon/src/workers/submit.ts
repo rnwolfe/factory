@@ -329,6 +329,11 @@ export async function submitRun(
     releaseTag: input.releaseTag ?? null,
   });
 
+  // A run is being submitted, so the project has work again — clear any
+  // open queue-empty nudge so a stale "out of runway" card doesn't linger.
+  const { resolveQueueEmptyNudges } = await import("../inbox/queue-empty.ts");
+  await resolveQueueEmptyNudges(db, events, project.id);
+
   // Resume mode: explicit sessionId set, OR inherited via reuseFromRunId
   // when the source carried one. Either way the runner needs the flag.
   const resume =

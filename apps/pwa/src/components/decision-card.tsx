@@ -18,7 +18,8 @@ export interface DecisionRow {
     | "merge_failure"
     | "agent_decision"
     | "issue_intake"
-    | "release_proposal";
+    | "release_proposal"
+    | "queue_empty";
   outcome: string;
   weightedScore: number | null;
   uncertainty: number | null;
@@ -50,6 +51,9 @@ export interface DecisionRow {
     // merge_failure-only
     reason?: string;
     message?: string;
+    // queue_empty shape
+    projectSlug?: string;
+    projectName?: string;
     // agent_decision shape
     kind?: "architectural" | "library" | "naming" | "scope" | "tradeoff";
     context?: string;
@@ -112,6 +116,8 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
       return "issue · intake";
     case "release_proposal":
       return "release";
+    case "queue_empty":
+      return "queue empty";
   }
 }
 
@@ -206,6 +212,7 @@ export function DecisionCard({
   const isAgentDecision = decision.kind === "agent_decision";
   const isIssueIntake = decision.kind === "issue_intake";
   const isReleaseProposal = decision.kind === "release_proposal";
+  const isQueueEmpty = decision.kind === "queue_empty";
   const issueNumber = typeof decision.payload.number === "number" ? decision.payload.number : null;
   const issueTitle = typeof decision.payload.title === "string" ? decision.payload.title : "";
   const issueHtmlUrl =
@@ -240,12 +247,18 @@ export function DecisionCard({
     ? `release ${decision.payload.version ?? "(version pending)"}`
     : null;
 
+  const queueEmptyHeadline =
+    decision.kind === "queue_empty"
+      ? `${decision.payload.projectName ?? decision.payload.projectSlug ?? "Project"} is out of runway — re-fill or archive`
+      : null;
+
   const headline =
     blockedHeadline ??
     mergeFailHeadline ??
     agentDecisionHeadline ??
     issueIntakeHeadline ??
     releaseHeadline ??
+    queueEmptyHeadline ??
     decision.payload.title_suggestion ??
     (ideaText ? ideaText.slice(0, 80) : decision.outcome);
 
@@ -434,6 +447,10 @@ export function DecisionCard({
               onClick={() => onAction("approve")}
               showArrow
             />
+            <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
+          </div>
+        ) : isQueueEmpty ? (
+          <div className="grid grid-cols-1 border-t border-[var(--color-line)]">
             <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
           </div>
         ) : (

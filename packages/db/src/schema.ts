@@ -19,6 +19,10 @@ export const decisionKindEnum = [
   "agent_decision",
   "issue_intake",
   "release_proposal",
+  // Auto-advance drained a project's ready queue (no ready tasks left).
+  // Informational nudge so a project doesn't stall silently; gated behind
+  // the `notify-on-queue-empty` setting. See inbox/queue-empty.ts.
+  "queue_empty",
 ] as const;
 export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
 export const taskBackendEnum = ["file", "github-issues"] as const;
