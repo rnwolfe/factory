@@ -228,8 +228,18 @@ export async function runUpgrade(args: UpgradeArgs): Promise<number> {
     ? { FACTORY_HOME: factoryHomeUnit }
     : {};
   if (factoryHomeUnit && process.env.FACTORY_HOME !== factoryHomeUnit) {
+    // Point THIS process's FACTORY_HOME at the daemon's home too, so the
+    // upgrade bookkeeping (writeLastGood / appendUpgradeLog, which resolve
+    // their state dir from process.env.FACTORY_HOME) lands in the live home's
+    // state/ — not the default ~/.factory. Without this, an operator running
+    // `factory upgrade` from an interactive shell that doesn't export
+    // FACTORY_HOME silently records last-good.sha + upgrade-log under
+    // ~/.factory while the daemon (and its data.db) live under the unit's
+    // FACTORY_HOME, so the live home's state file goes stale and misleading
+    // even though the code, migrations, and seed all upgraded correctly.
+    process.env.FACTORY_HOME = factoryHomeUnit;
     process.stdout.write(
-      `factory: using FACTORY_HOME=${factoryHomeUnit} for migrate + seed (resolved from factory.service)\n`,
+      `factory: using FACTORY_HOME=${factoryHomeUnit} for migrate + seed + state bookkeeping (resolved from factory.service)\n`,
     );
   }
 

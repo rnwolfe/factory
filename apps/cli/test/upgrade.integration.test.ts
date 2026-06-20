@@ -91,6 +91,14 @@ beforeEach(async () => {
   // accept --config? We use the existing in-test approach: copy our config to
   // the operator default temporarily by setting HOME to tmpRoot.
   process.env.HOME = tmpRoot;
+  // Isolate the systemd unit lookup. unitPath() resolves via
+  // os.homedir() (which ignores process.env.HOME on POSIX) but honors
+  // XDG_CONFIG_HOME — so without this, the test reads the operator's REAL
+  // ~/.config/systemd/user/factory.service, and any code that resolves
+  // FACTORY_HOME from the unit (e.g. the state-bookkeeping fix) would
+  // redirect this test's writes onto the live home. Point it at the temp
+  // tree so factoryHomeFromUnit() finds nothing.
+  process.env.XDG_CONFIG_HOME = path.join(tmpRoot, ".config");
   // Move config into the default location ($HOME/.factory/config.yaml).
   const defaultDir = path.join(tmpRoot, ".factory");
   await Bun.$`mkdir -p ${defaultDir}`;
@@ -103,6 +111,7 @@ afterEach(() => {
   delete process.env.FACTORY_CLI_BUN;
   delete process.env.FACTORY_CLI_SYSTEMCTL;
   delete process.env.HOME;
+  delete process.env.XDG_CONFIG_HOME;
 });
 
 describe("factory upgrade", () => {
