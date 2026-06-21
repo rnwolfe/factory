@@ -2,6 +2,29 @@ import type { EventBus } from "../events.ts";
 import { createTask, type TaskFile, type TaskTarget } from "../projects/tasks.ts";
 
 /**
+ * How a resurfaced unit of work points back at the original task it follows up.
+ *
+ * For a github-issues project the original task id IS the issue number, so we
+ * render a GitHub-native `#N` reference. Dropping `#N` into the follow-up
+ * issue's body makes GitHub auto-link it and record a cross-reference event on
+ * the original (closed) issue — so the thread is traceable in both directions,
+ * and the original **stays closed** (a mention never changes issue state). The
+ * follow-up issue is the new task; the original is left untouched.
+ *
+ * File-backed projects have no auto-linking target, so the plain task id is
+ * code-quoted as before.
+ */
+function originalReference(
+  target: TaskTarget,
+  originalTaskId: string,
+): { noun: "issue" | "task"; ref: string } {
+  if (target.taskBackend === "github-issues" && /^\d+$/.test(originalTaskId)) {
+    return { noun: "issue", ref: `#${originalTaskId}` };
+  }
+  return { noun: "task", ref: `\`${originalTaskId}\`` };
+}
+
+/**
  * How the operator resolved an `agent_decision`. The agent makes a call
  * mid-run and proceeds; when it lands in the inbox the operator either
  * **ratifies** it (accepts the agent's proposed answer verbatim) or
@@ -96,15 +119,25 @@ export interface ResurfaceWorkInput {
 }
 
 /** Render the markdown body of a resurfaced unit of work. */
-function renderResurfaceBody(input: ResurfaceWorkInput): string {
+function renderResurfaceBody(input: ResurfaceWorkInput, target: TaskTarget): string {
   const agentChose = input.agentDecided ?? "(unspecified)";
   const optionsLine =
     input.options && input.options.length > 0
       ? `\nThe agent weighed: ${input.options.map((o) => `\`${o.title}\``).join(", ")}.`
       : "";
+  const original = input.originalTaskId ? originalReference(target, input.originalTaskId) : null;
+  // A "follows up" line in the visible body carries the back-link. For a
+  // github-issues project this `#N` reference is what makes GitHub record a
+  // cross-reference on the original closed issue (and makes clear it stays
+  // closed); for file projects it reads as plain prose.
+  const followsUp = original
+    ? ` This follows up ${original.noun} ${original.ref}, which stays closed —` +
+      ` that work shipped; this is the new unit that carries the operator's` +
+      ` adjustment forward.`
+    : "";
   const provenance = [
     `- Originating decision: \`${input.decisionId}\``,
-    input.originalTaskId ? `- Original task: \`${input.originalTaskId}\`` : null,
+    original ? `- Original ${original.noun}: ${original.ref}` : null,
     input.runId ? `- Source run: \`${input.runId}\`` : null,
   ]
     .filter(Boolean)
@@ -115,7 +148,7 @@ function renderResurfaceBody(input: ResurfaceWorkInput): string {
     "",
     "This work resurfaced from an operator override of an agent decision. The",
     "agent made a call mid-run and the operator did not ratify it — the override",
-    "must be implemented rather than silently closed.",
+    `must be implemented rather than silently closed.${followsUp}`,
     "",
     `**Agent decided:** ${agentChose}`,
     `**Operator requires:** ${input.answer}${optionsLine}`,
@@ -140,7 +173,10 @@ function renderResurfaceBody(input: ResurfaceWorkInput): string {
  *
  * The resulting unit of work carries `sourceDecisionId` (the audit link back to
  * the originating decision) and the operator's answer in its body, so a future
- * run implements the operator's preference. Returns the created task.
+ * run implements the operator's preference. On a github-issues project the body
+ * also carries a GitHub-native `#N` back-reference to the original (closed)
+ * issue, so the follow-up issue and the original thread are cross-linked and the
+ * original stays closed (task-063). Returns the created task.
  */
 export function resurfaceWorkForDecision(
   target: TaskTarget,
@@ -149,7 +185,7 @@ export function resurfaceWorkForDecision(
   const title = `Implement override: ${input.summary ?? "agent decision"}`.slice(0, 120);
   return createTask(target, {
     title,
-    body: renderResurfaceBody(input),
+    body: renderResurfaceBody(input, target),
     status: "ready",
     labels: ["resurfaced"],
     parent: input.originalTaskId ?? undefined,
