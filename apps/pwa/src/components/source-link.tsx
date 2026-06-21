@@ -5,7 +5,7 @@ import { cn } from "../lib/cn.ts";
 type SourceLinkVariant = "inline" | "chip";
 
 export interface ProvenanceLink {
-  kind: "issue" | "plan" | "finding" | "audit";
+  kind: "issue" | "plan" | "finding" | "audit" | "decision";
   label: string;
   href: string;
 }

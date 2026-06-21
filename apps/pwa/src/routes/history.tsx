@@ -132,15 +132,26 @@ function HistoryListItem({
   restoring: boolean;
 }) {
   const ts = row.actionedAt ?? row.createdAt;
+  const resurfaced = isResurfaced(row);
   const title =
-    typeof row.payload?.title_suggestion === "string" ? row.payload.title_suggestion : row.outcome;
+    typeof row.payload?.title_suggestion === "string"
+      ? row.payload.title_suggestion
+      : // A resurfaced override reads best by its decision summary, not the
+        // raw `decided: …` outcome — it's open work, not a closed verdict.
+        resurfaced && typeof row.payload?.summary === "string"
+        ? row.payload.summary
+        : row.outcome;
   const revertible = isRevertible(row);
   return (
     <Link to={`/decisions/${row.id}`} className="block px-3 py-2.5 hover:bg-[var(--color-bg-2)]">
       <div className="flex items-center gap-2 mb-1 flex-wrap">
-        <span className={cn("chip text-[10.5px]", verdictTone(row.outcome, row.status))}>
-          {row.status === "dismissed" ? "dismissed" : row.outcome}
-        </span>
+        {resurfaced ? (
+          <span className="chip chip-decompose text-[10.5px]">resurfaced → open</span>
+        ) : (
+          <span className={cn("chip text-[10.5px]", verdictTone(row.outcome, row.status))}>
+            {row.status === "dismissed" ? "dismissed" : row.outcome}
+          </span>
+        )}
         <span className="chip text-[10.5px]">{kindLabel(row.kind)}</span>
         <div className="ml-auto flex items-center gap-2">
           {revertible ? (
@@ -166,6 +177,15 @@ function HistoryListItem({
       <div className="text-[13.5px] text-[var(--color-fg-1)] line-clamp-2">{title}</div>
     </Link>
   );
+}
+
+/**
+ * An overridden agent_decision: the operator pushed back, so the work
+ * resurfaced as a follow-up task rather than closing. It reads as open work in
+ * history, not a settled verdict (task-064).
+ */
+function isResurfaced(row: HistoryRow): boolean {
+  return row.kind === "agent_decision" && row.payload?.override != null;
 }
 
 function isRevertible(row: HistoryRow): boolean {

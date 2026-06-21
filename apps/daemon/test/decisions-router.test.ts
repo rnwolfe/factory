@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import type { DaemonContext } from "../src/context.ts";
 import { type DaemonEvent, EventBus } from "../src/events.ts";
-import { listTasks } from "../src/projects/tasks.ts";
+import { listTasks, pickNextReadyTask } from "../src/projects/tasks.ts";
 import { decisionsRouter } from "../src/routers/decisions.ts";
 import { ScriptRegistry } from "../src/scripts/registry.ts";
 import { createCallerFactory } from "../src/trpc.ts";
@@ -374,6 +374,25 @@ describe("agent_decision resurfacing", () => {
       expect(requeued?.frontmatter.sourceDecisionId).toBe(decisionId);
       expect(requeued?.frontmatter.parent).toBe("task-007");
       expect(requeued?.body).toContain("bun:sqlite, better-sqlite3");
+
+      // task-064: the decision payload pins the resurfaced task id so every
+      // decision surface (inbox history, decision detail) can render the
+      // override as still-open work linked to its follow-up, not a closed
+      // verdict.
+      const row = await h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, decisionId))
+        .get();
+      expect((row?.payload as { resurfacedTaskId?: string }).resurfacedTaskId).toBe(
+        res.resurfacedTaskId ?? "",
+      );
+
+      // task-064 criterion 2: the resurfaced task is queue-eligible — the same
+      // `pickNextReadyTask` auto-advance uses selects it like any other ready
+      // task, whether advancing from the original task or scanning fresh.
+      expect(pickNextReadyTask(tasks, "task-007")?.id).toBe(res.resurfacedTaskId ?? "");
+      expect(pickNextReadyTask(tasks, null)?.id).toBe(res.resurfacedTaskId ?? "");
 
       // No refinement plan is created anymore — the seam re-queue replaces it.
       const plans = await h.db
