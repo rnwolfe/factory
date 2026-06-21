@@ -652,7 +652,7 @@ export function DecisionDetail() {
         </Section>
       ) : null}
 
-      {(isTriage || isBlockedRun || isIssueIntake) &&
+      {(isTriage || isBlockedRun || isIssueIntake || isAgentDecision) &&
       (isPending || (comments.data && comments.data.length > 0)) ? (
         <Section title="thread">
           {comments.data && comments.data.length > 0 ? (
@@ -679,11 +679,10 @@ export function DecisionDetail() {
                   </div>
                 </li>
               ))}
-              {/* Triage fires a follow-up agent pass on each operator comment;
-                  show a thinking placeholder while we wait for the reply.
-                  blocked_run has no re-pass — the operator's answers ride
-                  forward into the retry instead, so no placeholder. */}
-              {(isTriage || isIssueIntake) &&
+              {/* Every commentable kind now fires an agent reply on each
+                  operator comment; show a thinking placeholder while we wait.
+                  (blocked_run's answers also ride forward into the retry.) */}
+              {(isTriage || isIssueIntake || isBlockedRun || isAgentDecision) &&
               (sendComment.isPending ||
                 (comments.data.length > 0 &&
                   comments.data[comments.data.length - 1]?.role === "operator")) ? (
@@ -723,8 +722,8 @@ export function DecisionDetail() {
                 placeholder={
                   isBlockedRun
                     ? payload.failed
-                      ? "add context for the retry — what went wrong, what should the agent do differently?"
-                      : "answer the agent's questions or add context — your reply rides forward when you retry…"
+                      ? "add context for the retry — the agent replies, and your notes ride forward when you retry…"
+                      : "answer the agent's questions — the agent replies, and your notes ride forward when you retry…"
                     : isIssueIntake
                       ? "reply to the agent — your message posts to the GitHub issue and the agent responds…"
                       : "reply to the agent — answer questions, push back, add context…"
@@ -736,10 +735,12 @@ export function DecisionDetail() {
               <div className="flex justify-between items-center gap-2">
                 <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
                   {isBlockedRun
-                    ? "saved as operator answers — folded into retry"
+                    ? "the agent replies here — and your answers fold into the retry"
                     : isIssueIntake
                       ? "posts to the GitHub issue — the agent replies"
-                      : "the agent will re-score using the rubric"}
+                      : isAgentDecision
+                        ? "the agent replies here — mirrored to the issue if github-backed"
+                        : "the agent will re-score using the rubric"}
                 </span>
                 <button
                   type="submit"

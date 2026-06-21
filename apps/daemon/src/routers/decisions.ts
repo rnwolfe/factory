@@ -4,6 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
+import { echoOperatorCommentToIssue, runDecisionReply } from "../decisions/dialog.ts";
 import {
   type AgentDecisionOverride,
   emitResurfaceSignal,
@@ -707,7 +708,8 @@ export const decisionsRouter = router({
       if (
         decision.kind !== "triage" &&
         decision.kind !== "blocked_run" &&
-        decision.kind !== "issue_intake"
+        decision.kind !== "issue_intake" &&
+        decision.kind !== "agent_decision"
       ) {
         throw new Error(`comments are not supported on ${decision.kind} decisions`);
       }
@@ -768,11 +770,48 @@ export const decisionsRouter = router({
         return { commentId };
       }
 
-      // For blocked_run, the comment is operator answers — there's no
-      // agent re-pass at comment time. The retry happens later when the
-      // operator approves; that path gathers all comments and threads
-      // them into the new run's prompt as `operatorContext`.
-      if (decision.kind !== "triage") {
+      // blocked_run / needs_review / agent_decision: the operator's comment gets
+      // a live agent reply (not silent storage) — the dialog parity triage and
+      // issue_intake already have. For a github-issues task we also echo the
+      // operator's comment to the issue thread, so the conversation lives in
+      // both places. The blocked_run retry still folds the operator's answers
+      // into `operatorContext` on approve — that path filters to role=operator,
+      // so the agent reply added here never pollutes it.
+      if (decision.kind === "blocked_run" || decision.kind === "agent_decision") {
+        const project = decision.projectId
+          ? await ctx.db
+              .select()
+              .from(schema.projects)
+              .where(eq(schema.projects.id, decision.projectId))
+              .get()
+          : null;
+        if (project) {
+          const payload = (decision.payload ?? {}) as { taskId?: string | null };
+          void echoOperatorCommentToIssue(ctx.config, project, payload, input.body.trim());
+          void (async () => {
+            try {
+              await runDecisionReply(
+                { db: ctx.db, events: ctx.events, config: ctx.config, project },
+                input.decisionId,
+              );
+              ctx.events.publish({
+                channel: "inbox",
+                kind: "comment_added",
+                decisionId: input.decisionId,
+                role: "agent",
+              });
+              ctx.events.publish({
+                channel: "inbox",
+                kind: "decision_updated",
+                decisionId: input.decisionId,
+              });
+            } catch (err) {
+              console.error(
+                `[decision-reply] ${input.decisionId}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          })();
+        }
         return { commentId };
       }
 

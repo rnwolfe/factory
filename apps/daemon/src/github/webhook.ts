@@ -3,6 +3,7 @@ import { type Db, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { and, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
+import { type DialogProject, runDecisionReply } from "../decisions/dialog.ts";
 import type { EventBus } from "../events.ts";
 import { parseGithubRepo } from "./app-auth.ts";
 import {
@@ -215,11 +216,14 @@ export async function handleGithubWebhook(
     }
   }
 
-  // Inbound human comment on a tracked issue: append to the matching
-  // issue_intake thread and let the agent reply (task-048).
+  // Inbound human comment on a tracked issue: append to the matching decision
+  // thread and let the agent reply. An externally-opened issue routes to its
+  // `issue_intake` thread (task-048); a github-backed task's issue (whose
+  // number IS the task id) routes to a pending `blocked_run`/`agent_decision`
+  // decision so the operator can answer the agent from GitHub itself.
   if (result.status === "processed" && result.comment && result.projectId && config) {
     const project = projects.find((p) => p.id === result.projectId);
-    const decision = await findIssueIntakeDecision(db, result.projectId, result.comment.number);
+    const decision = await findDecisionForIssue(db, result.projectId, result.comment.number);
     if (decision && project) {
       await appendOperatorComment(db, decision.id, result.comment.body);
       events.publish({
@@ -228,32 +232,67 @@ export async function handleGithubWebhook(
         decisionId: decision.id,
         role: "operator",
       });
-      fireIssueIntakeReply({ db, events, config, project }, decision.id);
+      if (decision.kind === "issue_intake") {
+        fireIssueIntakeReply({ db, events, config, project }, decision.id);
+      } else {
+        fireDecisionReply({ db, events, config, project }, decision.id);
+      }
     }
   }
 
   return result;
 }
 
-/** Find the pending issue_intake decision for a given project + issue number. */
-async function findIssueIntakeDecision(
+/**
+ * Find the pending decision an inbound issue comment belongs to. An
+ * `issue_intake` decision keys off `payload.number` (the externally-opened
+ * issue). A github-backed task's `blocked_run`/`agent_decision` decision keys
+ * off `payload.taskId` — which, for the github-issues backend, IS the issue
+ * number. issue_intake wins when both match (it's the externally-filed issue
+ * not yet adopted as a task).
+ */
+async function findDecisionForIssue(
   db: Db,
   projectId: string,
   issueNumber: number,
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; kind: string } | null> {
   const rows = await db
-    .select({ id: schema.decisions.id, payload: schema.decisions.payload })
+    .select({
+      id: schema.decisions.id,
+      kind: schema.decisions.kind,
+      payload: schema.decisions.payload,
+    })
     .from(schema.decisions)
-    .where(
-      and(
-        eq(schema.decisions.kind, "issue_intake"),
-        eq(schema.decisions.projectId, projectId),
-        eq(schema.decisions.status, "pending"),
-      ),
-    )
+    .where(and(eq(schema.decisions.projectId, projectId), eq(schema.decisions.status, "pending")))
     .all();
-  const match = rows.find((r) => (r.payload as { number?: number })?.number === issueNumber);
-  return match ? { id: match.id } : null;
+  const intake = rows.find(
+    (r) => r.kind === "issue_intake" && (r.payload as { number?: number })?.number === issueNumber,
+  );
+  if (intake) return { id: intake.id, kind: intake.kind };
+  const task = rows.find(
+    (r) =>
+      (r.kind === "blocked_run" || r.kind === "agent_decision") &&
+      (r.payload as { taskId?: string | null })?.taskId === String(issueNumber),
+  );
+  return task ? { id: task.id, kind: task.kind } : null;
+}
+
+/** Fire-and-forget the blocked_run/agent_decision reply, surfacing the events. */
+function fireDecisionReply(
+  deps: { db: Db; events: EventBus; config: FactoryConfig; project: DialogProject },
+  decisionId: string,
+): void {
+  void (async () => {
+    try {
+      await runDecisionReply(deps, decisionId);
+      deps.events.publish({ channel: "inbox", kind: "comment_added", decisionId, role: "agent" });
+      deps.events.publish({ channel: "inbox", kind: "decision_updated", decisionId });
+    } catch (err) {
+      console.error(
+        `[decision-reply] ${decisionId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  })();
 }
 
 /** Fire-and-forget the issue-intake reply, surfacing the agent reply event. */
