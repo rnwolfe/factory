@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, openSqlite, runMigrations, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
+import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import type { DaemonContext } from "../src/context.ts";
-import { EventBus } from "../src/events.ts";
+import { type DaemonEvent, EventBus } from "../src/events.ts";
 import { decisionsRouter } from "../src/routers/decisions.ts";
 import { ScriptRegistry } from "../src/scripts/registry.ts";
 import { createCallerFactory } from "../src/trpc.ts";
@@ -40,6 +41,8 @@ function setupHarness() {
   ensureSnoozeColumn(dbPath);
   const db = createDb(dbPath);
   const events = new EventBus();
+  const published: DaemonEvent[] = [];
+  events.subscribe((e) => published.push(e));
   const config: FactoryConfig = {
     port: 0,
     host: "127.0.0.1",
@@ -65,10 +68,15 @@ function setupHarness() {
     config,
     scripts: new ScriptRegistry(events),
     authorized: true,
+    // Keep the refinement-plan auto-iteration off the real `claude --print`
+    // path so override tests stay hermetic; we only assert the resurface seam.
+    planIterationScheduler: () => {},
   };
   return {
     db,
     caller: createCaller(ctx),
+    events,
+    published,
     root,
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
@@ -176,6 +184,205 @@ describe("decisionsRouter", () => {
       const snoozed = await h.caller.inbox({ view: "snoozed" });
       const snoozedIds = snoozed.map((r) => r.id);
       expect(snoozedIds).toEqual([snoozedId]);
+    } finally {
+      h.cleanup();
+    }
+  });
+});
+
+/**
+ * task-061 — ratify-vs-override detection at decision-resolve time. The
+ * resurfacing trigger is solely the operator's choice of path: ratify (the
+ * `action` → approve mutation) closes the decision with no follow-up; override
+ * (the `overrideAgentDecision` mutation, in any of its single/multi/custom
+ * shapes) emits a `decision_resurfaced` signal. No agent materiality judgement
+ * is involved.
+ */
+describe("agent_decision resurfacing", () => {
+  async function seedAgentDecision(
+    db: ReturnType<typeof setupHarness>["db"],
+    overrides: {
+      projectId?: string | null;
+      taskId?: string | null;
+      runId?: string;
+      responseType?: string;
+    } = {},
+  ): Promise<string> {
+    const id = createId();
+    const now = Date.now();
+    await db.insert(schema.decisions).values({
+      id,
+      kind: "agent_decision",
+      projectId: overrides.projectId ?? null,
+      outcome: "decided: bun:sqlite",
+      payload: {
+        id: "dec-001",
+        kind: "library",
+        responseType: overrides.responseType ?? "single",
+        summary: "use bun:sqlite over better-sqlite3",
+        decided: "bun:sqlite",
+        options: [
+          { title: "bun:sqlite", tradeoff: "no extra dep", chosen: true },
+          { title: "better-sqlite3", tradeoff: "portable" },
+        ],
+        runId: overrides.runId ?? "run-1",
+        taskId: overrides.taskId ?? null,
+      },
+      status: "pending",
+      createdAt: now,
+    });
+    return id;
+  }
+
+  function resurfaceEvents(published: DaemonEvent[], decisionId: string): DaemonEvent[] {
+    return published.filter(
+      (e) =>
+        e.channel === "inbox" && e.kind === "decision_resurfaced" && e.decisionId === decisionId,
+    );
+  }
+
+  test("ratify (action approve) closes the decision and emits no resurfacing signal", async () => {
+    const h = setupHarness();
+    try {
+      const decisionId = await seedAgentDecision(h.db);
+      const before = h.published.length;
+
+      await h.caller.action({ decisionId, action: "approve" });
+
+      const newEvents = h.published.slice(before);
+      expect(resurfaceEvents(newEvents, decisionId)).toHaveLength(0);
+      expect(newEvents.some((e) => e.channel === "inbox" && e.kind === "decision_actioned")).toBe(
+        true,
+      );
+
+      const row = await h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, decisionId))
+        .get();
+      expect(row?.status).toBe("actioned");
+      // Ratification leaves no override marker on the payload.
+      expect((row?.payload as { override?: unknown }).override).toBeUndefined();
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("override to a different option emits a resurfacing signal and records the override", async () => {
+    const h = setupHarness();
+    try {
+      const decisionId = await seedAgentDecision(h.db);
+      const before = h.published.length;
+
+      await h.caller.overrideAgentDecision({
+        decisionId,
+        override: { kind: "single", choice: "better-sqlite3" },
+      });
+
+      const newEvents = h.published.slice(before);
+      expect(resurfaceEvents(newEvents, decisionId)).toHaveLength(1);
+      expect(newEvents.some((e) => e.channel === "inbox" && e.kind === "decision_actioned")).toBe(
+        true,
+      );
+
+      const row = await h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, decisionId))
+        .get();
+      expect(row?.status).toBe("actioned");
+      const payload = row?.payload as {
+        override?: { kind: string; choice?: string };
+        overrideAt?: number;
+      };
+      expect(payload.override).toEqual({ kind: "single", choice: "better-sqlite3" });
+      expect(typeof payload.overrideAt).toBe("number");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("a custom answer on an ad-hoc run (no task) still resurfaces", async () => {
+    const h = setupHarness();
+    try {
+      // No projectId / taskId: there is no refinement plan to open, but the
+      // resurfacing signal must still fire — ANY non-ratification resurfaces.
+      const decisionId = await seedAgentDecision(h.db, {
+        projectId: null,
+        taskId: null,
+        responseType: "free",
+      });
+      const before = h.published.length;
+
+      await h.caller.overrideAgentDecision({
+        decisionId,
+        override: { kind: "custom", text: "use Postgres via Bun's sql, not sqlite" },
+      });
+
+      const newEvents = h.published.slice(before);
+      expect(resurfaceEvents(newEvents, decisionId)).toHaveLength(1);
+
+      // No refinement plan was created (no task to refine).
+      const plans = await h.db.select().from(schema.plans).all();
+      expect(plans).toHaveLength(0);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("override on a task-backed decision resurfaces AND opens a refinement plan", async () => {
+    const h = setupHarness();
+    try {
+      const now = Date.now();
+      const projectId = createId();
+      await h.db.insert(schema.projects).values({
+        id: projectId,
+        slug: "beta",
+        name: "Beta",
+        ceremony: "personal",
+        workdirPath: path.join(h.root, "projects", "beta"),
+        createdAt: now,
+        lastActivityAt: now,
+      });
+      const decisionId = await seedAgentDecision(h.db, {
+        projectId,
+        taskId: "task-007",
+        responseType: "multi",
+      });
+      const before = h.published.length;
+
+      const res = await h.caller.overrideAgentDecision({
+        decisionId,
+        override: { kind: "multi", choices: ["bun:sqlite", "better-sqlite3"] },
+      });
+
+      const newEvents = h.published.slice(before);
+      expect(resurfaceEvents(newEvents, decisionId)).toHaveLength(1);
+      expect(res.planId).not.toBeNull();
+
+      const plans = await h.db
+        .select()
+        .from(schema.plans)
+        .where(eq(schema.plans.kind, "refinement"))
+        .all();
+      expect(plans).toHaveLength(1);
+      expect(plans[0]?.taskId).toBe("task-007");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("a decision cannot be resolved twice", async () => {
+    const h = setupHarness();
+    try {
+      const decisionId = await seedAgentDecision(h.db);
+      await h.caller.overrideAgentDecision({
+        decisionId,
+        override: { kind: "single", choice: "better-sqlite3" },
+      });
+      await expect(h.caller.action({ decisionId, action: "approve" })).rejects.toThrow(
+        /already actioned/,
+      );
     } finally {
       h.cleanup();
     }

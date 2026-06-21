@@ -55,6 +55,18 @@ export type DaemonEvent =
       projectId?: string | null;
     }
   | {
+      /**
+       * An adjusted (non-ratified) agent_decision must resurface for
+       * implementation rather than silently closing. Fired alongside
+       * `decision_actioned` whenever the operator overrides — never on
+       * ratification. See `decisions/resurface.ts` (task-061).
+       */
+      channel: "inbox";
+      kind: "decision_resurfaced";
+      decisionId: string;
+      projectId?: string | null;
+    }
+  | {
       channel: "inbox";
       kind: "decision_updated";
       decisionId: string;

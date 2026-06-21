@@ -4,6 +4,11 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
+import {
+  type AgentDecisionOverride,
+  emitResurfaceSignal,
+  resurfaceAnswer,
+} from "../decisions/resurface.ts";
 import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
@@ -101,19 +106,11 @@ contradict the task body, the operator's notes are the more recent intent.`;
 
 function renderOverrideComment(
   payload: AgentDecisionPayloadShape,
-  override:
-    | { kind: "single"; choice: string }
-    | { kind: "multi"; choices: string[] }
-    | { kind: "custom"; text: string },
+  override: AgentDecisionOverride,
 ): string {
   const headline = payload.summary ?? "agent decision";
   const agentChose = payload.decided ?? "(unspecified)";
-  const operatorChose =
-    override.kind === "single"
-      ? override.choice
-      : override.kind === "multi"
-        ? override.choices.join(", ")
-        : override.text;
+  const operatorChose = resurfaceAnswer(override);
   const optionsSummary =
     payload.options && payload.options.length > 0
       ? `\n\nThe agent considered: ${payload.options.map((o) => `\`${o.title}\``).join(", ")}.`
@@ -138,10 +135,7 @@ interface AgentDecisionPayloadShape {
   runId?: string;
   taskId?: string | null;
   /** Set by the override mutation when an operator pushes back. */
-  override?:
-    | { kind: "single"; choice: string }
-    | { kind: "multi"; choices: string[] }
-    | { kind: "custom"; text: string };
+  override?: AgentDecisionOverride;
   overrideAt?: number;
 }
 
@@ -537,6 +531,12 @@ export const decisionsRouter = router({
         projectId = project.id;
       }
 
+      // `approve` on an `agent_decision` is ratification: the operator accepts
+      // the agent's proposed answer verbatim. It deliberately falls through to
+      // here with no side effect — the agent already wrote its call into the
+      // worktree during the run, so the work stays closed and nothing
+      // resurfaces. Non-ratification routes through `overrideAgentDecision`
+      // instead, which emits a resurfacing signal (task-061).
       const now = Date.now();
       await ctx.db
         .update(schema.decisions)
@@ -615,6 +615,24 @@ export const decisionsRouter = router({
         kind: "decision_actioned",
         decisionId: input.decisionId,
         projectId: projectId ?? null,
+      });
+
+      // The operator did not ratify — they picked a different option, changed
+      // the selected subset, or wrote a custom answer. Any such non-ratification
+      // must resurface for implementation rather than silently close. Emit the
+      // signal unconditionally (task-061): it fires even for ad-hoc runs with no
+      // task to refine, so the seam (task-062) can re-queue work regardless of
+      // backend. The refinement-plan creation below is the current local-file
+      // consumer; it stays task-gated.
+      emitResurfaceSignal(ctx.events, {
+        decisionId: input.decisionId,
+        projectId: projectId ?? null,
+        taskId,
+        runId: payload.runId ?? null,
+        agentDecided: payload.decided ?? null,
+        answer: resurfaceAnswer(input.override),
+        override: input.override,
+        at: now,
       });
 
       let planId: string | null = null;
