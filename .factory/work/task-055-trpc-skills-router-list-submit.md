@@ -1,11 +1,11 @@
 ---
 id: task-055
 title: tRPC `skills` router — list + submit
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-21T12:15:59.194Z
-updated: 2026-06-21T12:15:59.194Z
+updated: 2026-06-21T12:29:04.095Z
 labels:
   - feature-plan-task
 sourcePlanId: am7ozbki925cvw61ne66zqq9
@@ -20,4 +20,5 @@ sourcePlanId: am7ozbki925cvw61ne66zqq9
 ## Notes
 
 Emitted by feature plan am7ozbki: "Surface project skills on the project page with harness-agnostic execution"
+
 
