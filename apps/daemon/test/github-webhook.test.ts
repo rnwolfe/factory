@@ -160,6 +160,27 @@ describe("classifyWebhook gating", () => {
     expect(r.status).toBe("processed");
     expect(r.reason).toContain("factory-authored");
   });
+
+  test("flags a closed issue for a live task-list refresh", () => {
+    const r = classifyWebhook(
+      "issues",
+      issuePayload("rnwolfe/integrated", { action: "closed", issue: { number: 12 } }),
+      PROJECTS,
+    );
+    expect(r.status).toBe("processed");
+    expect(r.projectId).toBe("p-int");
+    expect(r.taskUpdate).toEqual({ number: 12, action: "closed" });
+  });
+
+  test("flags a reopened issue for a live task-list refresh", () => {
+    const r = classifyWebhook(
+      "issues",
+      issuePayload("rnwolfe/integrated", { action: "reopened", issue: { number: 12 } }),
+      PROJECTS,
+    );
+    expect(r.status).toBe("processed");
+    expect(r.taskUpdate).toEqual({ number: 12, action: "reopened" });
+  });
 });
 
 describe("handleGithubWebhook issue_intake payload", () => {
@@ -195,6 +216,37 @@ describe("handleGithubWebhook issue_intake payload", () => {
         htmlUrl: "https://github.com/rnwolfe/integrated/issues/44",
       });
       expect(published).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("publishes a task_updated event when a tracked issue is closed on GitHub", async () => {
+    const { db, cleanup } = setupDb();
+    try {
+      const projectId = await insertGithubIssueProject(db);
+      const published: unknown[] = [];
+      const events = new EventBus();
+      events.subscribe((event) => published.push(event));
+      const result = await handleGithubWebhook(
+        { db, events },
+        "issues",
+        issuePayload("rnwolfe/integrated", { action: "closed", issue: { number: 24 } }),
+      );
+
+      expect(result.status).toBe("processed");
+      expect(result.taskUpdate).toEqual({ number: 24, action: "closed" });
+      // No decision row — a state change is not an inbox item.
+      expect(await db.select().from(schema.decisions).all()).toHaveLength(0);
+      expect(published).toEqual([
+        {
+          channel: "events",
+          kind: "task_updated",
+          projectId,
+          taskId: "24",
+          action: "closed",
+        },
+      ]);
     } finally {
       cleanup();
     }

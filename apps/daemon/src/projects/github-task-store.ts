@@ -89,6 +89,30 @@ function statusFromGithub(state: string, stateReason: string | null): TaskFrontm
   return "ready";
 }
 
+/**
+ * Reconcile the Factory status carried in the issue's hidden frontmatter with
+ * the issue's actual GitHub open/closed state. The issue's open/closed state is
+ * authoritative for the terminal-vs-active split; the richer frontmatter status
+ * (`in_progress`, `review`, `blocked`, …) only refines WITHIN the matching
+ * bucket. So an issue closed directly on GitHub — which never rewrites the
+ * hidden frontmatter — still reports as `done`/`dropped` (and drops off the
+ * active board), and an issue reopened on GitHub whose frontmatter still says
+ * `done` flips back to `ready`. Without this, a stale `meta.status` masked the
+ * real state and GitHub-closed tasks lingered on the Factory board forever.
+ */
+export function reconcileStatus(
+  metaStatus: TaskFrontmatter["status"] | undefined,
+  state: string,
+  stateReason: string | null,
+): TaskFrontmatter["status"] {
+  const githubStatus = statusFromGithub(state, stateReason);
+  if (!metaStatus) return githubStatus;
+  const metaClosed = metaStatus === "done" || metaStatus === "dropped";
+  const githubClosed = state === "closed";
+  // Frontmatter wins only when it agrees with GitHub on open-vs-closed.
+  return metaClosed === githubClosed ? metaStatus : githubStatus;
+}
+
 interface IssueApi {
   number: number;
   title: string;
@@ -105,7 +129,7 @@ function labelNames(labels: IssueApi["labels"]): string[] {
 
 function issueToTaskFile(owner: string, repo: string, issue: IssueApi): TaskFile {
   const { meta, body } = parseTaskIssueBody(issue.body ?? "");
-  const status = meta.status ?? statusFromGithub(issue.state, issue.state_reason);
+  const status = reconcileStatus(meta.status, issue.state, issue.state_reason);
   const otherLabels = labelNames(issue.labels).filter(
     (n) => n !== FACTORY_LABEL && !n.startsWith("status:"),
   );

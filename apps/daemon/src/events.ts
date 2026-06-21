@@ -41,6 +41,20 @@ export type DaemonRunEvent =
 export type DaemonEvent =
   | ({ channel: "events"; projectId?: string | null } & RuntimeEvent)
   | ({ channel: "events"; projectId?: string | null } & DaemonRunEvent)
+  | {
+      /**
+       * A task's open/closed state changed outside Factory — currently a
+       * GitHub-Issues-backed task whose issue was closed or reopened on GitHub
+       * (see `github/webhook.ts`). Carries `projectId` so the project-scoped
+       * `/ws/events` channel refetches the task list live instead of waiting
+       * for the slow poll. No `runId`, so the global `ops` scope ignores it.
+       */
+      channel: "events";
+      kind: "task_updated";
+      projectId: string;
+      taskId: string;
+      action: "closed" | "reopened";
+    }
   | { channel: "inbox"; kind: "idea_captured"; ideaId: string }
   | {
       channel: "inbox";
