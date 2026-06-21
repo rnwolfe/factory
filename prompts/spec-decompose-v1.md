@@ -27,11 +27,23 @@ emitted, edit, or refine) and then bootstraps a fresh project.
 2. Write a one-paragraph `summary` that names what the project is and
    what shipping it means. Keep it operator-readable; no jargon the
    spec didn't already use.
-3. Decompose into a `tasks` list. Default 5–8 tasks. Each task is one
+3. **Detect milestone structure.** If the spec defines an explicit
+   milestone / phase build order (e.g. a "Milestone-gated build order",
+   "Phase 1…N", or "M0…Mn" section), extract it into an ordered
+   `milestones[]` — each with the spec's own `id` (e.g. `"M0"`,
+   `"Phase 1"`), a short `title`, a one-line `goal`, and a `killGate`
+   when the spec names an exit/advance criterion. Then **scope the
+   `tasks` you emit below to the FIRST milestone only** — build it
+   richly; the later milestones are decomposed later, one at a time,
+   from this same spec. If the spec has no milestone structure, return
+   `"milestones": []` and decompose the whole spec.
+4. Decompose into a `tasks` list. Default 5–8 tasks. Each task is one
    coherent unit of work an unattended run can execute.
-   - Honor any explicit task-shaped sections in the spec ("Phase 1",
-     "Milestone A", numbered task lists, "TODO" sections). The spec's
-     own decomposition is the strong signal — match its structure.
+   - When the spec is milestone-structured, these tasks cover **only the
+     first milestone** (per step 3). When it is flat, they cover the
+     whole spec.
+   - For prose-only task-shaped sections (numbered lists, "TODO"), the
+     spec's own decomposition is the strong signal — match its structure.
    - When the spec is prose-only, decompose by **layer or capability**
      (e.g. data model → core API → CLI surface → tests → docs), not by
      file. File-level decomposition is too granular; "set up project
@@ -91,9 +103,20 @@ first character of your response must be `{`.
   ],
   "unknowns": ["string", "..."],
   "risks": ["string", "..."],
-  "firstTaskNote": "string — one sentence orienting the first run"
+  "firstTaskNote": "string — one sentence orienting the first run",
+  "milestones": [
+    {
+      "id": "string — the spec's own label, e.g. M0 / Phase 1",
+      "title": "string — short name",
+      "goal": "string — one line",
+      "killGate": "string — optional exit/advance criterion"
+    }
+  ]
 }
 ```
+
+`milestones` is `[]` when the spec has no milestone/phase build order. When
+present, the `tasks` above cover only `milestones[0]` (the first milestone).
 
 ## Rules
 

@@ -22,6 +22,11 @@ export interface BootstrapInput {
   license?: string | null;
   /** Claude model id stored on the project; runs in this project will use it. */
   model?: string | null;
+  /**
+   * Milestone id to tag the initial task batch with (e.g. `"M0"`), when the spec
+   * is milestone-structured. Omitted for flat specs / triage-origin projects.
+   */
+  milestone?: string;
 }
 
 export interface BootstrapResult {
@@ -153,6 +158,7 @@ export async function bootstrapProject(
           body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\n(agent-maintained)\n`,
           estimate: t.estimate ?? "small",
           priority: "med",
+          ...(input.milestone ? { milestone: input.milestone } : {}),
         },
       );
       taskIds.push(created.id);

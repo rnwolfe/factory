@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
@@ -26,6 +28,7 @@ import {
   previewDelete,
   unarchiveProject,
 } from "../projects/lifecycle.ts";
+import { confirmMilestone, proposeMilestone } from "../projects/milestone-decompose.ts";
 import {
   createTask,
   listTasks,
@@ -503,7 +506,10 @@ export const projectsRouter = router({
     }
 
     const tasks = await listTasks(project);
-    return { project: reconciled, tasks: tasks.map((t) => taskSummary(project.id, t)) };
+    // Whether the project carries an imported spec — gates the "plan next
+    // milestone" affordance, which re-decomposes docs/internal/SPEC.md (ADR-009).
+    const hasSpec = existsSync(path.join(project.workdirPath, "docs", "internal", "SPEC.md"));
+    return { project: reconciled, tasks: tasks.map((t) => taskSummary(project.id, t)), hasSpec };
   }),
 
   tag: protectedProcedure
@@ -748,6 +754,17 @@ export const projectsRouter = router({
           unknowns: z.array(z.string().max(500)).max(20),
           risks: z.array(z.string().max(500)).max(20),
           firstTaskNote: z.string().max(1000),
+          milestones: z
+            .array(
+              z.object({
+                id: z.string().min(1).max(40),
+                title: z.string().max(200).default(""),
+                goal: z.string().max(500).default(""),
+                killGate: z.string().max(500).optional(),
+              }),
+            )
+            .max(30)
+            .default([]),
         }),
       }),
     )
@@ -768,6 +785,71 @@ export const projectsRouter = router({
           taskIds: result.taskIds,
           specPath: result.specPath,
         };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
+    }),
+
+  /**
+   * Propose the next milestone's tasks by re-decomposing the project's committed
+   * docs/internal/SPEC.md, scoped to one milestone (the operator's pick or the
+   * inferred next). Pure compute — returns a decomposition for review. See
+   * ADR-009. Mirrors `proposeImportSpec` but targets an EXISTING project.
+   */
+  proposeMilestone: protectedProcedure
+    .input(z.object({ projectId: z.string(), milestone: z.string().max(40).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+      try {
+        const result = await proposeMilestone(ctx.db, project, { milestone: input.milestone });
+        return { decomposition: result.decomposition };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
+    }),
+
+  /**
+   * Confirm the (possibly edited) milestone decomposition: create the tasks into
+   * the existing project (tagged with the milestone), commit on main. Auto-
+   * advance picks up the first ready task. See ADR-009.
+   */
+  confirmMilestone: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        milestone: z.string().min(1).max(40),
+        tasks: z
+          .array(
+            z.object({
+              title: z.string().min(1).max(200),
+              estimate: TaskEstimateEnum,
+              acceptance: z.array(z.string().max(500)).max(20),
+            }),
+          )
+          .min(1)
+          .max(20),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+      try {
+        const result = await confirmMilestone(ctx.config, project, {
+          milestone: input.milestone,
+          tasks: input.tasks,
+        });
+        return { taskIds: result.taskIds };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });

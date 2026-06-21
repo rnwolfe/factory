@@ -26,6 +26,20 @@ export interface SpecDecompositionTask {
   acceptance: string[];
 }
 
+/**
+ * One entry in a milestone-structured spec's build order (e.g. a "Milestone-gated
+ * build order" or "Phase 1…N" section). Captured at import so the next milestone
+ * can be decomposed later with the same engine. See ADR-009.
+ */
+export interface Milestone {
+  /** The spec's own label, verbatim — `"M0"`, `"M1"`, `"Phase 2"`. */
+  id: string;
+  title: string;
+  goal: string;
+  /** Exit / advance criterion when the spec names one. */
+  killGate?: string;
+}
+
 export interface SpecDecomposition {
   title: string;
   summary: string;
@@ -33,6 +47,14 @@ export interface SpecDecomposition {
   unknowns: string[];
   risks: string[];
   firstTaskNote: string;
+  /**
+   * Ordered milestone roadmap when the spec defines one; empty/absent for flat
+   * specs. When present, `tasks[]` is scoped to the FIRST milestone
+   * (`milestones[0]`). `coerceDecomposition` always populates it ([] for flat
+   * specs); it is optional only so older callers / test fixtures and the confirm
+   * boundary (Zod-validated separately) don't have to construct it.
+   */
+  milestones?: Milestone[];
 }
 
 export interface ProposeImportSpecInput {
@@ -128,29 +150,35 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
   return out;
 }
 
+/** Coerce a raw `tasks` array into typed decomposition tasks. Shared by the
+ * spec-import and milestone-decomposition paths. */
+export function coerceTasks(raw: unknown): SpecDecompositionTask[] {
+  const tasks = Array.isArray(raw) ? raw : [];
+  return tasks
+    .filter((t): t is Record<string, unknown> => Boolean(t) && typeof t === "object")
+    .map((t) => ({
+      title: typeof t.title === "string" ? t.title : "Untitled",
+      estimate:
+        t.estimate === "small" || t.estimate === "medium" || t.estimate === "large"
+          ? t.estimate
+          : "small",
+      acceptance: Array.isArray(t.acceptance)
+        ? t.acceptance.filter((a): a is string => typeof a === "string")
+        : [],
+    }));
+}
+
 function coerceDecomposition(
   obj: Record<string, unknown>,
   fallbackTitle: string,
 ): SpecDecomposition {
-  const tasks = Array.isArray(obj.tasks) ? obj.tasks : [];
   return {
     title:
       typeof obj.title === "string" && obj.title.trim().length > 0
         ? obj.title.trim()
         : fallbackTitle.trim() || "imported-project",
     summary: typeof obj.summary === "string" ? obj.summary : "",
-    tasks: tasks
-      .filter((t): t is Record<string, unknown> => Boolean(t) && typeof t === "object")
-      .map((t) => ({
-        title: typeof t.title === "string" ? t.title : "Untitled",
-        estimate:
-          t.estimate === "small" || t.estimate === "medium" || t.estimate === "large"
-            ? t.estimate
-            : "small",
-        acceptance: Array.isArray(t.acceptance)
-          ? t.acceptance.filter((a): a is string => typeof a === "string")
-          : [],
-      })),
+    tasks: coerceTasks(obj.tasks),
     unknowns: Array.isArray(obj.unknowns)
       ? obj.unknowns.filter((u): u is string => typeof u === "string")
       : [],
@@ -158,7 +186,28 @@ function coerceDecomposition(
       ? obj.risks.filter((r): r is string => typeof r === "string")
       : [],
     firstTaskNote: typeof obj.firstTaskNote === "string" ? obj.firstTaskNote : "",
+    milestones: coerceMilestones(obj.milestones),
   };
+}
+
+/**
+ * Coerce a spec's milestone roadmap. Malformed / absent → `[]` (degrade to flat
+ * decomposition, never throw). Each milestone needs at least an id; title/goal
+ * default to empty and killGate is optional.
+ */
+export function coerceMilestones(raw: unknown): Milestone[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((m): m is Record<string, unknown> => Boolean(m) && typeof m === "object")
+    .map((m) => ({
+      id: typeof m.id === "string" ? m.id.trim() : "",
+      title: typeof m.title === "string" ? m.title.trim() : "",
+      goal: typeof m.goal === "string" ? m.goal.trim() : "",
+      ...(typeof m.killGate === "string" && m.killGate.trim().length > 0
+        ? { killGate: m.killGate.trim() }
+        : {}),
+    }))
+    .filter((m) => m.id.length > 0);
 }
 
 export interface ConfirmImportSpecInput {
@@ -254,6 +303,9 @@ export async function confirmImportSpec(
   // 3. Bootstrap the project on disk + DB. Existing bootstrap creates
   // the .factory/ skeleton, initial task files, README, and the
   // bootstrap commit.
+  // When the spec is milestone-structured, the decomposition's tasks are scoped
+  // to the first milestone — tag them so progression is derivable later (ADR-009).
+  const firstMilestone = input.decomposition.milestones?.[0];
   const bootstrap = await bootstrapProject(config, db, {
     ideaId,
     decisionId,
@@ -262,6 +314,7 @@ export async function confirmImportSpec(
     ceremony: input.ceremony,
     role: input.role,
     model: input.model,
+    ...(firstMilestone ? { milestone: firstMilestone.id } : {}),
   });
 
   // 4. Write the spec verbatim + an AGENTS.md reference, then commit on
@@ -282,6 +335,7 @@ export async function confirmImportSpec(
     projectName: titleSuggestion,
     specPath: specRelPath,
     firstTaskNote: input.decomposition.firstTaskNote,
+    milestones: input.decomposition.milestones ?? [],
   });
   await ensureClaudeMdSymlink(bootstrap.workdirPath);
 
@@ -294,7 +348,34 @@ export async function confirmImportSpec(
   return { ...bootstrap, specPath: specRelPath };
 }
 
-const AGENTS_MD_HEADER = (projectName: string, specPath: string, firstTaskNote: string): string =>
+/**
+ * Render the milestone roadmap as a static AGENTS.md section. Repo-canonical
+ * index of the spec's build order; live status (done/active/next) is derived
+ * from tasks' `milestone` field, not written here. See ADR-009.
+ */
+export function renderMilestoneRoadmap(milestones: Milestone[], specPath: string): string {
+  if (milestones.length === 0) return "";
+  const lines = milestones.map((m) => {
+    const head = `- **${m.id}**${m.title ? ` — ${m.title}` : ""}${m.goal ? `: ${m.goal}` : ""}`;
+    return m.killGate ? `${head}\n  - _kill-gate:_ ${m.killGate}` : head;
+  });
+  return `## Milestone roadmap
+
+This project is built milestone by milestone, per ${specPath}. The first
+milestone's tasks are in \`.factory/work/\`; plan the next one from the project
+page ("Plan next milestone") — it re-decomposes the next milestone from the spec.
+
+${lines.join("\n")}
+
+`;
+}
+
+const AGENTS_MD_HEADER = (
+  projectName: string,
+  specPath: string,
+  firstTaskNote: string,
+  milestones: Milestone[],
+): string =>
   `# ${projectName} — agent operating manual
 
 This project was bootstrapped from an operator-supplied spec via Factory's
@@ -310,7 +391,7 @@ what they wanted.
 - **\`.factory/work/\`** — task files. Each carries acceptance criteria
   drawn from the spec.
 
-${firstTaskNote ? `## First-task orientation\n\n${firstTaskNote}\n\n` : ""}## Doctrine
+${renderMilestoneRoadmap(milestones, specPath)}${firstTaskNote ? `## First-task orientation\n\n${firstTaskNote}\n\n` : ""}## Doctrine
 
 - Match work to ceremony. The spec named one — don't escalate or
   de-escalate it.
@@ -324,12 +405,13 @@ async function ensureAgentsMdReferences(args: {
   projectName: string;
   specPath: string;
   firstTaskNote: string;
+  milestones: Milestone[];
 }): Promise<void> {
   const filePath = agentsMdPath(args.workdirPath);
   if (!existsSync(filePath)) {
     await writeFile(
       filePath,
-      AGENTS_MD_HEADER(args.projectName, args.specPath, args.firstTaskNote),
+      AGENTS_MD_HEADER(args.projectName, args.specPath, args.firstTaskNote, args.milestones),
       "utf8",
     );
     return;

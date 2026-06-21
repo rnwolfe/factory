@@ -19,6 +19,7 @@ import { ImportSpec } from "./routes/import-spec.tsx";
 import { Inbox } from "./routes/inbox.tsx";
 import { LivePane } from "./routes/live-pane.tsx";
 import { Metrics } from "./routes/metrics.tsx";
+import { MilestonePlan } from "./routes/milestone-plan.tsx";
 import { NewIdea } from "./routes/new-idea.tsx";
 import { Ops } from "./routes/ops.tsx";
 import { PlanDetail } from "./routes/plan-detail.tsx";
@@ -196,6 +197,14 @@ export function App() {
             element={
               <RouteBoundary label="deepen">
                 <Deepen />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/projects/:id/milestone"
+            element={
+              <RouteBoundary label="milestone-plan">
+                <MilestonePlan />
               </RouteBoundary>
             }
           />

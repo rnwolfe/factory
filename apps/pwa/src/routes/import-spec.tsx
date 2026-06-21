@@ -25,6 +25,13 @@ interface Decomposition {
   unknowns: string[];
   risks: string[];
   firstTaskNote: string;
+  /**
+   * Ordered milestone roadmap when the spec defines one (ADR-009). Not edited in
+   * the review UI, but carried verbatim from propose → confirm so the bootstrap
+   * captures it (AGENTS.md roadmap + first-batch milestone tag). Don't drop it
+   * when reconstructing the confirm payload.
+   */
+  milestones?: Array<{ id: string; title: string; goal: string; killGate?: string }>;
 }
 
 type Step = "compose" | "review";

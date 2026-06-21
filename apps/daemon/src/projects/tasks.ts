@@ -24,6 +24,15 @@ export interface TaskFrontmatter {
   labels?: string[];
   estimate?: "small" | "medium" | "large";
   /**
+   * The spec milestone this task belongs to (e.g. `"M1"`), when the project was
+   * built from a milestone-structured spec. Set by spec-import (first batch) and
+   * by milestone decomposition. Drives "which milestone is next/active/done"
+   * (derived from tasks, not a separate roadmap entity). See ADR-009.
+   */
+  milestone?: string;
+  /** Provenance: the milestone whose decomposition created this task. */
+  sourceMilestone?: string;
+  /**
    * Per-task Claude model override. When set, this beats the project model
    * default during submit. Use it to pin a heavy task to Opus or a busywork
    * task to Haiku without changing the project-wide default.
@@ -110,6 +119,10 @@ export interface CreateTaskInput {
   estimate?: TaskFrontmatter["estimate"];
   labels?: string[];
   parent?: string;
+  /** Spec milestone this task belongs to (e.g. `"M1"`). See ADR-009. */
+  milestone?: string;
+  /** Provenance: the milestone whose decomposition created this task. */
+  sourceMilestone?: string;
   /** Per-task model override. Falls through to project/system default when omitted. */
   model?: string;
   /**
@@ -274,6 +287,12 @@ export class FileTaskStore implements TaskStore {
     };
     if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
     if (input.parent) frontmatter.parent = input.parent;
+    if (input.milestone && input.milestone.trim().length > 0) {
+      frontmatter.milestone = input.milestone.trim();
+    }
+    if (input.sourceMilestone && input.sourceMilestone.trim().length > 0) {
+      frontmatter.sourceMilestone = input.sourceMilestone.trim();
+    }
     if (input.model && input.model.trim().length > 0) frontmatter.model = input.model.trim();
     if (input.agent && input.agent.trim().length > 0) frontmatter.agent = input.agent.trim();
     if (input.sourcePlanId && input.sourcePlanId.trim().length > 0) {

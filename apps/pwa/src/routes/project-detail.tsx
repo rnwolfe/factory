@@ -228,7 +228,12 @@ export function ProjectDetail() {
     );
   }
 
-  const { project: p, tasks } = project.data as unknown as {
+  const {
+    project: p,
+    tasks,
+    hasSpec,
+  } = project.data as unknown as {
+    hasSpec?: boolean;
     project: {
       id: string;
       slug: string;
@@ -380,6 +385,15 @@ export function ProjectDetail() {
             release
           </button>
           <FeaturePlanLaunch projectId={id} />
+          {hasSpec ? (
+            <Link
+              to={`/projects/${id}/milestone`}
+              className="btn btn-ghost text-[12px]"
+              title="plan the next milestone from the imported spec"
+            >
+              plan milestone
+            </Link>
+          ) : null}
           <Link to={`/projects/${id}/deepen`} className="btn btn-ghost text-[12px]">
             deepen
           </Link>
