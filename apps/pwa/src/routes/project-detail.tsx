@@ -28,6 +28,7 @@ import { PublishGithubModal } from "../components/publish-github-modal.tsx";
 import { type ProjectRole, RolePicker } from "../components/role-picker.tsx";
 import { ScriptsSection } from "../components/scripts-section.tsx";
 import { SessionsList } from "../components/sessions-list.tsx";
+import { SkillsSection } from "../components/skills-section.tsx";
 import { type ProvenanceLink, ProvenanceLinks } from "../components/source-link.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
@@ -678,6 +679,8 @@ export function ProjectDetail() {
           />
           <WorkdirPanel projectId={id} data={workdir.data} loading={workdir.isLoading} />
         </section>
+
+        <SkillsSection projectId={id} />
 
         <ScriptsSection projectId={id} />
       </ProjectTabPanel>
