@@ -1,11 +1,11 @@
 ---
 id: task-063
 title: "GitHub-Issue backend: reopen work via linked follow-up issue"
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-21T12:21:55.397Z
-updated: 2026-06-21T12:21:55.397Z
+updated: 2026-06-21T13:00:00.000Z
 labels:
   - feature-plan-task
 sourcePlanId: xffdowhwtks03o1dvowic1l1
