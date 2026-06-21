@@ -4,6 +4,22 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.27.0 — 2026-06-21
+
+### Added
+- **Drop a task from any backend.** A new Drop action on the task page retires a
+  task in the backend-appropriate way — a local task is marked `dropped` and
+  folds into the done/dropped archive; a GitHub-Issues-backed task closes its
+  issue as *not planned*. Confirm-guarded, and hidden once a task is done,
+  already dropped, or has an active run.
+- **Two-way operator ↔ Factory dialog on blocked runs and agent decisions.**
+  Commenting on a blocked / needs-review run or an agent decision now gets a
+  live agent reply instead of being stored silently — and your answers still
+  ride forward into the retry. For GitHub-Issues projects the whole exchange
+  mirrors to the issue thread (your comment and the agent's reply both posted
+  there), and replying on the GitHub issue itself drives the agent too, so the
+  conversation works from the inbox or from GitHub.
+
 ## v0.26.0 — 2026-06-21
 
 ### Added
