@@ -1,11 +1,11 @@
 ---
 id: task-053
 title: Pivot /metrics from cost-centric to token-centric (input/output up/down)
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-21T03:25:00.186Z
-updated: 2026-06-21T03:25:00.186Z
+updated: 2026-06-21T03:34:04.131Z
 labels:
   - feedback
 ---
@@ -57,3 +57,4 @@ One thing I'd want your call on when this gets picked up: "token up/down" — do
 ## Acceptance
 
 - [ ] (TBD)
+
