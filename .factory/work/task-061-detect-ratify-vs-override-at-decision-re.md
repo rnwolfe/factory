@@ -1,11 +1,11 @@
 ---
 id: task-061
 title: Detect ratify-vs-override at decision-resolve time
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-21T12:21:55.369Z
-updated: 2026-06-21T12:21:55.369Z
+updated: 2026-06-21T12:56:55.590Z
 labels:
   - feature-plan-task
 sourcePlanId: xffdowhwtks03o1dvowic1l1
@@ -20,4 +20,5 @@ sourcePlanId: xffdowhwtks03o1dvowic1l1
 ## Notes
 
 Emitted by feature plan xffdowhw: "Adjusted decisions must resurface for implementation, not silently close"
+
 
