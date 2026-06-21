@@ -1,11 +1,11 @@
 ---
 id: task-054
 title: Discover project skills from `.claude/skills/` (loader + index)
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-21T12:15:59.179Z
-updated: 2026-06-21T12:15:59.179Z
+updated: 2026-06-21T12:21:15.426Z
 labels:
   - feature-plan-task
 sourcePlanId: am7ozbki925cvw61ne66zqq9
@@ -20,4 +20,5 @@ sourcePlanId: am7ozbki925cvw61ne66zqq9
 ## Notes
 
 Emitted by feature plan am7ozbki: "Surface project skills on the project page with harness-agnostic execution"
+
 
