@@ -1,7 +1,7 @@
 ---
 id: task-056
 title: Harness-agnostic skill invocation layer
-status: ready
+status: done
 priority: med
 estimate: large
 created: 2026-06-21T12:15:59.207Z

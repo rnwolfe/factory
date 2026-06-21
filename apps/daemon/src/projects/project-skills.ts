@@ -20,6 +20,17 @@ export interface ProjectSkill {
   filePath: string;
 }
 
+/**
+ * A resolved skill including its instruction body — what a harness-agnostic run
+ * injects inline (mirrors `AuditSkillFile`). The `body` is everything after the
+ * YAML frontmatter; relative resource references inside it resolve against the
+ * SKILL.md directory, so a run is told where that directory lives.
+ */
+export interface ProjectSkillFile extends ProjectSkill {
+  /** Instruction body — the markdown after the frontmatter block. */
+  body: string;
+}
+
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
 
 /**
@@ -88,4 +99,32 @@ export async function findProjectSkill(
 ): Promise<ProjectSkill | null> {
   const skills = await listProjectSkills(projectPath);
   return skills.find((s) => s.name === skillName) ?? null;
+}
+
+/**
+ * Resolve a project skill *with its instruction body* by `name` — the input to
+ * a harness-agnostic skill run, which injects the body inline rather than
+ * leaning on any one CLI's `.claude/skills/` auto-discovery. Returns null when
+ * the project ships no skill under that name. Mirrors `readAuditSkill`.
+ *
+ * Resolution reuses `listProjectSkills` so the name-matching (and
+ * directory-name fallback) is identical to what the project page lists; we then
+ * re-read the matched file to capture the body.
+ */
+export async function readProjectSkill(
+  projectPath: string,
+  skillName: string,
+): Promise<ProjectSkillFile | null> {
+  const match = await findProjectSkill(projectPath, skillName);
+  if (!match) return null;
+  try {
+    const raw = await readFile(match.filePath, "utf8");
+    const m = FRONTMATTER_RE.exec(raw);
+    return { ...match, body: (m?.[2] ?? "").trim() };
+  } catch (err) {
+    console.warn(
+      `[project-skills] failed to read body of ${match.filePath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
 }
