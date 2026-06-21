@@ -32,8 +32,15 @@ bun install
 bun run dev          # daemon + PWA in parallel
 bun run typecheck    # all packages
 bun run check        # biome (lint + format)
-bun test             # bun test across workspaces
+bun run test         # tests across workspaces (per-package, each with its own env)
 ```
+
+Use `bun run test`, not bare `bun test`, as the suite gate. `bun run test` is
+`bun run --filter '*' test`, so each workspace runs in its own dir and picks up
+its own `bunfig.toml` — notably the PWA's happy-dom `[test].preload`, without
+which every React component test fails with `document is not defined`. Bare
+`bun test` from the repo root globs all workspaces into one runner and skips
+those per-package preloads, producing phantom DOM failures.
 
 Per-package: `bun --filter '@factory/<name>' <script>`. DB scripts: `bun run db:generate` / `db:migrate` / `seed`.
 
@@ -65,7 +72,7 @@ Per-package: `bun --filter '@factory/<name>' <script>`. DB scripts: `bun run db:
 - **Tier is meaningful from v0.3 forward.** Tier (`tinker | personal | share | productize`) gates onboarding depth, default audit installation, and the `feature_plan` vision filter. `tinker` projects skip ceremony; `personal+` projects get vision + lightweight audits; `share`/`productize` get the full treatment. Tier is editable from the project header (TierPicker).
 - **feature_plan vision filter is a freeze precondition.** For `feature_plan` plans on tier ≥ personal, all four `visionFilter.{identity,principle,phase,replacement}.passes` must be true. Tinker projects skip the gate. The four tests are copied from forge's `/product` skill — they are *the* mechanism keeping scope creep out of personal+ projects, so don't loosen them casually.
 - **Plan supersession over plan deletion.** When a frozen plan is replaced by a newer plan in the same kind+target, the prior plan transitions to `status='superseded'` with a `supersededBy` pointer. Audit trail preserved. project_vision plans on a project form a chronological architectural diary via this chain.
-- **Narrow your `bun test` scope when running under a Factory run.** Wide-scope invocations (`bun test apps/daemon/`, `bun test apps/daemon/ packages/`, `bun --filter '@factory/daemon' test`) reproducibly kill the parent `claude --print` process within ~5 seconds of starting — the run ends with no `factory-status` footer and is marked `failed` even though work was committed. Smoking gun: the daemon test suite spawns child processes, HTTP daemons, and tmux sessions, and one of those teardowns disturbs the parent's tmux session. Run typecheck (`bun run typecheck`) and biome (`bun run check`) freely — those are fine. For tests, prefer single files (`bun test apps/daemon/test/foo.test.ts`) or, when you need broader confidence, run the same file groups serially in separate Bash calls rather than one wide sweep. If you must verify the full suite, do it locally outside Factory and report your status with the verbatim pass count. Tracked separately as a Factory-side bug; this is the operational workaround until the root cause is fixed.
+- **Narrow your `bun test` scope when running under a Factory run.** Wide-scope invocations (`bun test apps/daemon/`, `bun test apps/daemon/ packages/`, `bun --filter '@factory/daemon' test`, and the full-suite gate `bun run test`) reproducibly kill the parent `claude --print` process within ~5 seconds of starting — the run ends with no `factory-status` footer and is marked `failed` even though work was committed. Smoking gun: the daemon test suite spawns child processes, HTTP daemons, and tmux sessions, and one of those teardowns disturbs the parent's tmux session. Run typecheck (`bun run typecheck`) and biome (`bun run check`) freely — those are fine. For tests, prefer single files (`bun test apps/daemon/test/foo.test.ts`) or, when you need broader confidence, run the same file groups serially in separate Bash calls rather than one wide sweep. If you must verify the full suite, do it locally outside Factory and report your status with the verbatim pass count. Tracked separately as a Factory-side bug; this is the operational workaround until the root cause is fixed.
 - **Fused {agent, model} on the project; codex auth is operator-managed.** `projects.agent` ∈ {`claude-code`, `codex`} pairs with `projects.model` to form one inheritance unit. Resolution chain at run-submit: `input → task.frontmatter → project → settings → "claude-code"`. The PWA exposes both axes through `AgentModelPicker` (`apps/pwa/src/components/model-picker.tsx`); model options switch per agent because codex and claude have disjoint model ids. Codex uses the operator's ChatGPT subscription via `~/.codex/auth.json`, written once by `codex login` — see [README §"Using codex"](./README.md) and [`docs/adr/006-codex-harness.md`](./docs/adr/006-codex-harness.md). Submit-time precheck in `apps/daemon/src/workers/submit.ts` refuses codex runs when auth is missing or when the run path needs session-resume (intervene-resume / reuse-worktree) — codex has no `--resume` equivalent. `factory doctor` surfaces the auth status when codex is configured anywhere.
 
 ## Where things live

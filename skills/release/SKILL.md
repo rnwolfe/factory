@@ -26,8 +26,10 @@ Before doing anything else, verify:
 3. `git fetch origin` succeeds and `main` is up-to-date with
    `origin/main` (or, equivalently, `git log origin/main..HEAD` is
    empty). If not — stop and surface.
-4. `bun run typecheck && bun run check && bun test` all pass on the
-   current sha. If not — stop and surface.
+4. `bun run typecheck && bun run check && bun run test` all pass on the
+   current sha. Use `bun run test` (per-workspace, each with its own env),
+   not bare `bun test` — the latter skips the PWA's happy-dom preload and
+   reports phantom `document is not defined` failures. If not — stop and surface.
 
 If any precondition fails, do **not** proceed silently. The operator
 needs to know what's blocking.
