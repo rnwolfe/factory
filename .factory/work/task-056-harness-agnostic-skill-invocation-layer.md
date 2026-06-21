@@ -1,11 +1,11 @@
 ---
 id: task-056
 title: Harness-agnostic skill invocation layer
-status: ready
+status: done
 priority: med
 estimate: large
 created: 2026-06-21T12:15:59.207Z
-updated: 2026-06-21T12:15:59.207Z
+updated: 2026-06-21T12:33:21.545Z
 labels:
   - feature-plan-task
 sourcePlanId: am7ozbki925cvw61ne66zqq9
@@ -20,4 +20,5 @@ sourcePlanId: am7ozbki925cvw61ne66zqq9
 ## Notes
 
 Emitted by feature plan am7ozbki: "Surface project skills on the project page with harness-agnostic execution"
+
 

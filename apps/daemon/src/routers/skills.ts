@@ -3,28 +3,40 @@ import { schema } from "@factory/db";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { findProjectSkill, listProjectSkills } from "../projects/project-skills.ts";
+import {
+  listProjectSkills,
+  type ProjectSkillFile,
+  readProjectSkill,
+} from "../projects/project-skills.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import { submitRun } from "../workers/submit.ts";
 
 /**
- * Build the harness-agnostic directive that drives a skill run. The agent —
- * claude-code or codex — runs inside a checkout of the project, so we point it
- * at the SKILL.md path relative to the worktree root and ask it to read and
- * execute the skill. No reliance on any one harness's auto-discovery: "read
- * this file and follow it" works the same for every agent.
+ * Build the harness-agnostic directive that drives a skill run by injecting the
+ * *resolved SKILL.md body* inline. The agent — claude-code or codex — runs
+ * inside a checkout of the project, but we do not rely on any one harness's
+ * native skill discovery (`.claude/skills/` is Claude Code-specific; codex has
+ * no equivalent). Instead the skill's instructions ride in the prompt verbatim,
+ * so the same skill executes identically under either agent.
+ *
+ * The skill's *directory* is still named so relative resource references inside
+ * the body (bundled `scripts/…`, `reference/…`) resolve on disk.
  */
-function buildSkillRunDirective(skillName: string, relPath: string): string {
+export function buildSkillRunDirective(skill: ProjectSkillFile, dirRelPath: string): string {
   return [
-    `## Run the \`${skillName}\` project skill`,
+    `## Run the \`${skill.name}\` project skill`,
     "",
-    "This run was launched to execute a project-local skill. The skill definition",
-    `lives in this repo at \`${relPath}\`.`,
+    "This run was launched to execute a project-local skill. Its instructions are",
+    `inlined below verbatim from \`${dirRelPath}/SKILL.md\`. Treat them as`,
+    "authoritative for *what* to do; this run's completion protocol governs *how*",
+    "to report when you're finished.",
     "",
-    `1. Read \`${relPath}\` — it is the skill's instructions.`,
-    "2. Carry out the skill's workflow to completion for this project.",
-    "3. Treat the skill file as authoritative for *what* to do; this run's",
-    "   completion protocol governs *how* to report when you're finished.",
+    `Bundled resources the skill references (e.g. \`scripts/…\`, \`reference/…\`) live`,
+    `under \`${dirRelPath}/\` in this checkout — read them there as the skill directs.`,
+    "",
+    "---",
+    "",
+    skill.body,
   ].join("\n");
 }
 
@@ -65,7 +77,7 @@ export const skillsRouter = router({
         .get();
       if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
 
-      const skill = await findProjectSkill(project.workdirPath, input.skillName);
+      const skill = await readProjectSkill(project.workdirPath, input.skillName);
       if (!skill) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -73,8 +85,10 @@ export const skillsRouter = router({
         });
       }
 
-      const relPath = path.relative(project.workdirPath, skill.filePath);
-      const directive = buildSkillRunDirective(skill.name, relPath);
+      // Directory the SKILL.md lives in, relative to the worktree root, so the
+      // agent can reach bundled resources the body references.
+      const dirRelPath = path.relative(project.workdirPath, path.dirname(skill.filePath));
+      const directive = buildSkillRunDirective(skill, dirRelPath);
 
       return submitRun(
         {

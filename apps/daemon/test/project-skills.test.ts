@@ -6,6 +6,7 @@ import {
   findProjectSkill,
   listProjectSkills,
   parseProjectSkill,
+  readProjectSkill,
 } from "../src/projects/project-skills.ts";
 
 function mkTemp(): string {
@@ -124,6 +125,35 @@ describe("findProjectSkill", () => {
     try {
       writeSkill(dir, "real", "---\nname: real\n---\n");
       expect(await findProjectSkill(dir, "missing")).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("readProjectSkill", () => {
+  test("resolves the skill with its instruction body (trimmed)", async () => {
+    const dir = mkTemp();
+    try {
+      writeSkill(
+        dir,
+        "release-dir",
+        "---\nname: release\ndescription: cut\n---\n\n# Release\n\nDo the thing.\n",
+      );
+      const skill = await readProjectSkill(dir, "release");
+      expect(skill?.name).toBe("release");
+      expect(skill?.body).toBe("# Release\n\nDo the thing.");
+      expect(skill?.filePath).toBe(path.join(dir, ".claude", "skills", "release-dir", "SKILL.md"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns null for an unknown skill", async () => {
+    const dir = mkTemp();
+    try {
+      writeSkill(dir, "real", "---\nname: real\n---\nbody\n");
+      expect(await readProjectSkill(dir, "missing")).toBeNull();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
