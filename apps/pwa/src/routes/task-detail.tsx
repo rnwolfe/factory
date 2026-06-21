@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ListTree, Pencil, Play, Snowflake, X } from "lucide-react";
+import { ArrowLeft, ListTree, Pencil, Play, Snowflake, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { MarkdownView } from "../components/markdown-view.tsx";
@@ -121,6 +121,14 @@ export function TaskDetail() {
     },
   });
 
+  const drop = useMutation({
+    mutationFn: () => trpc.projects.tasks.drop.mutate({ projectId: id, taskId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -147,6 +155,8 @@ export function TaskDetail() {
   const effectiveAgent =
     (typeof fm.agent === "string" ? (fm.agent as AgentName) : projectAgent) ?? "claude-code";
   const isDone = fm.status === "done";
+  const isDropped = fm.status === "dropped";
+  const canDrop = !activeRun && !isDropped && !isDone;
 
   return (
     <div className="space-y-4 md:max-w-3xl md:mx-auto">
@@ -181,16 +191,53 @@ export function TaskDetail() {
           <button
             type="button"
             onClick={() => start.mutate()}
-            disabled={start.isPending || isDone}
+            disabled={start.isPending || isDone || isDropped}
             className="btn btn-primary w-full mt-4"
             title={
-              isDone ? "task already done — start a follow-up from the project page" : undefined
+              isDone
+                ? "task already done — start a follow-up from the project page"
+                : isDropped
+                  ? "task dropped — no longer on the active board"
+                  : undefined
             }
           >
             <Play size={14} />
-            {start.isPending ? "starting…" : isDone ? "task done" : `run task · ${fm.id}`}
+            {start.isPending
+              ? "starting…"
+              : isDone
+                ? "task done"
+                : isDropped
+                  ? "task dropped"
+                  : `run task · ${fm.id}`}
           </button>
         )}
+        {canDrop ? (
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Drop ${fm.id}? It's removed from the active board (and its GitHub issue closed, if backed by Issues). This can be reopened by re-running it.`,
+                  )
+                ) {
+                  drop.mutate();
+                }
+              }}
+              disabled={drop.isPending}
+              className="btn btn-ghost text-[11px] !h-7 !px-2 text-[var(--color-fg-3)] hover:text-[var(--color-verdict-trashed)]"
+              title="drop this task"
+            >
+              <Trash2 size={12} />
+              {drop.isPending ? "dropping…" : "drop task"}
+            </button>
+          </div>
+        ) : null}
+        {drop.isError ? (
+          <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+            {(drop.error as Error).message}
+          </div>
+        ) : null}
         {!activeRun && frozenTaskPlan ? (
           <div className="mt-1.5 mono text-[10.5px] text-[var(--color-fg-3)]">
             with frozen plan ·{" "}

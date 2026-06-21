@@ -199,6 +199,32 @@ const tasksRouter = router({
       );
       return updated.frontmatter;
     }),
+  /**
+   * Drop a task — backend-appropriate removal. The store dispatch makes this
+   * terminal in the right way for each backend: a file task's frontmatter
+   * flips to `dropped` (archived off the active board, audit trail intact),
+   * and a GitHub-Issues task closes its issue as `not_planned`. Same status
+   * `updateStatus` already understands; exposed as its own verb so the intent
+   * (and the commit message) is unambiguous regardless of backend.
+   */
+  drop: protectedProcedure
+    .input(z.object({ projectId: z.string(), taskId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const updated = await updateTaskStatus(project, input.taskId, "dropped");
+      if (!updated) throw new Error("task not found");
+      await commitAllChanges(
+        project.workdirPath,
+        `chore: ${input.taskId} dropped`,
+        ctx.config.gitAuthor,
+      );
+      return updated.frontmatter;
+    }),
   updateBody: protectedProcedure
     .input(
       z.object({
