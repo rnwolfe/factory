@@ -117,6 +117,18 @@ function taskSummary(projectId: string, task: TaskFile) {
   return { ...task.frontmatter, sourceLinks: taskSourceLinks(projectId, task) };
 }
 
+/**
+ * Terminal task statuses. Everything else (`ready`, `in_progress`, `review`,
+ * `blocked`) is "open" — the same open/closed split the GitHub-Issues backend
+ * uses (see `github-task-store.ts`). Kept as one predicate so the cross-project
+ * view and any future caller agree on what "open" means.
+ */
+const CLOSED_TASK_STATUSES = new Set<TaskFile["frontmatter"]["status"]>(["done", "dropped"]);
+
+function isOpenTask(task: TaskFile): boolean {
+  return !CLOSED_TASK_STATUSES.has(task.frontmatter.status);
+}
+
 const tasksRouter = router({
   list: protectedProcedure
     .input(z.object({ projectId: z.string() }))
@@ -390,6 +402,44 @@ export const projectsRouter = router({
         };
       });
     }),
+
+  // Every project's open tasks, flattened across the whole workspace. Backs the
+  // cross-project incomplete/stalled task view (feature plan w81q7q32). Inclusion
+  // is purely "has at least one open task" — no staleness/activity/N-day gate, no
+  // tag filter; a project with zero open tasks is simply omitted. Each entry
+  // carries the project's identity (id + slug + name) so the client can link a
+  // task back to its source without a second round-trip.
+  crossProjectOpenTasks: protectedProcedure.query(async ({ ctx }) => {
+    const projects = await ctx.db
+      .select()
+      .from(schema.projects)
+      .orderBy(desc(schema.projects.lastActivityAt))
+      .all();
+
+    const out: Array<{
+      project: { id: string; slug: string; name: string };
+      tasks: ReturnType<typeof taskSummary>[];
+    }> = [];
+
+    for (const project of projects) {
+      let openTasks: TaskFile[];
+      try {
+        const tasks = await listTasks(project);
+        openTasks = tasks.filter(isOpenTask);
+      } catch {
+        // A project whose task store is unreadable (e.g. a github-issues backend
+        // with a transient API error) shouldn't sink the whole view — skip it.
+        continue;
+      }
+      if (openTasks.length === 0) continue;
+      out.push({
+        project: { id: project.id, slug: project.slug, name: project.name },
+        tasks: openTasks.map((t) => taskSummary(project.id, t)),
+      });
+    }
+
+    return out;
+  }),
 
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const project = await ctx.db
