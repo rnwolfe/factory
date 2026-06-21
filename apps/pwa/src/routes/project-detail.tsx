@@ -1145,10 +1145,14 @@ function SpendStrip({ projectId }: { projectId: string }) {
       {open ? (
         <Link
           to={`/metrics?projectId=${projectId}`}
-          className="block mt-2 hover:opacity-75 transition-opacity"
+          className="block mt-2 group/spark hover:opacity-90 transition-opacity"
           title="view full metrics"
         >
           <Sparkline days={days} buckets={buckets} />
+          <span className="mt-1.5 flex items-center justify-end gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] group-hover/spark:text-[var(--color-accent)] transition-colors">
+            full metrics
+            <ChevronRight size={11} />
+          </span>
         </Link>
       ) : null}
     </div>

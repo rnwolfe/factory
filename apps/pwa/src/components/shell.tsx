@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Cog, Inbox as InboxIcon, Layers, PenLine } from "lucide-react";
+import { Cog, Inbox as InboxIcon, Layers, LineChart, PenLine } from "lucide-react";
 import { type ReactNode, useCallback } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
@@ -14,6 +14,7 @@ const NAV: Array<{ to: string; label: string; icon: typeof InboxIcon }> = [
   { to: "/", label: "inbox", icon: InboxIcon },
   { to: "/inbox/new", label: "capture", icon: PenLine },
   { to: "/projects", label: "projects", icon: Layers },
+  { to: "/metrics", label: "metrics", icon: LineChart },
   { to: "/settings", label: "settings", icon: Cog },
 ];
 
@@ -23,6 +24,7 @@ export function Shell({ children }: { children: ReactNode }) {
     "/": "decisions",
     "/inbox/new": "capture",
     "/projects": "projects",
+    "/metrics": "metrics",
     "/settings": "settings",
   };
   const title = titleByRoute[loc.pathname] ?? "Heimdall";
@@ -82,7 +84,7 @@ export function Shell({ children }: { children: ReactNode }) {
           // breathing room while letting the bar sit closer to the screen edge.
           style={{ paddingBottom: "min(env(safe-area-inset-bottom), 0.5rem)" }}
         >
-          <div className="grid grid-cols-4 h-12">
+          <div className="grid grid-cols-5 h-12">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
