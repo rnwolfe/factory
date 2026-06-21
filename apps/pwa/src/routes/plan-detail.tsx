@@ -469,7 +469,10 @@ export function PlanDetail() {
           </div>
         </div>
       ) : isDrafting ? (
-        <div className="sticky bottom-[calc(72px+env(safe-area-inset-bottom))]">
+        <div className="surface p-4 space-y-2.5">
+          <p className="mono text-[10.5px] text-[var(--color-fg-3)] leading-relaxed">
+            {freezeConsumerHint(p.kind)}
+          </p>
           <button
             type="button"
             className="btn btn-primary w-full"
