@@ -1,11 +1,11 @@
 ---
 id: task-052
 title: Surface the /metrics page in navigation
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-21T03:18:29.142Z
-updated: 2026-06-21T03:18:29.142Z
+updated: 2026-06-21T03:28:00.626Z
 labels:
   - feedback
 ---
@@ -57,3 +57,4 @@ One thing worth your call: the global `/metrics` page vs. the per-project metric
 ## Acceptance
 
 - [ ] (TBD)
+
