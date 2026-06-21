@@ -92,6 +92,8 @@ interface DecisionPayload {
     | { kind: "multi"; choices: string[] }
     | { kind: "custom"; text: string };
   overrideAt?: number;
+  /** Follow-up task the override resurfaced into (task-064). */
+  resurfacedTaskId?: string | null;
 }
 
 type Action = "approve" | "park" | "trash" | "decompose" | "dismiss";
@@ -453,11 +455,15 @@ export function DecisionDetail() {
               />
             </Section>
           ) : payload.override ? (
-            <Section title="operator override">
-              <div className="px-4 py-3 text-[13.5px] leading-relaxed text-[var(--color-fg-1)] space-y-1">
+            <Section title="resurfaced as open work">
+              <div className="px-4 py-3 text-[13.5px] leading-relaxed text-[var(--color-fg-1)] space-y-2.5">
+                <p className="text-[13px] text-[var(--color-fg-2)]">
+                  You overrode the agent's call — this didn't close. It resurfaced as open work that
+                  still needs implementing.
+                </p>
                 <div>
                   <span className="mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-fg-3)] mr-2">
-                    chose
+                    you require
                   </span>
                   {payload.override.kind === "single"
                     ? payload.override.choice
@@ -465,9 +471,22 @@ export function DecisionDetail() {
                       ? payload.override.choices.join(", ")
                       : payload.override.text}
                 </div>
+                {payload.resurfacedTaskId && d.projectId ? (
+                  <Link
+                    to={`/projects/${d.projectId}/tasks/${payload.resurfacedTaskId}`}
+                    className="btn btn-primary w-full"
+                  >
+                    open follow-up task · {payload.resurfacedTaskId.slice(0, 8)}
+                  </Link>
+                ) : (
+                  <p className="mono text-[10.5px] text-[var(--color-fg-3)] leading-snug">
+                    no project backend to re-queue into — the override is recorded here, but you'll
+                    implement it yourself.
+                  </p>
+                )}
                 {payload.overrideAt ? (
                   <div className="mono text-[10.5px] text-[var(--color-fg-3)]">
-                    {fmtDate(payload.overrideAt)}
+                    overridden {fmtDate(payload.overrideAt)}
                   </div>
                 ) : null}
               </div>
@@ -1114,6 +1133,14 @@ export function DecisionDetail() {
             </button>
           </div>
         )
+      ) : isAgentDecision && payload.override ? (
+        // An overridden agent_decision is resolved as a decision but its work is
+        // still open — don't let the footer read as a dead "actioned" end. The
+        // "resurfaced as open work" section above carries the follow-up link.
+        <div className="surface p-3 text-[12px] mono text-[var(--color-fg-3)]">
+          decision resolved · resurfaced as open work
+          {payload.resurfacedTaskId ? " (see follow-up task above)" : ""}
+        </div>
       ) : (
         <div className="surface p-3 text-[12px] mono text-[var(--color-fg-3)]">
           this decision is {d.status}
@@ -1343,8 +1370,9 @@ function AgentDecisionOverrideForm({
 
       {mode !== "agent" ? (
         <p className="mono text-[10.5px] text-[var(--color-fg-3)] leading-snug">
-          submitting an override opens (or comments on) a refinement plan against this run's task —
-          the agent rewrites acceptance / scope to match your preference on the next iteration.
+          submitting an override resurfaces the work as a ready follow-up task (or, on a
+          github-backed project, a linked follow-up issue) carrying your answer — it joins the queue
+          like any other task instead of silently closing.
         </p>
       ) : null}
 

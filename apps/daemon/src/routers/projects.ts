@@ -49,7 +49,7 @@ const TaskPriorityEnum = z.enum(["low", "med", "high"]);
 const AutonomyModeEnum = z.enum(["collaborative", "autonomous"]);
 
 interface TaskSourceLink {
-  kind: "issue" | "plan" | "finding" | "audit";
+  kind: "issue" | "plan" | "finding" | "audit" | "decision";
   label: string;
   href: string;
 }
@@ -107,6 +107,18 @@ function taskSourceLinks(projectId: string, task: TaskFile): TaskSourceLink[] {
       kind: "audit",
       label: `audit ${shortId(sourceAuditId)}`,
       href: `/projects/${projectId}/audits/${sourceAuditId}`,
+    });
+  }
+
+  // A task re-queued from an operator override (task-062/064) links back to the
+  // originating decision, so the board reads as "this open work came from an
+  // overridden decision" — the loop the resurfacing seam closes.
+  const sourceDecisionId = sourceString(task.frontmatter.sourceDecisionId);
+  if (sourceDecisionId) {
+    links.push({
+      kind: "decision",
+      label: "from override",
+      href: `/decisions/${sourceDecisionId}`,
     });
   }
 

@@ -60,6 +60,14 @@ export interface DecisionRow {
     decided?: string;
     options?: Array<{ title: string; tradeoff: string; chosen: boolean }>;
     reasoning?: string;
+    // agent_decision override (task-064): operator pushed back, so the work
+    // resurfaced as a follow-up task instead of closing.
+    override?:
+      | { kind: "single"; choice: string }
+      | { kind: "multi"; choices: string[] }
+      | { kind: "custom"; text: string };
+    overrideAt?: number;
+    resurfacedTaskId?: string | null;
     // issue_intake shape — an externally-filed GitHub issue offered for adoption
     number?: number;
     title?: string;

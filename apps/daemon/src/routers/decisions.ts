@@ -117,6 +117,14 @@ interface AgentDecisionPayloadShape {
   /** Set by the override mutation when an operator pushes back. */
   override?: AgentDecisionOverride;
   overrideAt?: number;
+  /**
+   * The re-queued unit of work the override resurfaced into (task-064). Pinned
+   * onto the decision payload so every decision surface — inbox history, the
+   * decision detail page — can render the override as still-open work linked to
+   * its follow-up task, rather than a closed "decided". Null when there was no
+   * backend to re-queue into (ad-hoc run with no project) or the re-queue failed.
+   */
+  resurfacedTaskId?: string | null;
 }
 
 const decisionWithProjectSelect = {
@@ -576,26 +584,7 @@ export const decisionsRouter = router({
       const projectId = decision.projectId;
       const taskId = payload.taskId ?? null;
       const now = Date.now();
-
-      // Persist the override on the decision payload. We keep the original
-      // agent payload intact and add `override` + `overrideAt` so the audit
-      // trail shows what the agent picked AND what the operator preferred.
-      const newPayload: AgentDecisionPayloadShape = {
-        ...payload,
-        override: input.override,
-        overrideAt: now,
-      };
-      await ctx.db
-        .update(schema.decisions)
-        .set({ payload: newPayload, status: "actioned", actionedAt: now })
-        .where(eq(schema.decisions.id, input.decisionId));
-
-      ctx.events.publish({
-        channel: "inbox",
-        kind: "decision_actioned",
-        decisionId: input.decisionId,
-        projectId: projectId ?? null,
-      });
+      const answer = resurfaceAnswer(input.override);
 
       // The operator did not ratify — they picked a different option, changed
       // the selected subset, or wrote a custom answer. Any such non-ratification
@@ -610,7 +599,7 @@ export const decisionsRouter = router({
         taskId,
         runId: payload.runId ?? null,
         agentDecided: payload.decided ?? null,
-        answer: resurfaceAnswer(input.override),
+        answer,
         override: input.override,
         at: now,
       });
@@ -621,9 +610,10 @@ export const decisionsRouter = router({
       // non-GitHub (file) and GitHub-Issue backends both re-queue from this one
       // call. The created task carries `sourceDecisionId` for the audit trail.
       //
-      // Best-effort: the override and the resurfacing signal have already
-      // landed, so a backend hiccup (e.g. an unconfigured GitHub App, a missing
-      // task dir) must never fail the operator's action — we log and move on.
+      // Best-effort: the override has not yet been persisted, but a backend
+      // hiccup (e.g. an unconfigured GitHub App, a missing task dir) must never
+      // fail the operator's action — we log and still mark the decision actioned
+      // so it leaves the inbox. The resurfacing signal already fired regardless.
       let resurfacedTaskId: string | null = null;
       if (projectId) {
         const project = await ctx.db
@@ -637,7 +627,7 @@ export const decisionsRouter = router({
               decisionId: input.decisionId,
               summary: payload.summary ?? null,
               agentDecided: payload.decided ?? null,
-              answer: resurfaceAnswer(input.override),
+              answer,
               originalTaskId: taskId,
               runId: payload.runId ?? null,
               options: payload.options,
@@ -652,6 +642,29 @@ export const decisionsRouter = router({
           }
         }
       }
+
+      // Persist the override AND the resurfaced-task pointer on the decision
+      // payload in one write. We keep the original agent payload intact and add
+      // `override` + `overrideAt` (audit trail: what the agent picked vs. what
+      // the operator preferred) and `resurfacedTaskId` so every decision surface
+      // can link the override to its still-open follow-up task (task-064).
+      const newPayload: AgentDecisionPayloadShape = {
+        ...payload,
+        override: input.override,
+        overrideAt: now,
+        resurfacedTaskId,
+      };
+      await ctx.db
+        .update(schema.decisions)
+        .set({ payload: newPayload, status: "actioned", actionedAt: now })
+        .where(eq(schema.decisions.id, input.decisionId));
+
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "decision_actioned",
+        decisionId: input.decisionId,
+        projectId: projectId ?? null,
+      });
 
       return { ok: true, decisionId: input.decisionId, projectId, resurfacedTaskId };
     }),
