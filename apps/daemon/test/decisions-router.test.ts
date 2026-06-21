@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import type { DaemonContext } from "../src/context.ts";
 import { type DaemonEvent, EventBus } from "../src/events.ts";
+import { listTasks } from "../src/projects/tasks.ts";
 import { decisionsRouter } from "../src/routers/decisions.ts";
 import { ScriptRegistry } from "../src/scripts/registry.ts";
 import { createCallerFactory } from "../src/trpc.ts";
@@ -302,11 +303,11 @@ describe("agent_decision resurfacing", () => {
     }
   });
 
-  test("a custom answer on an ad-hoc run (no task) still resurfaces", async () => {
+  test("a custom answer on an ad-hoc run (no project) resurfaces but cannot re-queue", async () => {
     const h = setupHarness();
     try {
-      // No projectId / taskId: there is no refinement plan to open, but the
-      // resurfacing signal must still fire — ANY non-ratification resurfaces.
+      // No projectId: the resurfacing signal must still fire — ANY
+      // non-ratification resurfaces — but there is no backend to re-queue into.
       const decisionId = await seedAgentDecision(h.db, {
         projectId: null,
         taskId: null,
@@ -314,33 +315,35 @@ describe("agent_decision resurfacing", () => {
       });
       const before = h.published.length;
 
-      await h.caller.overrideAgentDecision({
+      const res = await h.caller.overrideAgentDecision({
         decisionId,
         override: { kind: "custom", text: "use Postgres via Bun's sql, not sqlite" },
       });
 
       const newEvents = h.published.slice(before);
       expect(resurfaceEvents(newEvents, decisionId)).toHaveLength(1);
-
-      // No refinement plan was created (no task to refine).
-      const plans = await h.db.select().from(schema.plans).all();
-      expect(plans).toHaveLength(0);
+      // No project → no re-queued unit of work.
+      expect(res.resurfacedTaskId).toBeNull();
     } finally {
       h.cleanup();
     }
   });
 
-  test("override on a task-backed decision resurfaces AND opens a refinement plan", async () => {
+  test("override on a file-backed project re-queues a task through the seam, linked to the decision", async () => {
     const h = setupHarness();
     try {
       const now = Date.now();
       const projectId = createId();
+      const workdirPath = path.join(h.root, "projects", "beta");
+      // The file backend writes into `<workdir>/.factory/work`; bootstrap makes
+      // this dir for real projects, so the test stands it up explicitly.
+      mkdirSync(path.join(workdirPath, ".factory", "work"), { recursive: true });
       await h.db.insert(schema.projects).values({
         id: projectId,
         slug: "beta",
         name: "Beta",
         ceremony: "personal",
-        workdirPath: path.join(h.root, "projects", "beta"),
+        workdirPath,
         createdAt: now,
         lastActivityAt: now,
       });
@@ -358,15 +361,27 @@ describe("agent_decision resurfacing", () => {
 
       const newEvents = h.published.slice(before);
       expect(resurfaceEvents(newEvents, decisionId)).toHaveLength(1);
-      expect(res.planId).not.toBeNull();
+      expect(res.resurfacedTaskId).not.toBeNull();
+      expect(res.projectId).toBe(projectId);
 
+      // The re-queued unit of work exists in the file backend, is ready for the
+      // operator to act on, carries the audit link back to the decision, and
+      // names the operator's chosen answer for the implementer.
+      const tasks = await listTasks({ workdirPath });
+      const requeued = tasks.find((t) => t.id === res.resurfacedTaskId);
+      expect(requeued).toBeDefined();
+      expect(requeued?.frontmatter.status).toBe("ready");
+      expect(requeued?.frontmatter.sourceDecisionId).toBe(decisionId);
+      expect(requeued?.frontmatter.parent).toBe("task-007");
+      expect(requeued?.body).toContain("bun:sqlite, better-sqlite3");
+
+      // No refinement plan is created anymore — the seam re-queue replaces it.
       const plans = await h.db
         .select()
         .from(schema.plans)
         .where(eq(schema.plans.kind, "refinement"))
         .all();
-      expect(plans).toHaveLength(1);
-      expect(plans[0]?.taskId).toBe("task-007");
+      expect(plans).toHaveLength(0);
     } finally {
       h.cleanup();
     }

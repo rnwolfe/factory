@@ -122,6 +122,12 @@ export interface CreateTaskInput {
   sourcePlanId?: string;
   sourceAuditId?: string;
   sourceFindingIds?: string[];
+  /**
+   * The agent_decision this task was resurfaced from (operator override).
+   * Carried as task provenance so the re-queued work links back to the
+   * originating decision for the audit trail — see `decisions/resurface.ts`.
+   */
+  sourceDecisionId?: string;
 }
 
 /**
@@ -278,6 +284,9 @@ export class FileTaskStore implements TaskStore {
     }
     if (input.sourceFindingIds && input.sourceFindingIds.length > 0) {
       frontmatter.sourceFindingIds = input.sourceFindingIds.filter((id) => id.trim().length > 0);
+    }
+    if (input.sourceDecisionId && input.sourceDecisionId.trim().length > 0) {
+      frontmatter.sourceDecisionId = input.sourceDecisionId.trim();
     }
     const file: TaskFile = { id, filePath, frontmatter, body: input.body };
     await writeFile(filePath, renderTaskMarkdown(file), "utf8");

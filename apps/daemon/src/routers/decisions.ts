@@ -8,9 +8,10 @@ import {
   type AgentDecisionOverride,
   emitResurfaceSignal,
   resurfaceAnswer,
+  resurfaceWorkForDecision,
 } from "../decisions/resurface.ts";
 import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
-import { seedProjectSpecDraft, seedRefinementDraft } from "../plans/iterate.ts";
+import { seedProjectSpecDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
 import { createTask } from "../projects/tasks.ts";
@@ -102,27 +103,6 @@ contradict the task body, the operator's notes are the more recent intent.`;
     .join("\n\n");
 
   return `${header}\n\n${questionsBlock}${repliesBlock}`;
-}
-
-function renderOverrideComment(
-  payload: AgentDecisionPayloadShape,
-  override: AgentDecisionOverride,
-): string {
-  const headline = payload.summary ?? "agent decision";
-  const agentChose = payload.decided ?? "(unspecified)";
-  const operatorChose = resurfaceAnswer(override);
-  const optionsSummary =
-    payload.options && payload.options.length > 0
-      ? `\n\nThe agent considered: ${payload.options.map((o) => `\`${o.title}\``).join(", ")}.`
-      : "";
-  return [
-    `Operator override on ${payload.id ?? "agent decision"} — ${headline}`,
-    "",
-    `**Agent decided:** ${agentChose}`,
-    `**Operator prefers:** ${operatorChose}${optionsSummary}`,
-    "",
-    "Please update this task's acceptance / scope to reflect the operator's preference. If the original work needs to be redone, surface that in your refinement reply.",
-  ].join("\n");
 }
 
 interface AgentDecisionPayloadShape {
@@ -560,16 +540,16 @@ export const decisionsRouter = router({
    * Override an `agent_decision` — operator picks a different option (or
    * subset, or types a custom answer) than what the agent decided.
    *
-   * The decision row is marked actioned with the operator's choice
-   * appended to the payload (so the audit trail stays uniform), and a
-   * refinement plan is created against the source task seeded with a
-   * comment that names the override. The operator iterates the
-   * refinement to either rewrite acceptance or spawn follow-up tasks
-   * that bake in their preference.
+   * The decision row is marked actioned with the operator's choice appended to
+   * the payload (so the audit trail stays uniform), a resurfacing signal is
+   * emitted (task-061), and the overridden work is re-queued as a concrete unit
+   * through the backend-agnostic task-store seam (task-062). The re-queue is
+   * uniform across backends: a non-GitHub project gets a `.factory/work` task, a
+   * GitHub project a follow-up issue — both from the one `createTask` seam.
    *
-   * Ad-hoc runs (no taskId) can be overridden but skip the refinement
-   * plan creation — the operator's preference is captured on the
-   * decision row only. They can still see it in history.
+   * Ad-hoc runs with no project can be overridden but have no backend to
+   * re-queue into — the operator's preference is captured on the decision row
+   * (and the resurfacing signal) only. They can still see it in history.
    */
   overrideAgentDecision: protectedProcedure
     .input(
@@ -621,9 +601,9 @@ export const decisionsRouter = router({
       // the selected subset, or wrote a custom answer. Any such non-ratification
       // must resurface for implementation rather than silently close. Emit the
       // signal unconditionally (task-061): it fires even for ad-hoc runs with no
-      // task to refine, so the seam (task-062) can re-queue work regardless of
-      // backend. The refinement-plan creation below is the current local-file
-      // consumer; it stays task-gated.
+      // project, so live surfaces always learn of the override. The backend-
+      // agnostic re-queue below (task-062) then materializes the concrete unit
+      // of work for any project that has a backend.
       emitResurfaceSignal(ctx.events, {
         decisionId: input.decisionId,
         projectId: projectId ?? null,
@@ -635,77 +615,45 @@ export const decisionsRouter = router({
         at: now,
       });
 
-      let planId: string | null = null;
-
-      // Open a refinement plan when there's a task to refine. The plan is
-      // seeded with an operator comment naming the override, so the
-      // agent's first iteration on the refinement has the context.
-      if (projectId && taskId) {
+      // Re-queue the overridden work as a concrete unit of work through the
+      // backend-agnostic task-store seam (task-062). `resurfaceWorkForDecision`
+      // → `createTask` dispatches to whichever backend the project uses, so the
+      // non-GitHub (file) and GitHub-Issue backends both re-queue from this one
+      // call. The created task carries `sourceDecisionId` for the audit trail.
+      //
+      // Best-effort: the override and the resurfacing signal have already
+      // landed, so a backend hiccup (e.g. an unconfigured GitHub App, a missing
+      // task dir) must never fail the operator's action — we log and move on.
+      let resurfacedTaskId: string | null = null;
+      if (projectId) {
         const project = await ctx.db
           .select()
           .from(schema.projects)
           .where(eq(schema.projects.id, projectId))
           .get();
         if (project) {
-          const existingPlan = await ctx.db
-            .select()
-            .from(schema.plans)
-            .where(
-              and(
-                eq(schema.plans.projectId, projectId),
-                eq(schema.plans.taskId, taskId),
-                eq(schema.plans.kind, "refinement"),
-                eq(schema.plans.status, "drafting"),
-              ),
-            )
-            .get();
-
-          let targetPlanId: string;
-          if (existingPlan) {
-            targetPlanId = existingPlan.id;
-          } else {
-            const seed = seedRefinementDraft(taskId);
-            targetPlanId = createId();
-            await ctx.db.insert(schema.plans).values({
-              id: targetPlanId,
-              kind: "refinement",
-              status: "drafting",
-              projectId,
-              taskId,
-              goal: `Refine: address operator override on ${payload.id ?? "agent decision"}`,
-              draft: JSON.stringify(seed),
-              createdAt: now,
-              updatedAt: now,
+          try {
+            const requeued = await resurfaceWorkForDecision(project, {
+              decisionId: input.decisionId,
+              summary: payload.summary ?? null,
+              agentDecided: payload.decided ?? null,
+              answer: resurfaceAnswer(input.override),
+              originalTaskId: taskId,
+              runId: payload.runId ?? null,
+              options: payload.options,
             });
-            ctx.events.publish({
-              channel: "inbox",
-              kind: "plan_created",
-              planId: targetPlanId,
-              planKind: "refinement",
-              projectId,
-            });
+            resurfacedTaskId = requeued.id;
+          } catch (err) {
+            console.error(
+              `[decisions] resurface re-queue failed for ${input.decisionId}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
           }
-
-          await ctx.db.insert(schema.planComments).values({
-            id: createId(),
-            planId: targetPlanId,
-            role: "operator",
-            body: renderOverrideComment(payload, input.override),
-            createdAt: now,
-          });
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "plan_comment_added",
-            planId: targetPlanId,
-            role: "operator",
-            projectId,
-          });
-          schedulePlanIteration(ctx, { planId: targetPlanId, projectId });
-          planId = targetPlanId;
         }
       }
 
-      return { ok: true, decisionId: input.decisionId, planId };
+      return { ok: true, decisionId: input.decisionId, projectId, resurfacedTaskId };
     }),
 
   /* helpers (file-local) — kept above `comments` so the rendering helper is
