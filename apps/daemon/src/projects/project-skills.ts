@@ -74,3 +74,18 @@ export async function listProjectSkills(projectPath: string): Promise<ProjectSki
   skills.sort((a, b) => a.name.localeCompare(b.name));
   return skills;
 }
+
+/**
+ * Resolve a single project skill by its `name` (frontmatter name, falling back
+ * to directory name — the same identity `listProjectSkills` reports). Returns
+ * null when the project ships no skill under that name. Mirrors
+ * `readAuditSkill`; used by `skills.submit` to validate a requested skill
+ * before spawning a run for it.
+ */
+export async function findProjectSkill(
+  projectPath: string,
+  skillName: string,
+): Promise<ProjectSkill | null> {
+  const skills = await listProjectSkills(projectPath);
+  return skills.find((s) => s.name === skillName) ?? null;
+}

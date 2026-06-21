@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { listProjectSkills, parseProjectSkill } from "../src/projects/project-skills.ts";
+import {
+  findProjectSkill,
+  listProjectSkills,
+  parseProjectSkill,
+} from "../src/projects/project-skills.ts";
 
 function mkTemp(): string {
   return mkdtempSync(path.join(tmpdir(), "factory-project-skills-"));
@@ -86,6 +90,40 @@ describe("listProjectSkills", () => {
       writeSkill(dir, "real", "---\nname: real\ndescription: ok\n---\n");
       const skills = await listProjectSkills(dir);
       expect(skills.map((s) => s.name)).toEqual(["real"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("findProjectSkill", () => {
+  test("resolves a skill by its frontmatter name", async () => {
+    const dir = mkTemp();
+    try {
+      writeSkill(dir, "release-dir", "---\nname: release\ndescription: cut\n---\n");
+      const skill = await findProjectSkill(dir, "release");
+      expect(skill?.name).toBe("release");
+      expect(skill?.filePath).toBe(path.join(dir, ".claude", "skills", "release-dir", "SKILL.md"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("matches the directory-name fallback when frontmatter omits name", async () => {
+    const dir = mkTemp();
+    try {
+      writeSkill(dir, "ux-audit", "---\ndescription: x\n---\n");
+      expect((await findProjectSkill(dir, "ux-audit"))?.name).toBe("ux-audit");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns null for an unknown skill", async () => {
+    const dir = mkTemp();
+    try {
+      writeSkill(dir, "real", "---\nname: real\n---\n");
+      expect(await findProjectSkill(dir, "missing")).toBeNull();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

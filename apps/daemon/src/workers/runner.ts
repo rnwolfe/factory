@@ -275,9 +275,17 @@ export async function executeRun(
   const taskFile = row.taskId ? await readTaskFile(project, row.taskId) : null;
   const taskBody = taskFile?.body ?? "";
   const taskTitle = taskFile?.frontmatter.title ?? null;
+  // When there's no task body, fall back to the "pick the next ready task"
+  // default — UNLESS the run carries operator context that fully drives it
+  // (e.g. a skills.submit run, whose directive is the whole instruction). In
+  // that case an empty base body keeps the prepended directive authoritative
+  // instead of stapling a contradictory "go find a task" sentence after it.
+  const operatorDriven = (row.operatorContext ?? "").trim().length > 0;
   let baseTaskBody =
     taskBody ||
-    `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`;
+    (operatorDriven
+      ? ""
+      : `You are working on project "${project.name}". Pick the next ready task in .factory/work/ and execute it.`);
 
   // Fold the GitHub issue thread into the prompt as first-class context for
   // github-backed tasks (ADR-007). Best-effort and delimited as untrusted; "" for
