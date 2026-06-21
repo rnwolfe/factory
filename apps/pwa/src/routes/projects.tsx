@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { FolderInput, Layers } from "lucide-react";
+import { FolderInput, Layers, ListChecks } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
@@ -47,9 +47,14 @@ export function Projects() {
 
   return (
     <div className="space-y-5">
-      <Link to="/projects/import" className="btn btn-ghost w-full">
-        <FolderInput size={14} /> import existing project
-      </Link>
+      <div className="flex gap-2">
+        <Link to="/tasks" className="btn btn-ghost flex-1">
+          <ListChecks size={14} /> open tasks
+        </Link>
+        <Link to="/projects/import" className="btn btn-ghost flex-1">
+          <FolderInput size={14} /> import project
+        </Link>
+      </div>
       {archivedCount > 0 ? (
         <label className="flex items-center justify-end gap-1.5 text-[11.5px] text-[var(--color-fg-2)] cursor-pointer px-1">
           <input

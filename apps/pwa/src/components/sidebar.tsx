@@ -5,6 +5,7 @@ import {
   Inbox as InboxIcon,
   Layers,
   LineChart,
+  ListChecks,
   PenLine,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -22,6 +23,7 @@ const PRIMARY: NavItem[] = [
   { to: "/ops", label: "ops", icon: Activity },
   { to: "/inbox/new", label: "capture", icon: PenLine },
   { to: "/projects", label: "projects", icon: Layers },
+  { to: "/tasks", label: "open tasks", icon: ListChecks },
   { to: "/history", label: "history", icon: Archive },
   { to: "/metrics", label: "metrics", icon: LineChart },
 ];

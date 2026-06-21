@@ -1,11 +1,11 @@
 ---
 id: task-060
 title: Dedicated bird's-eye-view route in the PWA
-status: ready
+status: done
 priority: med
 estimate: medium
 created: 2026-06-21T12:18:24.369Z
-updated: 2026-06-21T12:18:24.369Z
+updated: 2026-06-21T12:46:00.332Z
 labels:
   - feature-plan-task
 sourcePlanId: w81q7q32la3tcj5q1sevear9
@@ -21,4 +21,5 @@ sourcePlanId: w81q7q32la3tcj5q1sevear9
 ## Notes
 
 Emitted by feature plan w81q7q32: "Cross-project incomplete/stalled task view"
+
 

@@ -7,6 +7,7 @@ import {
   Inbox,
   Layers,
   LineChart,
+  ListChecks,
   PenLine,
   Search,
 } from "lucide-react";
@@ -42,6 +43,7 @@ const NAV_ITEMS: PaletteItem[] = [
   { kind: "nav", label: "Inbox", hint: "/", href: "/" },
   { kind: "nav", label: "Capture idea", hint: "/inbox/new", href: "/inbox/new" },
   { kind: "nav", label: "Projects", hint: "/projects", href: "/projects" },
+  { kind: "nav", label: "Open tasks", hint: "/tasks", href: "/tasks" },
   { kind: "nav", label: "History", hint: "/history", href: "/history" },
   { kind: "nav", label: "Metrics", hint: "/metrics", href: "/metrics" },
   {
@@ -244,6 +246,8 @@ function ItemIcon({ kind, label }: { kind: ItemKind; label: string }) {
     return <PenLine size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Projects")
     return <Folder size={13} className="text-[var(--color-fg-3)] shrink-0" />;
+  if (label === "Open tasks")
+    return <ListChecks size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "History")
     return <Archive size={13} className="text-[var(--color-fg-3)] shrink-0" />;
   if (label === "Metrics")

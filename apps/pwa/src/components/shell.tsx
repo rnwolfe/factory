@@ -24,6 +24,7 @@ export function Shell({ children }: { children: ReactNode }) {
     "/": "decisions",
     "/inbox/new": "capture",
     "/projects": "projects",
+    "/tasks": "open tasks",
     "/metrics": "metrics",
     "/settings": "settings",
   };

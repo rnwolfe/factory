@@ -35,6 +35,7 @@ import { SessionPane } from "./routes/session-pane.tsx";
 import { Settings } from "./routes/settings.tsx";
 import { TaskDetail } from "./routes/task-detail.tsx";
 import { TaskTemplateEditorRoute, TaskTemplates } from "./routes/task-templates.tsx";
+import { OpenTasks } from "./routes/tasks.tsx";
 import { WorktreesAdmin } from "./routes/worktrees.tsx";
 
 /**
@@ -275,6 +276,14 @@ export function App() {
             element={
               <RouteBoundary label="release-notes">
                 <ReleaseNotes />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <RouteBoundary label="open-tasks">
+                <OpenTasks />
               </RouteBoundary>
             }
           />
