@@ -51,6 +51,13 @@ export interface WebhookResult {
   intake?: { number: number; title: string; author: string; htmlUrl?: string; body?: string };
   /** Present for an inbound human comment on a tracked issue (task-048). */
   comment?: { number: number; author: string; body: string };
+  /**
+   * Present when a tracked issue's open/closed state changed on GitHub. The
+   * github-issues store derives task status live from issue state, so there's
+   * nothing to write back — this just drives a live refresh event so a
+   * GitHub-closed task drops off the Factory board without waiting for the poll.
+   */
+  taskUpdate?: { number: number; action: "closed" | "reopened" };
 }
 
 /** Timing-safe verification of the `X-Hub-Signature-256` header. */
@@ -126,6 +133,21 @@ export function classifyWebhook(
         ...(payload.issue?.html_url ? { htmlUrl: payload.issue.html_url } : {}),
         ...(payload.issue?.body ? { body: payload.issue.body } : {}),
       },
+    };
+  }
+
+  // A tracked issue closed/reopened on GitHub. The store reads status live, so
+  // no writeback is needed — surface it so the daemon publishes a project-scoped
+  // refresh event and the closed task leaves the active board immediately.
+  if (event === "issues" && (payload.action === "closed" || payload.action === "reopened")) {
+    if (payload.issue?.number == null) {
+      return { status: "ignored", reason: `issue ${payload.action} without a number` };
+    }
+    return {
+      status: "processed",
+      reason: `issue #${payload.issue.number} ${payload.action}`,
+      projectId: project.id,
+      taskUpdate: { number: payload.issue.number, action: payload.action },
     };
   }
 
@@ -214,6 +236,19 @@ export async function handleGithubWebhook(
     if (config && project) {
       fireIssueIntakeReply({ db, events, config, project }, decisionId);
     }
+  }
+
+  // A tracked issue closed/reopened on GitHub: nothing to write back (status is
+  // derived from issue state on read), just nudge the project's task list to
+  // refetch so the closed task drops off the active board live.
+  if (result.status === "processed" && result.taskUpdate && result.projectId) {
+    events.publish({
+      channel: "events",
+      kind: "task_updated",
+      projectId: result.projectId,
+      taskId: String(result.taskUpdate.number),
+      action: result.taskUpdate.action,
+    });
   }
 
   // Inbound human comment on a tracked issue: append to the matching decision

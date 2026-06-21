@@ -5,6 +5,7 @@ import {
   GithubIssuesStore,
   parseTaskIssueBody,
   postIssueComment,
+  reconcileStatus,
   renderDiscussion,
   renderTaskIssueBody,
   replyAsOperator,
@@ -66,6 +67,61 @@ describe("statusToGithub", () => {
     expect(statusToGithub("dropped")).toEqual({ state: "closed", stateReason: "not_planned" });
     expect(statusToGithub("ready")).toEqual({ state: "open", stateReason: null });
     expect(statusToGithub("blocked")).toEqual({ state: "open", stateReason: null });
+  });
+});
+
+describe("reconcileStatus", () => {
+  test("GitHub closed state wins over a stale open frontmatter status", () => {
+    // Issue closed directly on GitHub; frontmatter never rewritten — must report
+    // as terminal so it drops off the active board (the reported bug).
+    expect(reconcileStatus("ready", "closed", "completed")).toBe("done");
+    expect(reconcileStatus("in_progress", "closed", null)).toBe("done");
+    expect(reconcileStatus("blocked", "closed", "not_planned")).toBe("dropped");
+  });
+
+  test("GitHub reopened state wins over a stale terminal frontmatter status", () => {
+    expect(reconcileStatus("done", "open", null)).toBe("ready");
+    expect(reconcileStatus("dropped", "open", null)).toBe("ready");
+  });
+
+  test("frontmatter refines within the matching open/closed bucket", () => {
+    expect(reconcileStatus("in_progress", "open", null)).toBe("in_progress");
+    expect(reconcileStatus("review", "open", null)).toBe("review");
+    expect(reconcileStatus("done", "closed", "completed")).toBe("done");
+    expect(reconcileStatus("dropped", "closed", "not_planned")).toBe("dropped");
+  });
+
+  test("falls back to GitHub state when frontmatter carries no status", () => {
+    expect(reconcileStatus(undefined, "open", null)).toBe("ready");
+    expect(reconcileStatus(undefined, "closed", "completed")).toBe("done");
+    expect(reconcileStatus(undefined, "closed", "not_planned")).toBe("dropped");
+  });
+});
+
+describe("GithubIssuesStore.list reconciles GitHub-closed issues", () => {
+  test("a closed issue whose frontmatter still says ready reads as done", async () => {
+    const store = makeStore(async (url) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (u.includes("/issues?")) {
+        return json([
+          {
+            number: 8,
+            title: "Closed on GitHub",
+            // Frontmatter is stale (`ready`) because the operator closed the
+            // issue directly on GitHub, which doesn't rewrite the body.
+            body: renderTaskIssueBody({ status: "ready" }, "body"),
+            state: "closed",
+            state_reason: "completed",
+            labels: [{ name: "factory" }, { name: "status:ready" }],
+          },
+        ]);
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+    const tasks = await store.list();
+    expect(tasks[0]?.frontmatter.status).toBe("done");
   });
 });
 
