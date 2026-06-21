@@ -4,6 +4,30 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.26.0 — 2026-06-21
+
+### Added
+- **Skills are first-class and harness-agnostic.** A new skills router lists and
+  submits skills, a project-skills loader scans `.claude/skills/*/SKILL.md`, and
+  the resolved SKILL.md body is injected into runs regardless of harness. Each
+  project page now surfaces a panel of its available skills.
+- **Cross-project open tasks.** A new daemon query rolls up incomplete and stalled
+  tasks across every project, surfaced in the PWA as a single cross-project
+  open-tasks view — so work that's still open elsewhere doesn't fall off the radar.
+- **Overridden decisions resurface as open work.** Non-ratified agent decisions now
+  emit a resurfacing signal through a backend-agnostic seam; for GitHub-issue
+  projects the resurfaced follow-up carries a GitHub-native back-link. Resurfaced
+  overrides appear in the inbox and on the board as still-open work.
+
+### Changed
+- **`/metrics` is now token-centric, not cost-centric.** The metrics page reports
+  on token usage rather than dollar cost, and is promoted into the primary
+  navigation.
+
+### Fixed
+- **Plan-detail freeze button no longer floats.** Un-floated so it sits inline with
+  the rest of the plan-detail controls.
+
 ## v0.25.0 — 2026-06-20
 
 ### Added
