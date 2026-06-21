@@ -1,11 +1,11 @@
 ---
 id: task-051
 title: Fix invasive floating position of plan-detail freeze button
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-21T03:12:06.537Z
-updated: 2026-06-21T03:12:06.537Z
+updated: 2026-06-21T03:14:16.380Z
 labels:
   - feedback
 ---
@@ -75,3 +75,4 @@ The fix is bounded and single-surface: rework how/where this control anchors. Op
 ## Acceptance
 
 - [ ] (TBD)
+
