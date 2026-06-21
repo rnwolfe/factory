@@ -1,4 +1,5 @@
 import type { EventBus } from "../events.ts";
+import { createTask, type TaskFile, type TaskTarget } from "../projects/tasks.ts";
 
 /**
  * How the operator resolved an `agent_decision`. The agent makes a call
@@ -74,5 +75,84 @@ export function emitResurfaceSignal(events: EventBus, signal: ResurfaceSignal): 
     kind: "decision_resurfaced",
     decisionId: signal.decisionId,
     projectId: signal.projectId,
+  });
+}
+
+/** Everything `resurfaceWorkForDecision` needs to author the re-queued unit. */
+export interface ResurfaceWorkInput {
+  decisionId: string;
+  /** Headline of the original decision — drives the re-queued unit's title. */
+  summary: string | null;
+  /** The agent's original proposed answer, for the audit trail. */
+  agentDecided: string | null;
+  /** The operator's chosen/custom answer that must now be implemented. */
+  answer: string;
+  /** The original task the decision came from, if any — linked as `parent`. */
+  originalTaskId: string | null;
+  /** The run the decision was raised in, if any — named for traceability. */
+  runId: string | null;
+  /** The options the agent weighed, surfaced in the body for context. */
+  options?: Array<{ title: string }>;
+}
+
+/** Render the markdown body of a resurfaced unit of work. */
+function renderResurfaceBody(input: ResurfaceWorkInput): string {
+  const agentChose = input.agentDecided ?? "(unspecified)";
+  const optionsLine =
+    input.options && input.options.length > 0
+      ? `\nThe agent weighed: ${input.options.map((o) => `\`${o.title}\``).join(", ")}.`
+      : "";
+  const provenance = [
+    `- Originating decision: \`${input.decisionId}\``,
+    input.originalTaskId ? `- Original task: \`${input.originalTaskId}\`` : null,
+    input.runId ? `- Source run: \`${input.runId}\`` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return [
+    "## Context",
+    "",
+    "This work resurfaced from an operator override of an agent decision. The",
+    "agent made a call mid-run and the operator did not ratify it — the override",
+    "must be implemented rather than silently closed.",
+    "",
+    `**Agent decided:** ${agentChose}`,
+    `**Operator requires:** ${input.answer}${optionsLine}`,
+    "",
+    "## Acceptance",
+    "",
+    `- [ ] The implementation reflects the operator's answer: ${input.answer}`,
+    "- [ ] Any work that assumed the agent's original answer is reconciled.",
+    "",
+    "## Provenance",
+    "",
+    provenance,
+  ].join("\n");
+}
+
+/**
+ * Re-queue overridden work through the task-store seam (`TaskStore.create`),
+ * the single point both the local-file and GitHub-Issue backends implement.
+ * `createTask` dispatches to whichever backend the target uses, so a non-GitHub
+ * project gets a `.factory/work` task and a GitHub project gets a follow-up
+ * issue — both from this one call.
+ *
+ * The resulting unit of work carries `sourceDecisionId` (the audit link back to
+ * the originating decision) and the operator's answer in its body, so a future
+ * run implements the operator's preference. Returns the created task.
+ */
+export function resurfaceWorkForDecision(
+  target: TaskTarget,
+  input: ResurfaceWorkInput,
+): Promise<TaskFile> {
+  const title = `Implement override: ${input.summary ?? "agent decision"}`.slice(0, 120);
+  return createTask(target, {
+    title,
+    body: renderResurfaceBody(input),
+    status: "ready",
+    labels: ["resurfaced"],
+    parent: input.originalTaskId ?? undefined,
+    sourceDecisionId: input.decisionId,
   });
 }

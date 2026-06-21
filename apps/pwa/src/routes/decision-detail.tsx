@@ -159,8 +159,13 @@ export function DecisionDetail() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
       qc.invalidateQueries({ queryKey: ["decisions.get", id] });
-      qc.invalidateQueries({ queryKey: ["plans.inbox"] });
-      if (res.planId) nav(`/plans/${res.planId}`);
+      qc.invalidateQueries({ queryKey: ["projects.tasks"] });
+      // The override re-queued a concrete unit of work via the task-store seam
+      // (task-062). Navigate the operator straight into the resurfaced task so
+      // they can act on it, keeping momentum.
+      if (res.resurfacedTaskId && res.projectId) {
+        nav(`/projects/${res.projectId}/tasks/${res.resurfacedTaskId}`);
+      }
     },
   });
 
