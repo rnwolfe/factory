@@ -4,6 +4,18 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.28.0 — 2026-06-21
+
+### Added
+- **Plan the next milestone from your spec.** A project imported from a robust,
+  milestone-structured spec now gets a "plan milestone" action that
+  re-decomposes the next milestone straight from the committed `SPEC.md` — with
+  the same rigor and editable review as the first milestone — instead of the
+  thinner ad-hoc feature flow. The spec's milestone roadmap is captured into
+  `AGENTS.md` at import, each task is tagged with its milestone, and progress
+  (done / active / next) follows from the task list. Works on existing
+  spec-imported projects too.
+
 ## v0.27.0 — 2026-06-21
 
 ### Added
