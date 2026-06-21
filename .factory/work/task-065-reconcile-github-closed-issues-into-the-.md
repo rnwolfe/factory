@@ -1,11 +1,11 @@
 ---
 id: task-065
 title: Reconcile GitHub-closed issues into the Factory task list via webhook
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-21T14:24:05.545Z
-updated: 2026-06-21T14:24:05.545Z
+updated: 2026-06-21T22:02:45.826Z
 labels:
   - feedback
 ---
@@ -59,3 +59,4 @@ Because this is a single missing webhook branch against an existing, well-unders
 ## Acceptance
 
 - [ ] (TBD)
+
