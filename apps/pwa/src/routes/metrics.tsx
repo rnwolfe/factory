@@ -21,6 +21,8 @@ interface SummaryResponse {
 interface DailyBucket {
   day: string;
   totalCostUsd: number;
+  inputTokens: number;
+  outputTokens: number;
   invocations: number;
   runCount: number;
 }
@@ -52,6 +54,10 @@ function fmtHours(ms: number): string {
   const minutes = ms / 60_000;
   if (minutes >= 1) return `${minutes.toFixed(0)}m`;
   return `${(ms / 1000).toFixed(0)}s`;
+}
+
+function tokensOf(r: MetricsAggregate): number {
+  return r.inputTokens + r.outputTokens;
 }
 
 function agentLabel(id: string | null): string {
@@ -118,12 +124,11 @@ function computeYTicks(max: number): number[] {
   return ticks;
 }
 
-function fmtAxisCost(usd: number): string {
-  if (usd === 0) return "$0";
-  if (usd < 0.01) return `$${usd.toFixed(3)}`;
-  if (usd < 1) return `$${usd.toFixed(2)}`;
-  if (usd < 10) return `$${usd.toFixed(1)}`;
-  return `$${usd.toFixed(0)}`;
+function fmtAxisTokens(tokens: number): string {
+  if (tokens <= 0) return "0";
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}m`;
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`;
+  return `${Math.round(tokens)}`;
 }
 
 function fmtAxisDate(iso: string): string {
@@ -159,33 +164,49 @@ function seriesLabel(
     .slice(0, 20);
 }
 
-// ---- SVG stacked-bar chart ----
+// ---- SVG diverging stacked-bar chart (tokens: input ↑ / output ↓) ----
 
+// Each day is a diverging bar: input tokens stack upward from a center
+// baseline, output tokens stack downward, both grouped by series. One shared
+// token→pixel scale keeps the two directions comparable, and the baseline is
+// placed proportional to each direction's peak so the full height is used.
+// Tokens — not dollars — drive the chart: codex on a ChatGPT subscription
+// reports $0, so a cost axis would render every codex day as empty.
 function SpendChart({ days, series }: { days: string[]; series: DailySeries[] }) {
   const n = days.length;
   if (n === 0) return null;
 
   const slotW = CHART_W / n;
   const barW = Math.max(1.5, slotW * 0.82);
-  const dailyTotals = days.map((_, di) =>
-    series.reduce((s, ser) => s + (ser.buckets[di]?.totalCostUsd ?? 0), 0),
+
+  const inTotals = days.map((_, di) =>
+    series.reduce((s, ser) => s + (ser.buckets[di]?.inputTokens ?? 0), 0),
   );
-  const maxTotal = Math.max(...dailyTotals, 1e-9);
-  const yTicks = computeYTicks(maxTotal);
+  const outTotals = days.map((_, di) =>
+    series.reduce((s, ser) => s + (ser.buckets[di]?.outputTokens ?? 0), 0),
+  );
+  const maxIn = Math.max(...inTotals, 0);
+  const maxOut = Math.max(...outTotals, 0);
+  const span = Math.max(maxIn + maxOut, 1e-9);
+  const baselineY = PAD.t + (maxIn / span) * CHART_H;
+  const scale = CHART_H / span; // px per token, shared across both directions
+
+  const inTicks = computeYTicks(maxIn);
+  const outTicks = computeYTicks(maxOut);
   const labelEvery = n <= 7 ? 1 : n <= 31 ? 5 : 15;
 
   return (
     <svg
       viewBox={`0 0 ${SVG_W} ${SVG_H}`}
       className="w-full h-auto"
-      aria-label="Daily spend chart"
+      aria-label="Daily token throughput chart (input up, output down)"
       style={{ fontFamily: "Geist Mono, monospace" }}
     >
-      {/* Grid lines + y-axis labels */}
-      {yTicks.map((tick) => {
-        const y = PAD.t + CHART_H - (tick / maxTotal) * CHART_H;
+      {/* Grid lines + y-axis labels: input above the baseline, output below */}
+      {inTicks.map((tick) => {
+        const y = baselineY - tick * scale;
         return (
-          <g key={tick}>
+          <g key={`in-${tick}`}>
             <line
               x1={PAD.l}
               y1={y}
@@ -196,45 +217,91 @@ function SpendChart({ days, series }: { days: string[]; series: DailySeries[] })
               strokeDasharray="2 3"
             />
             <text x={PAD.l - 3} y={y + 3.5} textAnchor="end" fontSize={9} fill="hsl(30 8% 42%)">
-              {fmtAxisCost(tick)}
+              {fmtAxisTokens(tick)}
+            </text>
+          </g>
+        );
+      })}
+      {outTicks.map((tick) => {
+        const y = baselineY + tick * scale;
+        return (
+          <g key={`out-${tick}`}>
+            <line
+              x1={PAD.l}
+              y1={y}
+              x2={SVG_W - PAD.r}
+              y2={y}
+              stroke="hsl(30 5% 22%)"
+              strokeWidth={0.5}
+              strokeDasharray="2 3"
+            />
+            <text x={PAD.l - 3} y={y + 3.5} textAnchor="end" fontSize={9} fill="hsl(30 8% 42%)">
+              {fmtAxisTokens(tick)}
             </text>
           </g>
         );
       })}
 
-      {/* Baseline */}
+      {/* Center baseline (input / output divide) */}
       <line
         x1={PAD.l}
-        y1={PAD.t + CHART_H}
+        y1={baselineY}
         x2={SVG_W - PAD.r}
-        y2={PAD.t + CHART_H}
-        stroke="hsl(30 5% 22%)"
+        y2={baselineY}
+        stroke="hsl(30 5% 28%)"
         strokeWidth={0.75}
       />
+      {/* Direction hints */}
+      <text x={PAD.l - 3} y={PAD.t + 7} textAnchor="end" fontSize={8} fill="hsl(30 8% 50%)">
+        ↑in
+      </text>
+      <text x={PAD.l - 3} y={PAD.t + CHART_H} textAnchor="end" fontSize={8} fill="hsl(30 8% 50%)">
+        ↓out
+      </text>
 
-      {/* Stacked bars */}
+      {/* Diverging stacked bars */}
       {days.map((day, di) => {
         const x = PAD.l + di * slotW + (slotW - barW) / 2;
-        const segs: Array<{ si: number; barH: number; barY: number }> = [];
-        let yOff = 0;
+        const upSegs: Array<{ si: number; barH: number; barY: number }> = [];
+        const downSegs: Array<{ si: number; barH: number; barY: number }> = [];
+        let upOff = 0;
+        let downOff = 0;
         for (let si = 0; si < series.length; si++) {
-          const val = series[si]?.buckets[di]?.totalCostUsd ?? 0;
-          if (val <= 0) continue;
-          const barH = (val / maxTotal) * CHART_H;
-          segs.push({ si, barH, barY: PAD.t + CHART_H - yOff - barH });
-          yOff += barH;
+          const inVal = series[si]?.buckets[di]?.inputTokens ?? 0;
+          if (inVal > 0) {
+            const barH = inVal * scale;
+            upSegs.push({ si, barH, barY: baselineY - upOff - barH });
+            upOff += barH;
+          }
+          const outVal = series[si]?.buckets[di]?.outputTokens ?? 0;
+          if (outVal > 0) {
+            const barH = outVal * scale;
+            downSegs.push({ si, barH, barY: baselineY + downOff });
+            downOff += barH;
+          }
         }
         return (
           <g key={day}>
-            {segs.map(({ si, barH, barY }) => (
+            {upSegs.map(({ si, barH, barY }) => (
               <rect
-                key={series[si]?.key ?? "_null"}
+                key={`in-${series[si]?.key ?? "_null"}`}
                 x={x}
                 y={barY}
                 width={barW}
                 height={barH}
                 fill={SERIES_COLORS[si % SERIES_COLORS.length]}
-                opacity={0.88}
+                opacity={0.9}
+              />
+            ))}
+            {downSegs.map(({ si, barH, barY }) => (
+              <rect
+                key={`out-${series[si]?.key ?? "_null"}`}
+                x={x}
+                y={barY}
+                width={barW}
+                height={barH}
+                fill={SERIES_COLORS[si % SERIES_COLORS.length]}
+                opacity={0.55}
               />
             ))}
           </g>
@@ -398,11 +465,11 @@ function RowBody({
   return (
     <div className="flex items-center gap-3">
       <span className="text-[13.5px] text-[var(--color-fg)] truncate flex-1">{name}</span>
-      <span className="mono text-[11px] text-[var(--color-fg-2)] tabular-nums">
-        {fmtCost(cost)}
-      </span>
-      <span className="mono text-[10.5px] text-[var(--color-fg-3)] tabular-nums w-[68px] text-right">
+      <span className="mono text-[11px] text-[var(--color-fg-2)] tabular-nums w-[68px] text-right">
         {fmtTokens(tokens)} tok
+      </span>
+      <span className="mono text-[10.5px] text-[var(--color-fg-3)] tabular-nums w-[56px] text-right">
+        {fmtCost(cost)}
       </span>
       <span className="mono text-[10.5px] text-[var(--color-fg-3)] tabular-nums w-[44px] text-right">
         ×{invocations}
@@ -492,10 +559,13 @@ export function Metrics() {
   const headlines = useMemo(() => {
     const s = totalsQ.data?.series?.[0];
     if (!s) return null;
+    const totalInput = s.buckets.reduce((sum, b) => sum + b.inputTokens, 0);
+    const totalOutput = s.buckets.reduce((sum, b) => sum + b.outputTokens, 0);
     const totalCost = s.buckets.reduce((sum, b) => sum + b.totalCostUsd, 0);
     const totalRuns = s.buckets.reduce((sum, b) => sum + b.runCount, 0);
-    const avgCostPerRun = totalRuns > 0 ? totalCost / totalRuns : 0;
-    return { totalCost, totalRuns, avgCostPerRun };
+    const totalTokens = totalInput + totalOutput;
+    const avgTokensPerRun = totalRuns > 0 ? totalTokens / totalRuns : 0;
+    return { totalInput, totalOutput, totalTokens, totalCost, totalRuns, avgTokensPerRun };
   }, [totalsQ.data]);
 
   const chartState = useMemo((): "loading" | "empty" | "degraded" | "normal" => {
@@ -503,21 +573,18 @@ export function Metrics() {
     const s = totalsQ.data?.series?.[0];
     if (!s) return "empty";
     if (!s.buckets.some((b) => b.invocations > 0)) return "empty";
-    if (!s.buckets.some((b) => b.totalCostUsd > 0)) return "degraded";
+    if (!s.buckets.some((b) => b.inputTokens > 0 || b.outputTokens > 0)) return "degraded";
     return "normal";
   }, [totalsQ.isLoading, totalsQ.data]);
 
   const summaryData = summary.data;
   const sortedProjects = useMemo(
-    () =>
-      summaryData ? [...summaryData.byProject].sort((a, b) => b.totalCostUsd - a.totalCostUsd) : [],
+    () => (summaryData ? [...summaryData.byProject].sort((a, b) => tokensOf(b) - tokensOf(a)) : []),
     [summaryData],
   );
   const sortedKinds = useMemo(
     () =>
-      summaryData
-        ? [...summaryData.byOwnerKind].sort((a, b) => b.totalCostUsd - a.totalCostUsd)
-        : [],
+      summaryData ? [...summaryData.byOwnerKind].sort((a, b) => tokensOf(b) - tokensOf(a)) : [],
     [summaryData],
   );
 
@@ -538,8 +605,8 @@ export function Metrics() {
           runtime metrics
         </h1>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
-          Wall-clock runtime, cost, and tokens across every agent invocation Heimdall has driven —
-          drillable by project, agent, and model.
+          Token throughput (input ↑ / output ↓), wall-clock runtime, and cost across every agent
+          invocation Heimdall has driven — drillable by project, agent, and model.
         </p>
         {runtimeQ.data ? (
           <div className="mt-4 grid grid-cols-3 gap-3">
@@ -556,7 +623,7 @@ export function Metrics() {
       {/* Range spend section */}
       <section>
         <SectionHeader
-          title="spend"
+          title="tokens"
           right={
             <div className="flex items-center gap-2">
               <div className="flex gap-1">
@@ -587,16 +654,24 @@ export function Metrics() {
             <div className="skel h-10 rounded" />
           </div>
         ) : (
-          <div className="surface p-4 grid grid-cols-3 gap-3">
-            <HeadlineStat
-              label="range total"
-              value={headlines ? fmtCost(headlines.totalCost) : "$0"}
-            />
-            <HeadlineStat
-              label="avg / run"
-              value={headlines?.totalRuns ? fmtCost(headlines.avgCostPerRun) : "—"}
-            />
-            <HeadlineStat label="runs" value={headlines ? String(headlines.totalRuns) : "0"} />
+          <div className="surface p-4">
+            <div className="grid grid-cols-3 gap-3">
+              <HeadlineStat
+                label="tokens in ↑"
+                value={headlines ? fmtTokens(headlines.totalInput) : "0"}
+              />
+              <HeadlineStat
+                label="tokens out ↓"
+                value={headlines ? fmtTokens(headlines.totalOutput) : "0"}
+              />
+              <HeadlineStat label="runs" value={headlines ? String(headlines.totalRuns) : "0"} />
+            </div>
+            <p className="mono text-[10px] text-[var(--color-fg-3)] mt-3">
+              {headlines ? fmtTokens(headlines.totalTokens) : "0"} tok total
+              {headlines?.totalRuns ? ` · ${fmtTokens(headlines.avgTokensPerRun)} tok/run` : ""} · ≈
+              {headlines ? fmtCost(headlines.totalCost) : "$0"} billed (claude-code only; codex runs
+              on a subscription)
+            </p>
           </div>
         )}
 
@@ -615,11 +690,11 @@ export function Metrics() {
           ) : chartState === "degraded" ? (
             <div className="flex flex-col items-center justify-center py-8 gap-2">
               <div className="display text-[15px] text-[var(--color-fg-2)]">
-                cost data unavailable
+                token data unavailable
               </div>
               <p className="mono text-[10.5px] text-[var(--color-fg-3)] text-center max-w-[260px]">
-                {headlines?.totalRuns ?? 0} runs recorded in the {rangeLabel} but no cost figures
-                were captured · rows may pre-date cost tracking
+                {headlines?.totalRuns ?? 0} runs recorded in the {rangeLabel} but no token figures
+                were captured · rows may pre-date metrics tracking
               </p>
             </div>
           ) : chartQ.data ? (

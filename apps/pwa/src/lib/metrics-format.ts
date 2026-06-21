@@ -40,17 +40,19 @@ export interface MetricsAggregate {
 }
 
 /**
- * Compose a single noninvasive chip label like "$0.18 · 4.2k tok · 23s".
- * Suppresses zero-cost rows (free or pre-metrics entities) by returning null
- * so the caller can render nothing rather than a $0 placeholder.
+ * Compose a single noninvasive chip label like "4.2k tok · $0.18 · 23s".
+ * Tokens lead because they're the agent-agnostic figure — codex on a ChatGPT
+ * subscription reports $0 cost, so dollars are a secondary signal, never the
+ * headline. Suppresses rows with no tokens *and* no cost by returning null so
+ * the caller can render nothing rather than a "0 tok" placeholder.
  */
 export function chipLabel(m: MetricsAggregate): string | null {
   if (m.invocations === 0) return null;
   const total = m.inputTokens + m.outputTokens;
-  if (m.totalCostUsd <= 0 && total <= 0) return null;
+  if (total <= 0 && m.totalCostUsd <= 0) return null;
   const parts: string[] = [];
-  if (m.totalCostUsd > 0) parts.push(fmtCost(m.totalCostUsd));
   if (total > 0) parts.push(`${fmtTokens(total)} tok`);
+  if (m.totalCostUsd > 0) parts.push(fmtCost(m.totalCostUsd));
   if (m.durationMs > 0) parts.push(fmtDurationMs(m.durationMs));
   return parts.join(" · ");
 }
