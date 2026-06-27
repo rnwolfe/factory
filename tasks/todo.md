@@ -64,9 +64,24 @@ spawned tmux — verified directly. The isolation lever must be a **CLI arg comp
 
 ## WS B — The Watch  *(reactive→proactive flip; the Heimdall thesis)*
 
-- [ ] ADR: `workers/scheduler.ts` (third 60s tick, shape of `usage-cap.ts`/`inbox-resurface.ts`;
-      EventBus `run_merged`/`plan_frozen`; skip-if-inflight per ADR-004). Verify v0.4 scheduler
-      shipped first.
+- [x] **ADR-010 drafted** (`docs/adr/010-the-watch.md`). Findings baked in: the v0.4
+      `scheduler.ts` **never shipped** (build it fresh as a 3rd tick alongside
+      `usage-cap.ts`/`inbox-resurface.ts`); harnesses sit behind a pluggable `HarnessSource`
+      registry mirroring `agents/registry.ts` (no consumer branches on source id); Factory has
+      **no memory primitive** today, so observations index in the DB and promote into
+      repo-canonical artifacts (tasks / AGENTS.md), operator-gated. Decisions folded in:
+      operator-memory repo is **fresh + Factory-owned by default** (synthesizes new knowledge,
+      not a mirror), **first run ingests all harness memories** as input, and the repo is
+      **first-class viewable in the PWA**.
+- [x] **Slice 1 — pluggable `HarnessSource` (landed).** `apps/daemon/src/watch/sources/`:
+      `types.ts` (interface + `WorkRecord`/`WatchCursor`/`MemoryDoc`), `registry.ts`
+      (`HARNESS_SOURCE_REGISTRY`, mirrors `agents/registry.ts`), `claude-code.ts` + `codex.ts`
+      (read-only incremental `scan(cursor)` + `readMemories()`, skip `.env*`), `fs-util.ts`.
+      6 tests pass; validated against real `~/.claude` (32 recent sessions, 83 memory docs) and
+      `~/.codex` (ts=epoch-seconds confirmed). No LLM/scheduler/DB yet — pure pluggable foundation.
+- [ ] **Slice 2 — scheduler tick** (`workers/scheduler.ts`, 3rd 60s tick + EventBus, skip-if-inflight).
+- [ ] **Slice 3 — synthesis + observations** (`claude --print` over `WorkRecord[]`/`MemoryDoc[]` →
+      `watch_observations`; `watch_cursors` + `watch_insight` decision kind; operator-memory repo IO).
 - [ ] **Cadence:** backlog grooming; decompose-next-milestone on queue-drain (replace bare
       `queue_empty` at `inbox/queue-empty.ts:53`); scheduled health audits (exercise empty `audits`
       table); doc-drift at release; dependency sweeps → inbox.
