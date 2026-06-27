@@ -32,6 +32,15 @@ export const SETTING_KEYS = [
   "github-app-slug",
   "github-app-private-key",
   "github-app-webhook-secret",
+  // Comma/whitespace-separated GitHub logins whose issue comments the App will
+  // answer (Phase 3 conversational replies). Parsed into
+  // FactoryConfig.githubReplyAllowlist (lowercased, deduped). Empty = rely on
+  // repo write-access alone. DB-only; no yaml backstop.
+  "github-app-reply-allowlist",
+  // Public base URL the PWA is reachable at (no trailing slash). Used to build
+  // absolute deep links back into Factory from the GitHub App's issue replies.
+  // Empty = links omitted. DB-only; no yaml backstop.
+  "public-base-url",
   "factory-project-id",
   "notify-on-run-complete",
   // Feature flag (default off): when auto-advance drains a project's ready
@@ -71,8 +80,30 @@ interface ConfigDefaults {
   agentBudgetSeconds: number;
   githubToken: string | null;
   githubApp: FactoryConfig["githubApp"];
+  githubReplyAllowlist: string[];
+  publicBaseUrl: string | null;
   factoryProjectId: string | null;
   notifyOnRunComplete: boolean;
+}
+
+/** Normalize a public base URL: trim, drop trailing slashes; "" → null. */
+export function normalizeBaseUrl(raw: string): string | null {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Parse a comma/whitespace-separated allowlist string into lowercased, deduped
+ * GitHub logins. Tolerates leading `@`, commas, and newlines so the operator
+ * can paste from anywhere. Exported for the settings router's validation.
+ */
+export function parseReplyAllowlist(raw: string): string[] {
+  const seen = new Set<string>();
+  for (const tok of raw.split(/[\s,]+/)) {
+    const login = tok.trim().replace(/^@/, "").toLowerCase();
+    if (login) seen.add(login);
+  }
+  return [...seen];
 }
 
 const defaultsByConfig = new WeakMap<FactoryConfig, ConfigDefaults>();
@@ -88,6 +119,8 @@ function captureDefaults(config: FactoryConfig): ConfigDefaults {
     agentBudgetSeconds: config.agentBudgetSeconds,
     githubToken: config.githubToken,
     githubApp: config.githubApp ? { ...config.githubApp } : null,
+    githubReplyAllowlist: [...config.githubReplyAllowlist],
+    publicBaseUrl: config.publicBaseUrl,
     factoryProjectId: config.factoryProjectId,
     notifyOnRunComplete: config.notifyOnRunComplete,
   };
@@ -120,6 +153,8 @@ export function applySettingsFromDb(db: Db, config: FactoryConfig): void {
   config.agentBudgetSeconds = defaults.agentBudgetSeconds;
   config.githubToken = defaults.githubToken;
   config.githubApp = defaults.githubApp ? { ...defaults.githubApp } : null;
+  config.githubReplyAllowlist = [...defaults.githubReplyAllowlist];
+  config.publicBaseUrl = defaults.publicBaseUrl;
   config.factoryProjectId = defaults.factoryProjectId;
   config.notifyOnRunComplete = defaults.notifyOnRunComplete;
   const map = readAllSettings(db);
@@ -175,6 +210,14 @@ function applySettingsMap(map: Map<SettingKey, string>, config: FactoryConfig): 
       config.githubApp =
         appId && slug && privateKey ? { appId, slug, privateKey, webhookSecret } : null;
     }
+  }
+  const allowlist = map.get("github-app-reply-allowlist");
+  if (allowlist !== undefined) {
+    config.githubReplyAllowlist = parseReplyAllowlist(allowlist);
+  }
+  const baseUrl = map.get("public-base-url");
+  if (baseUrl !== undefined) {
+    config.publicBaseUrl = normalizeBaseUrl(baseUrl);
   }
   const projectId = map.get("factory-project-id");
   if (projectId !== undefined) {
@@ -255,6 +298,10 @@ export interface SettingsView {
     hasPrivateKey: boolean;
     hasWebhookSecret: boolean;
   };
+  /** GitHub logins the App will answer (in addition to repo collaborators). */
+  githubReplyAllowlist: string[];
+  /** Public base URL for deep links back into Factory (no trailing slash). */
+  publicBaseUrl: string | null;
   factoryProjectId: string | null;
   notifyOnRunComplete: boolean;
   /** Ops dashboard settings — live in the DB-settings layer only (no yaml backstop). */
@@ -287,6 +334,8 @@ export function snapshotSettings(db: Db, config: FactoryConfig): SettingsView {
       hasPrivateKey: Boolean(config.githubApp?.privateKey),
       hasWebhookSecret: Boolean(config.githubApp?.webhookSecret),
     },
+    githubReplyAllowlist: config.githubReplyAllowlist,
+    publicBaseUrl: config.publicBaseUrl,
     factoryProjectId: config.factoryProjectId,
     notifyOnRunComplete: config.notifyOnRunComplete,
     ops: readOpsSettings(map),

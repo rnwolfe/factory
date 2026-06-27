@@ -502,6 +502,51 @@ export async function fetchIssueDiscussion(
   }
 }
 
+export interface IssueConversation {
+  title: string;
+  body: string;
+  /** Rendered, delimited thread (UNTRUSTED INPUT block). "" when no comments. */
+  discussion: string;
+}
+
+/**
+ * Fetch an issue's title/body plus its rendered comment thread in one call —
+ * the context for a free-form conversational reply (ADR-007 Phase 3). Returns
+ * null for file-backed projects, when the App isn't configured, or if the issue
+ * is gone; throws nothing so the caller can no-op cleanly.
+ */
+export async function fetchIssueConversation(
+  config: Pick<FactoryConfig, "githubApp">,
+  project: {
+    taskBackend?: string | null;
+    githubRemote?: string | null;
+    githubInstallationId?: number | null;
+  },
+  taskId: string,
+  fetchFn: FetchFn = globalThis.fetch,
+): Promise<IssueConversation | null> {
+  if (project.taskBackend !== "github-issues" || !project.githubRemote) return null;
+  const client = githubAppClientFromConfig(config, fetchFn);
+  if (!client) return null;
+  const repo = parseGithubRepo(project.githubRemote);
+  if (!repo) return null;
+  const store = new GithubIssuesStore(
+    client,
+    repo.owner,
+    repo.repo,
+    project.githubInstallationId ?? null,
+    fetchFn,
+  );
+  try {
+    const issue = await store.read(taskId);
+    if (!issue) return null;
+    const discussion = renderDiscussion(taskId, await store.listComments(taskId));
+    return { title: issue.frontmatter.title, body: issue.body ?? "", discussion };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Post a machine comment to a task's issue thread (writeback). No-op for
  * file-backed projects or when the App isn't configured; best-effort — returns

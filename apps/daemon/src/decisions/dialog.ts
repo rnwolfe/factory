@@ -5,7 +5,7 @@ import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
-import { BOT_COMMENT_MARKER } from "../github/issue-triage.ts";
+import { BOT_COMMENT_MARKER, factoryLinkFooter } from "../github/issue-triage.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { postIssueComment } from "../projects/github-task-store.ts";
@@ -238,11 +238,15 @@ export async function runDecisionReply(
   if (!opts.skipGithubEcho) {
     const issueNumber = issueNumberFor(project, payload);
     if (issueNumber) {
+      const footer = factoryLinkFooter(config.publicBaseUrl, [
+        { label: "review in inbox", path: `/decisions/${decisionId}` },
+        { label: "project", path: `/projects/${project.id}` },
+      ]);
       await postIssueComment(
         config,
         project,
         issueNumber,
-        `${body}\n\n${BOT_COMMENT_MARKER}`,
+        `${body}${footer}\n\n${BOT_COMMENT_MARKER}`,
       ).catch(() => false);
     }
   }

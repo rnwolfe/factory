@@ -7,6 +7,7 @@ import type { FactoryConfig } from "../src/config.ts";
 import {
   applySettingsFromDb,
   clearSetting,
+  parseReplyAllowlist,
   setSetting,
   snapshotSettings,
 } from "../src/settings/store.ts";
@@ -34,6 +35,8 @@ function setup(): {
     githubToken: null,
     githubApp: null,
     factoryProjectId: null,
+    githubReplyAllowlist: [],
+    publicBaseUrl: null,
     notifyOnRunComplete: false,
     vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },
   };
@@ -101,6 +104,44 @@ describe("settings store", () => {
     } finally {
       h.cleanup();
     }
+  });
+
+  test("github-app-reply-allowlist parses into a deduped, lowercased array", () => {
+    const h = setup();
+    try {
+      setSetting(h.db, h.config, "github-app-reply-allowlist", "Alice, @Bob\nalice  carol");
+      expect(h.config.githubReplyAllowlist).toEqual(["alice", "bob", "carol"]);
+      const snap = snapshotSettings(h.db, h.config);
+      expect(snap.githubReplyAllowlist).toEqual(["alice", "bob", "carol"]);
+      expect(snap.overridden["github-app-reply-allowlist"]).toBe(true);
+
+      clearSetting(h.db, h.config, "github-app-reply-allowlist");
+      expect(h.config.githubReplyAllowlist).toEqual([]);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("public-base-url normalizes trailing slashes and clears on empty", () => {
+    const h = setup();
+    try {
+      setSetting(h.db, h.config, "public-base-url", "https://heimdall.example.com/");
+      expect(h.config.publicBaseUrl).toBe("https://heimdall.example.com");
+      const snap = snapshotSettings(h.db, h.config);
+      expect(snap.publicBaseUrl).toBe("https://heimdall.example.com");
+      expect(snap.overridden["public-base-url"]).toBe(true);
+
+      setSetting(h.db, h.config, "public-base-url", "");
+      expect(h.config.publicBaseUrl).toBeNull();
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("parseReplyAllowlist tolerates @, commas, and whitespace", () => {
+    expect(parseReplyAllowlist("")).toEqual([]);
+    expect(parseReplyAllowlist("  @octocat ,, hubot  ")).toEqual(["octocat", "hubot"]);
+    expect(parseReplyAllowlist("Foo\nfoo")).toEqual(["foo"]);
   });
 
   test("invalid number values are ignored on apply (defensive parse)", () => {

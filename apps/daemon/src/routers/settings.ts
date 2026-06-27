@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   clearSetting,
   isSettingKey,
+  parseReplyAllowlist,
   SETTING_KEYS,
   setSetting,
   snapshotSettings,
@@ -27,6 +28,8 @@ export const settingsRouter = router({
       agentBudgetSeconds: snap.agentBudgetSeconds,
       githubToken: { has: snap.githubToken !== null && snap.githubToken.length > 0 },
       githubApp: snap.githubApp,
+      githubReplyAllowlist: snap.githubReplyAllowlist,
+      publicBaseUrl: snap.publicBaseUrl,
       factoryProjectId: snap.factoryProjectId,
       notifyOnRunComplete: snap.notifyOnRunComplete,
       ops: {
@@ -83,6 +86,34 @@ export const settingsRouter = router({
       }
       if (input.key === "github-app-id" && input.value && !/^\d+$/.test(input.value)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "github-app-id must be numeric" });
+      }
+      // Validate + normalize the reply allowlist: each token must be a valid
+      // GitHub login. Stored normalized (lowercased, deduped, comma-joined) so
+      // the snapshot and revert stay clean.
+      if (input.key === "github-app-reply-allowlist") {
+        const logins = parseReplyAllowlist(input.value);
+        const valid = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/;
+        const bad = logins.find((l) => !valid.test(l));
+        if (bad) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `not a valid GitHub login: "${bad}"`,
+          });
+        }
+        input.value = logins.join(", ");
+      }
+      // Public base URL must be a valid http(s) URL (or empty to clear).
+      if (input.key === "public-base-url" && input.value.trim() !== "") {
+        let parsed: URL;
+        try {
+          parsed = new URL(input.value.trim());
+        } catch {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "public-base-url must be a URL" });
+        }
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "public-base-url must be http(s)" });
+        }
+        input.value = input.value.trim().replace(/\/+$/, "");
       }
       if (
         input.key === "notify-on-run-complete" &&

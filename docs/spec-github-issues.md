@@ -41,6 +41,8 @@ New entries in the settings allowlist (`apps/daemon/src/settings/store.ts`) and
 | `github-app-slug` | URL slug (e.g. `factory`) → bot login `factory[bot]` |
 | `github-app-private-key` | PEM (stored in DB settings, redacted at the router boundary like `github-token`) |
 | `github-app-webhook-secret` | HMAC secret (Phase 3) |
+| `github-app-reply-allowlist` | comma/space-separated GitHub logins the App will answer on issue threads (Phase 3 conversational replies); repo collaborators are always answered. DB-only — no `config.yaml` backstop. |
+| `public-base-url` | absolute URL the PWA is reachable at (no trailing slash). Used to build deep links back into Factory in the App's issue replies. Empty = links omitted. DB-only. |
 
 Resolved once and cached at runtime: the **bot user id** (`GET /users/{slug}[bot]`
 → `id`) and the derived git identity:
@@ -262,6 +264,35 @@ payload `{ owner, repo, number, title, author }`). Inbox card: **promote to task
 / dismiss**. Approve → adopt the existing issue as a Factory task: `PATCH` it with
 HTML-comment frontmatter + `factory` + `status:ready` labels (no new issue). This
 preserves inbox-as-only-attention-sink; external input never silently runs.
+
+### 3.2a Conversational replies (allowlisted)
+
+When a human comments on a tracked issue, the App can reply on the thread as
+`factory[bot]`:
+
+- **Decision threads.** If the comment maps to a pending `issue_intake` /
+  `blocked_run` / `agent_decision` decision, it's appended to that thread and the
+  existing reply agent answers (and echoes to GitHub).
+- **Free-form.** If there's no pending decision, the App answers statelessly —
+  it reads the live issue (title/body + full comment thread via
+  `fetchIssueConversation`), asks the project's agent for a reply, and posts it
+  back. Nothing lands in the inbox; the GitHub thread is the record. See
+  `runIssueConversationReply` in `apps/daemon/src/github/issue-triage.ts`.
+
+**Deep links.** Every bot reply ends with a small footer linking back into
+Factory — the conversational reply links the **task** + **project**; intake and
+`blocked_run`/`agent_decision` replies link the **inbox decision** + **project**
+(`factoryLinkFooter`). Links are absolute, built from the `public-base-url`
+setting; when it's unset the footer is omitted rather than rendered broken.
+
+**Trust gate (`isAllowedReplyAuthor`).** Replies are public posts, so they're
+**deny-by-default**. An author passes when their login is on the operator's
+allowlist **or** they have repo write-access (`author_association ∈
+{OWNER, COLLABORATOR, MEMBER}`). The allowlist is the DB setting
+`github-app-reply-allowlist` (comma/space-separated logins), edited from the
+Settings page → *operator settings → issue reply allowlist*; empty list + no
+write-access = the bot stays silent. The `[bot]`/marker loop guard runs first so
+the bot never answers itself.
 
 ### 3.3 Backstop
 

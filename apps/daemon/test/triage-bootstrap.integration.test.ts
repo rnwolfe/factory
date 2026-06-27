@@ -28,6 +28,8 @@ function makeTempConfig(): { config: FactoryConfig; cleanup: () => void } {
       githubToken: null,
       githubApp: null,
       factoryProjectId: null,
+      githubReplyAllowlist: [],
+      publicBaseUrl: null,
       notifyOnRunComplete: false,
       vapid: { publicKey: "", privateKey: "", subject: "mailto:test@test" },
     },

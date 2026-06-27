@@ -22,6 +22,8 @@ const cfg: FactoryConfig = {
   githubToken: null,
   githubApp: null,
   factoryProjectId: null,
+  githubReplyAllowlist: [],
+  publicBaseUrl: null,
   notifyOnRunComplete: false,
   vapid: { publicKey: "", privateKey: "", subject: "mailto:t@t" },
 };

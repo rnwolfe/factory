@@ -52,6 +52,24 @@ export interface FactoryConfig {
     webhookSecret: string | null;
   } | null;
   /**
+   * GitHub logins whose issue comments the App will answer (ADR-007 Phase 3
+   * conversational replies). Lowercased. A comment author passes the gate when
+   * their login is in this list OR they have repo write-access
+   * (author_association OWNER/COLLABORATOR/MEMBER). Empty list + no write-access
+   * = the bot stays silent. Edited from the Settings page; lives in the DB
+   * `github-app-reply-allowlist` setting only — no yaml backstop.
+   */
+  githubReplyAllowlist: string[];
+  /**
+   * Public base URL the PWA is reachable at (e.g. `https://heimdall.labs.rwolfe.io`),
+   * no trailing slash. Used to build absolute deep links back into Factory from
+   * outward-facing surfaces — notably the GitHub App's issue replies (push
+   * notifications use relative URLs, resolved by the service worker, so they
+   * don't need this). Null when unset → deep links are omitted. Edited from the
+   * Settings page; DB `public-base-url` setting only — no yaml backstop.
+   */
+  publicBaseUrl: string | null;
+  /**
    * v0.4 cut 6 — id of the project that holds Factory's own meta-work. When
    * set, "promote to plan / promote to task" on a feedback row creates a
    * feature_plan / task on this project. Set the operator-edits-config-yaml
@@ -156,6 +174,8 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
       }
       return null;
     })(),
+    githubReplyAllowlist: [],
+    publicBaseUrl: null,
     factoryProjectId: p.factoryProjectId ?? process.env.FACTORY_META_PROJECT_ID ?? null,
     notifyOnRunComplete: false,
     // VAPID is filled in by `ensureVapid` after first load — the keypair is

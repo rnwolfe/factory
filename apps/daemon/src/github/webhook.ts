@@ -10,6 +10,7 @@ import {
   appendOperatorComment,
   BOT_COMMENT_MARKER,
   type IssueIntakeProject,
+  runIssueConversationReply,
   runIssueIntakeReply,
 } from "./issue-triage.ts";
 
@@ -23,6 +24,26 @@ import {
  */
 
 const FACTORY_LABEL = "factory";
+
+/** author_association values that imply repo write-access. */
+const WRITE_ASSOC = new Set(["OWNER", "COLLABORATOR", "MEMBER"]);
+
+/**
+ * Gate for whether the App should answer an inbound issue comment. An author
+ * passes if their login is on the operator-configured allowlist OR they have
+ * repo write-access (author_association). Empty allowlist + no write-access =
+ * the bot stays silent — replies are outward-facing public posts, so this is
+ * deny-by-default. The `[bot]`/marker loop guard runs earlier in
+ * `classifyWebhook`; this is the trust gate, not the loop gate.
+ */
+export function isAllowedReplyAuthor(
+  author: string,
+  authorAssociation: string,
+  allowlist: readonly string[],
+): boolean {
+  if (WRITE_ASSOC.has(authorAssociation)) return true;
+  return allowlist.includes(author.trim().toLowerCase());
+}
 
 export interface GithubWebhookPayload {
   action?: string;
@@ -39,6 +60,8 @@ export interface GithubWebhookPayload {
   comment?: {
     body?: string;
     user?: { login?: string };
+    /** OWNER | COLLABORATOR | MEMBER | CONTRIBUTOR | NONE | … */
+    author_association?: string;
   };
   sender?: { login?: string };
 }
@@ -50,7 +73,7 @@ export interface WebhookResult {
   /** Present when an externally-authored issue should be offered for intake. */
   intake?: { number: number; title: string; author: string; htmlUrl?: string; body?: string };
   /** Present for an inbound human comment on a tracked issue (task-048). */
-  comment?: { number: number; author: string; body: string };
+  comment?: { number: number; author: string; body: string; authorAssociation: string };
   /**
    * Present when a tracked issue's open/closed state changed on GitHub. The
    * github-issues store derives task status live from issue state, so there's
@@ -173,6 +196,7 @@ export function classifyWebhook(
         number: payload.issue.number,
         author: author || payload.sender?.login || "unknown",
         body: commentBody,
+        authorAssociation: payload.comment?.author_association ?? "NONE",
       },
     };
   }
@@ -196,6 +220,8 @@ export async function handleGithubWebhook(
   const projects = await db
     .select({
       id: schema.projects.id,
+      name: schema.projects.name,
+      workdirPath: schema.projects.workdirPath,
       agent: schema.projects.agent,
       githubRemote: schema.projects.githubRemote,
       githubInstallationId: schema.projects.githubInstallationId,
@@ -258,20 +284,38 @@ export async function handleGithubWebhook(
   // decision so the operator can answer the agent from GitHub itself.
   if (result.status === "processed" && result.comment && result.projectId && config) {
     const project = projects.find((p) => p.id === result.projectId);
-    const decision = await findDecisionForIssue(db, result.projectId, result.comment.number);
-    if (decision && project) {
-      await appendOperatorComment(db, decision.id, result.comment.body);
-      events.publish({
-        channel: "inbox",
-        kind: "comment_added",
-        decisionId: decision.id,
-        role: "operator",
-      });
-      if (decision.kind === "issue_intake") {
-        fireIssueIntakeReply({ db, events, config, project }, decision.id);
+    // Trust gate: only answer comments from allowlisted logins or repo
+    // collaborators. Applies to both the decision-thread reply and the
+    // free-form conversational reply — replies post publicly on GitHub.
+    const allowed = isAllowedReplyAuthor(
+      result.comment.author,
+      result.comment.authorAssociation,
+      config.githubReplyAllowlist,
+    );
+    if (project && allowed) {
+      const decision = await findDecisionForIssue(db, result.projectId, result.comment.number);
+      if (decision) {
+        await appendOperatorComment(db, decision.id, result.comment.body);
+        events.publish({
+          channel: "inbox",
+          kind: "comment_added",
+          decisionId: decision.id,
+          role: "operator",
+        });
+        if (decision.kind === "issue_intake") {
+          fireIssueIntakeReply({ db, events, config, project }, decision.id);
+        } else {
+          fireDecisionReply({ db, events, config, project }, decision.id);
+        }
       } else {
-        fireDecisionReply({ db, events, config, project }, decision.id);
+        // No pending decision card — a free-form reply on a tracked issue.
+        // Answer statelessly from the live issue thread + project context.
+        fireIssueConversationReply({ db, events, config, project }, result.comment.number);
       }
+    } else if (project && !allowed) {
+      console.log(
+        `[webhook] issue_comment on #${result.comment.number} from @${result.comment.author} ignored (not allowlisted)`,
+      );
     }
   }
 
@@ -325,6 +369,26 @@ function fireDecisionReply(
     } catch (err) {
       console.error(
         `[decision-reply] ${decisionId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  })();
+}
+
+/**
+ * Fire-and-forget a free-form conversational reply on a tracked issue that has
+ * no pending decision. Stateless: the reply reads the live GitHub thread for
+ * context and posts straight back to the issue — nothing lands in the inbox.
+ */
+function fireIssueConversationReply(
+  deps: { db: Db; events: EventBus; config: FactoryConfig; project: IssueIntakeProject },
+  issueNumber: number,
+): void {
+  void (async () => {
+    try {
+      await runIssueConversationReply(deps, issueNumber);
+    } catch (err) {
+      console.error(
+        `[issue-conversation] #${issueNumber}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   })();

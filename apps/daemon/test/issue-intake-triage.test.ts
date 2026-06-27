@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
@@ -7,8 +7,18 @@ import { createId } from "@paralleldrive/cuid2";
 import { asc, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import { EventBus } from "../src/events.ts";
-import { BOT_COMMENT_MARKER, runIssueIntakeReply } from "../src/github/issue-triage.ts";
-import { classifyWebhook, type GithubWebhookPayload } from "../src/github/webhook.ts";
+import {
+  BOT_COMMENT_MARKER,
+  factoryLinkFooter,
+  loadProjectReplyContext,
+  runIssueConversationReply,
+  runIssueIntakeReply,
+} from "../src/github/issue-triage.ts";
+import {
+  classifyWebhook,
+  type GithubWebhookPayload,
+  isAllowedReplyAuthor,
+} from "../src/github/webhook.ts";
 
 const PROJECTS = [
   {
@@ -45,7 +55,12 @@ describe("classifyWebhook — task-048 additions", () => {
   test("inbound human comment is classified with the comment payload", () => {
     const r = classifyWebhook("issue_comment", commentPayload(), PROJECTS);
     expect(r.status).toBe("processed");
-    expect(r.comment).toEqual({ number: 7, author: "alice", body: "any update?" });
+    expect(r.comment).toEqual({
+      number: 7,
+      author: "alice",
+      body: "any update?",
+      authorAssociation: "NONE",
+    });
   });
 
   test("loop guard: a [bot]-authored comment is ignored", () => {
@@ -64,6 +79,158 @@ describe("classifyWebhook — task-048 additions", () => {
       PROJECTS,
     );
     expect(r.status).toBe("ignored");
+  });
+
+  test("carries author_association from the comment payload", () => {
+    const r = classifyWebhook(
+      "issue_comment",
+      commentPayload({
+        comment: { body: "ping", user: { login: "alice" }, author_association: "COLLABORATOR" },
+      }),
+      PROJECTS,
+    );
+    expect(r.comment?.authorAssociation).toBe("COLLABORATOR");
+  });
+});
+
+describe("isAllowedReplyAuthor — reply trust gate", () => {
+  test("repo collaborators are always allowed, regardless of the allowlist", () => {
+    for (const assoc of ["OWNER", "COLLABORATOR", "MEMBER"]) {
+      expect(isAllowedReplyAuthor("bob", assoc, [])).toBe(true);
+    }
+  });
+
+  test("non-collaborators are allowed only when explicitly listed (case-insensitive)", () => {
+    expect(isAllowedReplyAuthor("Alice", "NONE", ["alice"])).toBe(true);
+    expect(isAllowedReplyAuthor("alice", "CONTRIBUTOR", ["alice"])).toBe(true);
+    expect(isAllowedReplyAuthor("mallory", "NONE", ["alice"])).toBe(false);
+  });
+
+  test("deny-by-default: empty allowlist + no write-access stays silent", () => {
+    expect(isAllowedReplyAuthor("stranger", "NONE", [])).toBe(false);
+    expect(isAllowedReplyAuthor("stranger", "CONTRIBUTOR", [])).toBe(false);
+  });
+});
+
+describe("factoryLinkFooter — deep links back into Factory", () => {
+  test("renders absolute links when a base URL is set", () => {
+    const footer = factoryLinkFooter("https://heimdall.example.com", [
+      { label: "task #7", path: "/projects/p1/tasks/7" },
+      { label: "project", path: "/projects/p1" },
+    ]);
+    expect(footer).toContain("https://heimdall.example.com/projects/p1/tasks/7");
+    expect(footer).toContain("[project](https://heimdall.example.com/projects/p1)");
+    expect(footer).toContain("open in Factory");
+  });
+
+  test("omits the footer entirely when no base URL is configured", () => {
+    expect(factoryLinkFooter(null, [{ label: "x", path: "/x" }])).toBe("");
+    expect(factoryLinkFooter("https://x", [])).toBe("");
+  });
+});
+
+describe("runIssueConversationReply — free-form issue reply", () => {
+  test("builds a reply from the live thread and reports it", async () => {
+    const h = setup();
+    try {
+      let seenPrompt = "";
+      const agentInvoker = async (prompt: string) => {
+        seenPrompt = prompt;
+        return { text: "  Thanks — I'll look into the crash on startup.  ", sessionId: null };
+      };
+      const res = await runIssueConversationReply(
+        { db: h.db, events: h.events, config: h.config, project: h.project },
+        42,
+        {
+          agentInvoker,
+          skipGithubEcho: true,
+          conversation: {
+            title: "App crashes on launch",
+            body: "Stack trace attached.",
+            discussion: "[@alice · no-write]\nany update?",
+          },
+        },
+      );
+      expect(res.errorMessage).toBeNull();
+      expect(res.body).toBe("Thanks — I'll look into the crash on startup.");
+      // Prompt carries issue + thread context.
+      expect(seenPrompt).toContain("App crashes on launch");
+      expect(seenPrompt).toContain("any update?");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("injects project context + reply guardrails into the prompt", async () => {
+    const h = setup();
+    try {
+      let seenPrompt = "";
+      const agentInvoker = async (prompt: string) => {
+        seenPrompt = prompt;
+        return { text: "ack", sessionId: null };
+      };
+      await runIssueConversationReply(
+        { db: h.db, events: h.events, config: h.config, project: h.project },
+        7,
+        {
+          agentInvoker,
+          skipGithubEcho: true,
+          conversation: { title: "Q", body: "", discussion: "[@alice · write-access]\nhow?" },
+          context: {
+            projectName: "Heimdall",
+            repo: "rnwolfe/heimdall",
+            agentsMd: "Heimdall orchestrates coding agents.",
+            readme: "(none)",
+            vision: "Phone-first dispatcher console.",
+          },
+        },
+      );
+      expect(seenPrompt).toContain("Heimdall");
+      expect(seenPrompt).toContain("orchestrates coding agents");
+      expect(seenPrompt).toContain("Phone-first dispatcher console");
+      // Guardrail: must not claim to have made code changes; UNTRUSTED framing.
+      expect(seenPrompt).toContain("UNTRUSTED INPUT");
+      expect(seenPrompt.toLowerCase()).toContain("does not run code");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("loadProjectReplyContext reads AGENTS.md + derives repo/name", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "factory-ctx-"));
+    try {
+      const wd = path.join(root, "proj");
+      mkdirSync(wd, { recursive: true });
+      writeFileSync(path.join(wd, "AGENTS.md"), "Operating manual: be careful.");
+      const ctx = await loadProjectReplyContext({
+        id: "p",
+        name: "Proj",
+        workdirPath: wd,
+        githubRemote: "https://github.com/acme/proj.git",
+        taskBackend: "github-issues",
+      });
+      expect(ctx.projectName).toBe("Proj");
+      expect(ctx.repo).toBe("acme/proj");
+      expect(ctx.agentsMd).toContain("Operating manual");
+      expect(ctx.readme).toBe("(none)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("no-ops cleanly when the issue can't be fetched", async () => {
+    const h = setup();
+    try {
+      const res = await runIssueConversationReply(
+        { db: h.db, events: h.events, config: h.config, project: h.project },
+        99,
+        { conversation: null },
+      );
+      expect(res.posted).toBe(false);
+      expect(res.errorMessage).toContain("not found");
+    } finally {
+      h.cleanup();
+    }
   });
 });
 

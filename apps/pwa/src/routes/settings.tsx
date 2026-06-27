@@ -13,6 +13,8 @@ interface SettingsSnapshot {
   defaultRunBudgetSeconds: number;
   agentBudgetSeconds: number;
   githubToken: { has: boolean };
+  githubReplyAllowlist: string[];
+  publicBaseUrl: string | null;
   factoryProjectId: string | null;
   notifyOnRunComplete: boolean;
   ops: {
@@ -129,6 +131,17 @@ export function Settings() {
               overridden={settings.data.overridden["agent-budget-seconds"] ?? false}
             />
             <GithubTokenRow has={settings.data.githubToken.has} />
+            <GithubReplyAllowlistRow
+              logins={settings.data.githubReplyAllowlist}
+              overridden={settings.data.overridden["github-app-reply-allowlist"] ?? false}
+            />
+            <EditableRow
+              label="public base url"
+              value={settings.data.publicBaseUrl ?? ""}
+              settingKey="public-base-url"
+              overridden={settings.data.overridden["public-base-url"] ?? false}
+              hint="absolute URL the PWA is reachable at — used for deep links in the GitHub App's issue replies"
+            />
             <FactoryProjectRow
               currentId={settings.data.factoryProjectId}
               overridden={settings.data.overridden["factory-project-id"] ?? false}
@@ -591,6 +604,102 @@ function GithubTokenRow({ has }: { has: boolean }) {
           {(save.error as Error).message}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * GitHub logins the Factory App will answer when they comment on a tracked
+ * issue (repo collaborators are always answered, listed or not). Comma- or
+ * space-separated; stored normalized in the DB.
+ */
+function GithubReplyAllowlistRow({
+  logins,
+  overridden,
+}: {
+  logins: string[];
+  overridden: boolean;
+}) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const joined = logins.join(", ");
+  const [draft, setDraft] = useState(joined);
+  useEffect(() => {
+    setDraft(joined);
+  }, [joined]);
+
+  const save = useMutation({
+    mutationFn: (v: string) =>
+      trpc.settings.set.mutate({ key: "github-app-reply-allowlist" as never, value: v }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+      setEditing(false);
+    },
+  });
+
+  return (
+    <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[13px] text-[var(--color-fg-1)]">issue reply allowlist</span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            {overridden ? "db" : "default"}
+          </span>
+        </div>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="btn btn-ghost text-[11px] !h-7 !px-2"
+          >
+            edit
+          </button>
+        ) : null}
+      </div>
+      {editing ? (
+        <div className="mt-2 flex items-center gap-1.5">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="octocat, hubot"
+            className="flex-1 mono text-[12px] bg-[var(--color-bg-2)] border border-[var(--color-line)] rounded px-2 py-1"
+          />
+          <button
+            type="button"
+            onClick={() => save.mutate(draft)}
+            disabled={save.isPending || draft === joined}
+            aria-label="save allowlist"
+            className="btn btn-ghost text-[11px] !h-7 !px-2"
+          >
+            {save.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(joined);
+              setEditing(false);
+            }}
+            aria-label="cancel"
+            className="btn btn-ghost text-[11px] !h-7 !px-2"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ) : (
+        <div className="mt-1 mono text-[11px] text-[var(--color-fg-2)] truncate">
+          {logins.length > 0 ? joined : "— none —"}
+        </div>
+      )}
+      {save.isError ? (
+        <div className="mt-1.5 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+          {(save.error as Error).message}
+        </div>
+      ) : null}
+      <div className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)] leading-relaxed">
+        the GitHub App answers issue comments from these logins. repo collaborators
+        (owner/member/collaborator) are always answered.
+      </div>
     </div>
   );
 }
