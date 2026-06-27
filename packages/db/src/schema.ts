@@ -23,9 +23,11 @@ export const decisionKindEnum = [
   // Informational nudge so a project doesn't stall silently; gated behind
   // the `notify-on-queue-empty` setting. See inbox/queue-empty.ts.
   "queue_empty",
-  // NOTE: the `watch_insight` kind (ADR-010 — surface a synthesized observation
-  // to the inbox) lands with the synthesis/inbox step, alongside its PWA
-  // decision-card handler, so the enum and its consumers move together.
+  // The Watch (ADR-010) synthesized an observation from the operator's
+  // out-of-band work. A notify-grade insight — "you keep doing X by hand;
+  // adopt as a task / acknowledge / dismiss" — never a blocking review. Payload
+  // is a WatchInsightPayload (see watch/observation-inbox.ts).
+  "watch_insight",
 ] as const;
 export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
 export const taskBackendEnum = ["file", "github-issues"] as const;

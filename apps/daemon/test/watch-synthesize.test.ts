@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations } from "@factory/db";
-import { dedupeKey, saveObservations } from "../src/watch/observation-store.ts";
+import { dedupeKey, persistObservations } from "../src/watch/observation-store.ts";
 import type { WorkRecord } from "../src/watch/sources/types.ts";
 import { type RawObservation, synthesizeObservations } from "../src/watch/synthesize.ts";
 
@@ -89,7 +89,7 @@ describe("synthesizeObservations", () => {
   });
 });
 
-describe("saveObservations", () => {
+describe("persistObservations", () => {
   const obs = (title: string): RawObservation => ({
     kind: "repeated-ritual",
     title,
@@ -110,17 +110,16 @@ describe("saveObservations", () => {
       runMigrations(dbPath);
       const db = createDb(dbPath);
 
-      expect(saveObservations(db, [obs("Builds CLIs by hand")])).toEqual({
-        inserted: 1,
-        skipped: 0,
-      });
+      const first = persistObservations(db, [obs("Builds CLIs by hand")]);
+      expect(first.inserted).toHaveLength(1);
+      expect(first.inserted[0]?.id).toBeTruthy();
+      expect(first.skipped).toBe(0);
       // Same normalized title → same dedupe key → skipped.
-      expect(saveObservations(db, [obs("builds   clis   by hand")])).toEqual({
-        inserted: 0,
-        skipped: 1,
-      });
+      const dup = persistObservations(db, [obs("builds   clis   by hand")]);
+      expect(dup.inserted).toHaveLength(0);
+      expect(dup.skipped).toBe(1);
       // A distinct observation inserts.
-      expect(saveObservations(db, [obs("Different insight")])).toEqual({ inserted: 1, skipped: 0 });
+      expect(persistObservations(db, [obs("Different insight")]).inserted).toHaveLength(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

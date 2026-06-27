@@ -136,6 +136,99 @@ describe("decisionsRouter", () => {
     }
   });
 
+  function seedWatchInsight(
+    h: ReturnType<typeof setupHarness>,
+    over: { proposal?: string; projectId?: string | null } = {},
+  ) {
+    const now = Date.now();
+    const obsId = createId();
+    const decisionId = createId();
+    const proposal = over.proposal ?? "note-only";
+    h.db
+      .insert(schema.watchObservations)
+      .values({
+        id: obsId,
+        kind: "new-convention",
+        title: "Insight title",
+        detail: "what was observed",
+        evidence: "[]",
+        proposal: proposal as "note-only",
+        targetProjectSlug: null,
+        status: "surfaced",
+        dedupeKey: `dk-${decisionId}`,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    h.db
+      .insert(schema.decisions)
+      .values({
+        id: decisionId,
+        kind: "watch_insight",
+        projectId: over.projectId ?? null,
+        outcome: "watch_insight",
+        payload: {
+          observationId: obsId,
+          observationKind: "new-convention",
+          title: "Insight title",
+          detail: "what was observed",
+          proposal,
+          evidence: [],
+          targetProjectSlug: null,
+        },
+        status: "pending",
+        createdAt: now,
+      })
+      .run();
+    return { obsId, decisionId };
+  }
+
+  test("watch_insight dismiss marks the observation dismissed", async () => {
+    const h = setupHarness();
+    try {
+      const { obsId, decisionId } = seedWatchInsight(h);
+      await h.caller.action({ decisionId, action: "dismiss" });
+
+      const obs = h.db
+        .select()
+        .from(schema.watchObservations)
+        .where(eq(schema.watchObservations.id, obsId))
+        .get();
+      expect(obs?.status).toBe("dismissed");
+      const dec = h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, decisionId))
+        .get();
+      expect(dec?.status).toBe("dismissed");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("watch_insight approve without a project acknowledges (observation adopted)", async () => {
+    const h = setupHarness();
+    try {
+      const { obsId, decisionId } = seedWatchInsight(h, { proposal: "record-as-convention" });
+      await h.caller.action({ decisionId, action: "approve" });
+
+      const obs = h.db
+        .select()
+        .from(schema.watchObservations)
+        .where(eq(schema.watchObservations.id, obsId))
+        .get();
+      expect(obs?.status).toBe("adopted");
+      const dec = h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, decisionId))
+        .get();
+      expect(dec?.status).toBe("actioned");
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("snooze view filters the default inbox and exposes snoozed items", async () => {
     const h = setupHarness();
     try {

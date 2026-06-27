@@ -11,17 +11,20 @@ import type { RawObservation } from "./synthesize.ts";
  * spawn duplicate inbox items.
  */
 
+/** An inserted observation with its assigned id — the input to surfacing. */
+export type PersistedObservation = RawObservation & { id: string };
+
 /** Stable key from kind + target + normalized title. */
 export function dedupeKey(o: RawObservation): string {
   const subject = o.title.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 80);
   return `${o.kind}:${o.targetProjectSlug ?? "_"}:${subject}`;
 }
 
-export function saveObservations(
+export function persistObservations(
   db: Db,
   observations: RawObservation[],
-): { inserted: number; skipped: number } {
-  let inserted = 0;
+): { inserted: PersistedObservation[]; skipped: number } {
+  const inserted: PersistedObservation[] = [];
   let skipped = 0;
   const now = Date.now();
   for (const o of observations) {
@@ -35,9 +38,10 @@ export function saveObservations(
       skipped++;
       continue;
     }
+    const id = createId();
     db.insert(schema.watchObservations)
       .values({
-        id: createId(),
+        id,
         kind: o.kind,
         title: o.title,
         detail: o.detail,
@@ -50,7 +54,7 @@ export function saveObservations(
         updatedAt: now,
       })
       .run();
-    inserted++;
+    inserted.push({ ...o, id });
   }
   return { inserted, skipped };
 }

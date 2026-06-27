@@ -97,8 +97,14 @@ spawned tmux — verified directly. The isolation lever must be a **CLI arg comp
       (dedupeKey + insert-once into `watch_observations`). Job rewired: scan→synthesize→save, cursors
       committed only after success (failed turn re-scans, dedup-idempotent). Wired real synth+save at
       boot. 6 tests; full suite 384 pass. NOT yet surfaced to the operator (that's 3c).
-- [ ] **Slice 3c — inbox surfacing** (`watch_insight` decision kind + PWA decision card; notify-grade;
-      promote → task / convention / note).
+- [x] **Slice 3c — inbox surfacing (landed).** `watch_insight` decision kind; `watch/observation-inbox.ts`
+      surfaces new observations as notify-grade inbox decisions (resolves slug→project, flips obs to
+      `surfaced`); boot edge composes persist→surface. `decisions.action` handles approve (adopt-as-task
+      → `createTask` when proposal+project, else acknowledge → obs `adopted`) and dismiss (obs
+      `dismissed`). PWA `watch_insight` card across decision-card / inbox-detail-pane / decision-detail /
+      history (adopt-as-task|acknowledge + dismiss buttons, dispatcher's-console aesthetic). 8 new tests
+      (surfacing, action approve/dismiss, PWA components). Full repo green: daemon 388, pwa 20, all
+      typecheck. **First operator-visible payoff — insights now appear in the inbox.**
 - [ ] **Slice 3d — operator-memory repo** (`operator-memory.ts`: fresh Factory-owned git repo,
       Claude-format; first run ingests all harness memories; injectable as run context) + **PWA viewer**.
 - [ ] **Cadence:** backlog grooming; decompose-next-milestone on queue-drain (replace bare

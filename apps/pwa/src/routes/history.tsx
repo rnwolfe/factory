@@ -224,6 +224,8 @@ function kindLabel(kind: DecisionRow["kind"]): string {
       return "release";
     case "queue_empty":
       return "queue empty";
+    case "watch_insight":
+      return "watch · insight";
   }
 }
 

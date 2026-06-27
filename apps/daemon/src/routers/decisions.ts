@@ -18,6 +18,7 @@ import { adoptIssue } from "../projects/github-task-store.ts";
 import { createTask } from "../projects/tasks.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
+import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
 
@@ -518,6 +519,50 @@ export const decisionsRouter = router({
         );
         retryRunId = result.runId;
         projectId = project.id;
+      }
+
+      if (decision.kind === "watch_insight") {
+        // An insight from The Watch. `approve` adopts it: when the proposal is
+        // adopt-as-task and it maps to a project, create the task; otherwise
+        // approve is a plain acknowledgement. `dismiss` declines it. Either way
+        // the underlying observation's status moves off `surfaced` so it stays
+        // out of the inbox. (record-as-convention writes land with the
+        // operator-memory repo — until then, approve acknowledges them.)
+        const payload = decision.payload as WatchInsightPayload;
+        if (input.action === "approve") {
+          if (payload.proposal === "adopt-as-task" && decision.projectId) {
+            const project = await ctx.db
+              .select()
+              .from(schema.projects)
+              .where(eq(schema.projects.id, decision.projectId))
+              .get();
+            if (project) {
+              const sessions = payload.evidence
+                .map((e) => `${e.sourceId}/${e.sessionId.slice(0, 8)}`)
+                .join(", ");
+              const provenance = sessions
+                ? `\n\n_From The Watch — observed across ${payload.evidence.length} out-of-band session(s): ${sessions}._`
+                : "\n\n_From The Watch._";
+              await createTask(project, {
+                title: payload.title,
+                body: `${payload.detail}${provenance}`,
+                labels: ["watch", payload.observationKind],
+                priority: "med",
+                estimate: "small",
+              });
+              projectId = project.id;
+            }
+          }
+          await ctx.db
+            .update(schema.watchObservations)
+            .set({ status: "adopted", updatedAt: Date.now() })
+            .where(eq(schema.watchObservations.id, payload.observationId));
+        } else if (input.action === "dismiss") {
+          await ctx.db
+            .update(schema.watchObservations)
+            .set({ status: "dismissed", updatedAt: Date.now() })
+            .where(eq(schema.watchObservations.id, payload.observationId));
+        }
       }
 
       // `approve` on an `agent_decision` is ratification: the operator accepts

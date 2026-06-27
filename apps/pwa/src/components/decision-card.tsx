@@ -19,7 +19,8 @@ export interface DecisionRow {
     | "agent_decision"
     | "issue_intake"
     | "release_proposal"
-    | "queue_empty";
+    | "queue_empty"
+    | "watch_insight";
   outcome: string;
   weightedScore: number | null;
   uncertainty: number | null;
@@ -76,6 +77,20 @@ export interface DecisionRow {
     // release_proposal shape — a model-resolved version + rendered release body
     version?: string | null;
     body?: string;
+    // watch_insight shape — an observation The Watch synthesized (ADR-010).
+    // `title` + `number`/`author` above are shared field names; the watch-only
+    // fields are below.
+    observationId?: string;
+    observationKind?:
+      | "repeated-ritual"
+      | "new-convention"
+      | "correction-pattern"
+      | "candidate-task"
+      | "tooling-gap";
+    detail?: string;
+    proposal?: "adopt-as-task" | "record-as-convention" | "note-only";
+    evidence?: Array<{ sourceId: string; sessionId: string }>;
+    targetProjectSlug?: string | null;
     [k: string]: unknown;
   };
   ideaId?: string | null;
@@ -126,7 +141,14 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
       return "release";
     case "queue_empty":
       return "queue empty";
+    case "watch_insight":
+      return "watch · insight";
   }
+}
+
+/** Humanize a hyphenated observation/proposal token: "repeated-ritual" → "repeated ritual". */
+function humanizeToken(token: string): string {
+  return token.replace(/-/g, " ");
 }
 
 function uncertaintyLabel(u: number | null): string {
@@ -221,6 +243,7 @@ export function DecisionCard({
   const isIssueIntake = decision.kind === "issue_intake";
   const isReleaseProposal = decision.kind === "release_proposal";
   const isQueueEmpty = decision.kind === "queue_empty";
+  const isWatchInsight = decision.kind === "watch_insight";
   const issueNumber = typeof decision.payload.number === "number" ? decision.payload.number : null;
   const issueTitle = typeof decision.payload.title === "string" ? decision.payload.title : "";
   const issueHtmlUrl =
@@ -260,6 +283,17 @@ export function DecisionCard({
       ? `${decision.payload.projectName ?? decision.payload.projectSlug ?? "Project"} is out of runway — re-fill or archive`
       : null;
 
+  const watchHeadline = isWatchInsight
+    ? (decision.payload.title ?? "Insight from The Watch")
+    : null;
+
+  // The Watch's adopt verb is "adopt as task" only when the insight proposes a
+  // task AND has a project to file it under; everything else is "acknowledge".
+  const watchAdoptLabel =
+    isWatchInsight && decision.payload.proposal === "adopt-as-task" && decision.projectId
+      ? "adopt as task"
+      : "acknowledge";
+
   const headline =
     blockedHeadline ??
     mergeFailHeadline ??
@@ -267,6 +301,7 @@ export function DecisionCard({
     issueIntakeHeadline ??
     releaseHeadline ??
     queueEmptyHeadline ??
+    watchHeadline ??
     decision.payload.title_suggestion ??
     (ideaText ? ideaText.slice(0, 80) : decision.outcome);
 
@@ -413,6 +448,30 @@ export function DecisionCard({
           <div className="px-4 pb-3 mono text-[11px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
             confirm to cut · model-determined version
           </div>
+        ) : isWatchInsight ? (
+          <div className="px-4 pb-3 space-y-2">
+            {decision.payload.detail ? (
+              <p className="text-[12.5px] leading-snug text-[var(--color-fg-2)] line-clamp-3 [contain:layout]">
+                {decision.payload.detail}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {decision.payload.observationKind ? (
+                <span className="chip text-[10.5px]">
+                  {humanizeToken(decision.payload.observationKind)}
+                </span>
+              ) : null}
+              {decision.payload.proposal ? (
+                <span className="chip text-[10.5px]">
+                  {humanizeToken(decision.payload.proposal)}
+                </span>
+              ) : null}
+              <span className="mono text-[10.5px] text-[var(--color-fg-3)] uppercase tracking-[0.14em]">
+                from {decision.payload.evidence?.length ?? 0} session
+                {(decision.payload.evidence?.length ?? 0) === 1 ? "" : "s"}
+              </span>
+            </div>
+          </div>
         ) : null}
 
         {isTriage ? (
@@ -469,6 +528,16 @@ export function DecisionCard({
           </div>
         ) : isQueueEmpty ? (
           <div className="grid grid-cols-1 border-t border-[var(--color-line)]">
+            <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
+          </div>
+        ) : isWatchInsight ? (
+          <div className="grid grid-cols-2 border-t border-[var(--color-line)]">
+            <ActionBtn
+              label={watchAdoptLabel}
+              tone="primary"
+              onClick={() => onAction("approve")}
+              showArrow={watchAdoptLabel === "adopt as task"}
+            />
             <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
           </div>
         ) : (

@@ -200,6 +200,59 @@ function DecisionDetail({
     );
   }
 
+  if (row.kind === "watch_insight") {
+    const insightTitle = typeof row.payload?.title === "string" ? row.payload.title : null;
+    const detail = typeof row.payload?.detail === "string" ? row.payload.detail : null;
+    const observationKind =
+      typeof row.payload?.observationKind === "string" ? row.payload.observationKind : null;
+    const proposal = typeof row.payload?.proposal === "string" ? row.payload.proposal : null;
+    const evidenceCount = Array.isArray(row.payload?.evidence) ? row.payload.evidence.length : 0;
+    const adoptLabel =
+      proposal === "adopt-as-task" && row.projectId ? "adopt as task" : "acknowledge";
+    return (
+      <DetailShell
+        chips={
+          <>
+            <span className="chip">{kindLabel(row.kind)}</span>
+            {observationKind ? (
+              <span className="chip">{humanizeToken(observationKind)}</span>
+            ) : null}
+            <span className="chip">{decisionProjectLabel(row)}</span>
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+              {timeAgo(row.createdAt)} ago
+            </span>
+          </>
+        }
+        title={insightTitle ?? "Insight from The Watch"}
+        fullHref={`/decisions/${row.id}`}
+      >
+        {detail ? <p>{detail}</p> : null}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {proposal ? <span className="chip">{humanizeToken(proposal)}</span> : null}
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            from {evidenceCount} session{evidenceCount === 1 ? "" : "s"}
+          </span>
+        </div>
+        <p className="text-[var(--color-fg-2)]">
+          The Watch synthesized this from your out-of-band work — {adoptLabel} to act on it, or
+          dismiss to clear it. Never a blocking review.
+        </p>
+        <div className="flex flex-wrap gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => onAction("approve")}
+            className="btn btn-primary flex-1 min-w-[120px]"
+          >
+            {adoptLabel}
+          </button>
+          <button type="button" onClick={() => onAction("dismiss")} className="btn">
+            dismiss
+          </button>
+        </div>
+      </DetailShell>
+    );
+  }
+
   return (
     <DetailShell
       chips={
@@ -449,5 +502,12 @@ function kindLabel(kind: DecisionRow["kind"]): string {
       return "release";
     case "queue_empty":
       return "queue empty";
+    case "watch_insight":
+      return "watch · insight";
   }
+}
+
+/** Humanize a hyphenated observation/proposal token: "tooling-gap" → "tooling gap". */
+function humanizeToken(token: string): string {
+  return token.replace(/-/g, " ");
 }

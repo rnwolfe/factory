@@ -87,6 +87,19 @@ interface DecisionPayload {
   // release_proposal shape — model-resolved version + rendered release body
   version?: string | null;
   body?: string;
+  // watch_insight shape — an observation The Watch synthesized (ADR-010).
+  // `title` above is shared; the watch-only fields are here.
+  observationId?: string;
+  observationKind?:
+    | "repeated-ritual"
+    | "new-convention"
+    | "correction-pattern"
+    | "candidate-task"
+    | "tooling-gap";
+  detail?: string;
+  proposal?: "adopt-as-task" | "record-as-convention" | "note-only";
+  evidence?: Array<{ sourceId: string; sessionId: string }>;
+  targetProjectSlug?: string | null;
   override?:
     | { kind: "single"; choice: string }
     | { kind: "multi"; choices: string[] }
@@ -294,6 +307,7 @@ export function DecisionDetail() {
   const isAgentDecision = d.kind === "agent_decision";
   const isIssueIntake = d.kind === "issue_intake";
   const isReleaseProposal = d.kind === "release_proposal";
+  const isWatchInsight = d.kind === "watch_insight";
   const isPending = d.status === "pending";
   const score = d.weightedScore != null ? d.weightedScore.toFixed(2) : "—";
   const uncertainty = d.uncertainty != null ? d.uncertainty.toFixed(2) : "—";
@@ -309,7 +323,16 @@ export function DecisionDetail() {
         ? (sourceIssueLabel(issueNumber, issueTitle) ?? "GitHub issue")
         : isReleaseProposal
           ? `release ${payload.version ?? "(version pending)"}`
-          : (payload.title_suggestion ?? (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
+          : isWatchInsight
+            ? (payload.title ?? "Insight from The Watch")
+            : (payload.title_suggestion ??
+              (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
+  // The Watch's adopt verb depends on the proposal + whether there's a project.
+  const watchAdoptLabel =
+    isWatchInsight && payload.proposal === "adopt-as-task" && d.projectId
+      ? "adopt as task"
+      : "acknowledge";
+  const watchEvidenceCount = Array.isArray(payload.evidence) ? payload.evidence.length : 0;
 
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
@@ -340,7 +363,9 @@ export function DecisionDetail() {
                       ? "issue · intake"
                       : isReleaseProposal
                         ? "release"
-                        : "tag change"}
+                        : isWatchInsight
+                          ? "watch · insight"
+                          : "tag change"}
           </span>
           <span className="chip">{d.status}</span>
           <span className="chip">{decisionProjectLabel(d)}</span>
@@ -535,6 +560,29 @@ export function DecisionDetail() {
             ) : (
               <p className="text-[var(--color-fg-3)]">no rendered body</p>
             )}
+          </div>
+        </Section>
+      ) : null}
+
+      {isWatchInsight ? (
+        <Section title="the watch">
+          <div className="px-4 py-3 space-y-3 text-[14px] leading-relaxed text-[var(--color-fg-1)]">
+            {payload.detail ? <p>{payload.detail}</p> : null}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {payload.observationKind ? (
+                <span className="chip">{payload.observationKind.replace(/-/g, " ")}</span>
+              ) : null}
+              {payload.proposal ? (
+                <span className="chip">{payload.proposal.replace(/-/g, " ")}</span>
+              ) : null}
+              <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+                from {watchEvidenceCount} session{watchEvidenceCount === 1 ? "" : "s"}
+              </span>
+            </div>
+            <p className="text-[13px] text-[var(--color-fg-2)]">
+              The Watch synthesized this from your out-of-band work. {watchAdoptLabel} to act on it,
+              or dismiss to clear it — this is a notify-grade nudge, never a blocking review.
+            </p>
           </div>
         </Section>
       ) : null}
@@ -1104,6 +1152,25 @@ export function DecisionDetail() {
               disabled={action.isPending}
             >
               cut release
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => action.mutate({ action: "dismiss" })}
+              disabled={action.isPending}
+            >
+              dismiss
+            </button>
+          </div>
+        ) : isWatchInsight ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => action.mutate({ action: "approve" })}
+              disabled={action.isPending}
+            >
+              {watchAdoptLabel}
             </button>
             <button
               type="button"

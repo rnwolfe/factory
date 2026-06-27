@@ -26,7 +26,8 @@ import { recoverOrphanedSessions, tmuxNameForSession } from "./sessions/orchestr
 import { applySettingsFromDb } from "./settings/store.ts";
 import { makeStaticHandler } from "./static.ts";
 import { createDbCursorStore } from "./watch/cursor-store.ts";
-import { saveObservations } from "./watch/observation-store.ts";
+import { surfaceObservations } from "./watch/observation-inbox.ts";
+import { persistObservations } from "./watch/observation-store.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
 import { synthesizeObservations } from "./watch/synthesize.ts";
 import { WorkerPool } from "./workers/pool.ts";
@@ -213,7 +214,12 @@ export async function startDaemon(): Promise<DaemonHandle> {
         cursors: createDbCursorStore(db),
         synthesize: (records, memories) =>
           synthesizeObservations(records, memories, { budgetSeconds: getAgentBudgetSeconds() }),
-        saveObservations: (obs) => saveObservations(db, obs),
+        saveObservations: (obs) => {
+          // Persist (deduped), then surface the genuinely-new ones to the inbox.
+          const { inserted, skipped } = persistObservations(db, obs);
+          surfaceObservations(db, events, inserted);
+          return { inserted: inserted.length, skipped };
+        },
       }),
     ],
   });
