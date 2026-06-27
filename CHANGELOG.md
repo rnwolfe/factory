@@ -4,6 +4,16 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.28.2 — 2026-06-26
+
+### Fixed
+- **Blocked-run (and other) decision cards no longer show a huge empty gap on
+  iPhone.** The real cause was a WebKit/iOS-Safari `-webkit-line-clamp` bug: a
+  clamped headline clips to two lines visually but leaks its full un-clamped
+  height into the card's layout, pushing the question ~340px down. (Chrome was
+  unaffected, so it only showed on iOS.) Line-clamped text now uses layout
+  containment. Supersedes the v0.28.1 attempt, which didn't address this.
+
 ## v0.28.1 — 2026-06-26
 
 ### Fixed
