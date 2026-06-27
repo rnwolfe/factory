@@ -4,6 +4,14 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.30.0 — 2026-06-27
+
+### Added
+- **The GitHub App now reacts 👀 to a comment the moment it picks it up.** When an
+  allowlisted comment passes the trust gate, Factory adds an `eyes` reaction to
+  it before composing the reply — a "seen, thinking" indicator while the agent
+  works. Best-effort, so it never holds up the reply.
+
 ## v0.29.0 — 2026-06-27
 
 ### Added
