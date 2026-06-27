@@ -304,3 +304,34 @@ Rules for next time:
 - After 1–2 misses, STOP shipping fixes; the cost of a wrong guess to a waiting
   operator dwarfs the cost of one instrumented release. (This violated the
   "stop and re-plan when sideways" rule for far too long.)
+
+## tmux isolation: `$TMUX` and Bun's env snapshot (2026-06-27)
+
+Fixing the "wide `bun test` kills the parent run" bug. Two non-obvious facts cost
+iterations and twice killed the live Claude Code session during verification:
+
+- **A tmux command run from inside a tmux session obeys `$TMUX`, which OUTRANKS
+  `TMUX_TMPDIR`.** `$TMUX` (set in any pane) pins every `tmux` invocation to the
+  current server, so `TMUX_TMPDIR` alone does NOT isolate — it's the lowest-priority
+  socket selector. Only an explicit `-L`/`-S` flag, or unsetting `$TMUX`, redirects
+  to a different server. Verified live: with `$TMUX` set, `TMUX_TMPDIR=$ISO tmux ls`
+  still listed the outer session.
+- **Bun snapshots a child process's env at spawn; later `process.env` mutations do
+  NOT propagate** to `Bun.spawn` children that don't pass an explicit `env`. So
+  `delete process.env.TMUX` / `process.env.TMUX_TMPDIR = …` in a test had zero effect
+  on the spawned `tmux` — the child still saw the inherited values. The isolation
+  lever therefore has to be a **CLI arg computed in-JS** (`-L <socket>`), not an env
+  tweak. (If you DO need env mutations to reach a child, pass `env: { ...process.env }`
+  explicitly to `Bun.spawn`.)
+
+Rules for next time:
+- **Don't verify a tmux/process-killing fix against your own live session.** Stage a
+  disposable stand-in (a parent session on a *private* socket, `$TMUX` faked to it)
+  so the experiment's blast radius can't reach the session you're running in. This
+  caught the broken fix (stand-in parent died) without a third self-kill.
+- **A verification harness that can't fail isn't verifying anything.** The staged
+  parent that *died* is what proved the env-only fix was wrong; design the check so a
+  bad fix produces a visible, contained failure.
+- When isolating a shared external server (tmux, a DB, a daemon), prefer an explicit
+  per-instance handle (socket/namespace) computed in-process over env-var precedence
+  games — env precedence + runtime env snapshots are full of sharp edges.

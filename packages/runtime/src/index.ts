@@ -9,6 +9,7 @@ export {
   shellQuote,
   startTmuxSession,
   type TmuxSessionHandle,
+  tmuxSocketArgs,
 } from "./tmux.ts";
 export * from "./types.ts";
 export {

@@ -9,6 +9,7 @@ import {
   startTmuxSession,
   type TailHandle,
   type TmuxSessionHandle,
+  tmuxSocketArgs,
 } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
@@ -669,7 +670,7 @@ export async function recoverOrphanedInterventions(db: Db, events: EventBus): Pr
   for (const o of orphans) {
     try {
       const proc = bunSpawn({
-        cmd: ["tmux", "kill-session", "-t", o.tmuxSessionName],
+        cmd: ["tmux", ...tmuxSocketArgs(), "kill-session", "-t", o.tmuxSessionName],
         stdout: "pipe",
         stderr: "pipe",
       });

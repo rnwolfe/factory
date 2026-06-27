@@ -1,5 +1,32 @@
 import { spawn as bunSpawn } from "bun";
 
+/**
+ * Optional dedicated tmux socket flags (`-L <name>`). When `FACTORY_TMUX_SOCKET`
+ * is set, every tmux command Factory issues targets a private tmux *server*,
+ * isolating it from any ambient tmux server sharing the default socket.
+ *
+ * This exists for the daemon's tmux integration tests: those create and kill
+ * real tmux sessions, and when the suite runs inside a Factory self-hosting run
+ * (the agent's `claude --print` pane is itself a tmux session), churn on the
+ * shared default server can kill that parent pane before it emits a
+ * factory-status footer — the "wide `bun test` kills the run" bug. Each test
+ * suite sets a unique `FACTORY_TMUX_SOCKET`, landing its tmux on a throwaway
+ * server.
+ *
+ * Crucially this is a *CLI argument* computed in-process, not an inherited env
+ * var: Bun snapshots a child's environment at spawn and ignores later
+ * `process.env` mutations, so an env-only approach (unset `$TMUX` /
+ * `TMUX_TMPDIR`) does NOT reach the spawned tmux. `-L` does, because we read
+ * `process.env` here in-JS and pass the flag explicitly.
+ *
+ * Unset in production → empty array → tmux invocations are byte-identical to
+ * before.
+ */
+export function tmuxSocketArgs(): string[] {
+  const socket = process.env.FACTORY_TMUX_SOCKET;
+  return socket ? ["-L", socket] : [];
+}
+
 async function tmux(
   args: string[],
   opts: { check?: boolean } = {},
@@ -9,7 +36,7 @@ async function tmux(
   stderr: string;
 }> {
   const proc = bunSpawn({
-    cmd: ["tmux", ...args],
+    cmd: ["tmux", ...tmuxSocketArgs(), ...args],
     stdout: "pipe",
     stderr: "pipe",
   });

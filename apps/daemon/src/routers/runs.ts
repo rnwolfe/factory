@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { schema } from "@factory/db";
+import { tmuxSocketArgs } from "@factory/runtime";
 import { spawn as bunSpawn } from "bun";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
@@ -105,7 +106,13 @@ export const runsRouter = router({
       if (project) {
         try {
           const proc = bunSpawn({
-            cmd: ["tmux", "kill-session", "-t", tmuxSessionNameFor(project.slug, input.id)],
+            cmd: [
+              "tmux",
+              ...tmuxSocketArgs(),
+              "kill-session",
+              "-t",
+              tmuxSessionNameFor(project.slug, input.id),
+            ],
             stdout: "pipe",
             stderr: "pipe",
           });

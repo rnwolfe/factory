@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
-import { spawn as bunSpawn } from "bun";
+import { spawn as bunSpawn, spawnSync as bunSpawnSync } from "bun";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import { type DaemonEvent, EventBus } from "../src/events.ts";
@@ -63,8 +63,24 @@ async function git(args: string[], cwd: string): Promise<{ exitCode: number; std
   return { exitCode: code, stdout };
 }
 
+// Per-suite-run counter so concurrently-defined harnesses get distinct tmux
+// sockets (combined with the pid).
+let tmuxSocketSeq = 0;
+
 async function setupHarness(): Promise<Harness> {
   const root = mkdtempSync(path.join(tmpdir(), "factory-intervene-test-"));
+  // Isolate this suite's tmux onto a private server. These tests create and kill
+  // REAL tmux sessions; that churn on a SHARED tmux server destabilizes it and
+  // kills co-tenant panes — including the parent `claude --print` pane when the
+  // suite runs inside a Factory self-hosting run, which then dies before emitting
+  // a factory-status footer (the "wide bun test kills the run" bug). Setting
+  // FACTORY_TMUX_SOCKET makes every tmux command the daemon issues pass
+  // `-L <socket>` (see tmuxSocketArgs), landing on a throwaway server. It must be
+  // a CLI flag, not an env tweak: Bun snapshots a child's env at spawn, so
+  // mutating $TMUX / TMUX_TMPDIR here would NOT reach the spawned tmux process.
+  const tmuxSocket = `factory-test-${process.pid}-${tmuxSocketSeq++}`;
+  const prevTmuxSocket = process.env.FACTORY_TMUX_SOCKET;
+  process.env.FACTORY_TMUX_SOCKET = tmuxSocket;
   const dbPath = path.join(root, "data.db");
   const projectsRoot = path.join(root, "projects");
   const worktreesRoot = path.join(root, "worktrees");
@@ -105,6 +121,19 @@ async function setupHarness(): Promise<Harness> {
     pool,
     root,
     cleanup: () => {
+      try {
+        // Tear down this suite's private tmux server by its explicit socket —
+        // never touches a shared/default server.
+        bunSpawnSync({
+          cmd: ["tmux", "-L", tmuxSocket, "kill-server"],
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      } catch {
+        // ignore — server may already be gone
+      }
+      if (prevTmuxSocket === undefined) delete process.env.FACTORY_TMUX_SOCKET;
+      else process.env.FACTORY_TMUX_SOCKET = prevTmuxSocket;
       try {
         rmSync(root, { recursive: true, force: true });
       } catch {

@@ -1,47 +1,87 @@
-# task-064 — Inbox / board reflects resurfaced work as still-open
+# Autonomous & Proactive Factory — build plan
 
-## Acceptance
-- [ ] A resurfaced (overridden) decision is no longer shown as resolved-and-done; the follow-up reads as open work needing implementation.
-- [ ] Auto-advance / queue picks the resurfaced item up the same way it would any other ready task (or the operator is given a one-tap path to start it).
+Derived from `docs/research/2026-06-27-autonomous-proactive-factory.md`. Operator approved all four
+threads (2026-06-27). Build order respects dependencies: **bug fix unblocks chains → A cuts the
+inbox → C makes A defensible → B adds the proactive layer.** Each substantial feature gets its own
+ADR + spec delta per repo convention before code.
 
-## Findings
-- Tasks 061/062/063 already wire the daemon side: an override marks the decision `actioned`, emits a resurfacing signal, and re-queues a concrete `ready` task (file backend) / follow-up issue (github backend) carrying `sourceDecisionId`.
-- Criterion 2 holds at the data layer: the re-queued task is `status: "ready"`, `pickNextReadyTask` (post-merge auto-advance) treats it like any other; the override also navigates straight into the task, which has a one-tap "run task" button.
-- Criterion 1 is the gap: the overridden decision reads as closed in **history** and **decision-detail** ("this decision is actioned"), with no durable link to the follow-up task — the `resurfacedTaskId` is only returned ephemerally from the mutation, never persisted.
+North-star metric: **decisions-per-run → 0** while auto-merge stays ~99% and failures stay flat.
+(Prior `tasks/todo.md` — completed task-064, inbox resurfacing — is in git history.)
 
-## Plan
-- [ ] Backend: persist `resurfacedTaskId` on the decision payload in `overrideAgentDecision` (durable link for every surface).
-- [ ] Backend: surface `sourceDecisionId` as a board provenance link (`taskSourceLinks` → `/decisions/<id>`).
-- [ ] PWA `source-link.tsx`: add `decision` provenance kind.
-- [ ] PWA `decision-detail.tsx`: reframe an overridden decision as "resurfaced → open work" with a one-tap link to the task; fix stale "refinement plan" copy.
-- [ ] PWA `history.tsx`: render overridden agent_decisions as resurfaced/open, not a closed verdict; deep-link to the task.
-- [ ] Tests: queue-eligibility + `resurfacedTaskId` persistence.
-- [ ] typecheck + biome + targeted tests.
+---
 
-## Review
-Tasks 061–063 already re-queue overridden work as a `ready` task/issue; task-064 closes
-the loop so the *surfaces* stop reading it as done.
+## WS0 — Fix the `bun test` self-kill bug  ✅ DONE (2026-06-27)
 
-Changes:
-- **daemon `routers/decisions.ts`** — `overrideAgentDecision` now persists `resurfacedTaskId`
-  on the decision payload (single write, after the best-effort re-queue). This is the durable
-  link every decision surface needs; previously it was only returned ephemerally.
-- **daemon `routers/projects.ts`** — `taskSourceLinks` emits a `decision` provenance link
-  (`from override` → `/decisions/<id>`) so the board shows where resurfaced work came from.
-- **pwa `source-link.tsx`** — `decision` provenance kind.
-- **pwa `decision-detail.tsx`** — an overridden decision renders a "resurfaced as open work"
-  section with a one-tap link to the follow-up task; the terminal footer no longer reads as a
-  dead "actioned"; the override-form helper copy now describes re-queueing (not the old
-  refinement-plan behavior).
-- **pwa `history.tsx`** + `decision-card.tsx` payload type — overridden agent_decisions show a
-  `resurfaced → open` chip and lead with the decision summary, not the `decided: …` verdict.
+Caused ~85% of all failures and severed ~half of all autonomous chains.
 
-Criterion 2 was already met by the data model (the re-queued task is `ready`); added a test
-asserting `pickNextReadyTask` (the function auto-advance uses) selects it like any other ready
-task, plus a test that `resurfacedTaskId` lands on the payload.
+**ROOT CAUSE (confirmed empirically — twice reproduced live, even killing this dev session):**
+Factory never isolated its tmux onto a private socket, so the parent `claude --print` pane, the
+daemon's sessions, and the daemon test suite's **real** tmux sessions all shared the one default
+tmux server. Two wide-only test files (`sessions-orchestrate` / `interventions-orchestrate`) churn
+real create/`kill-session` on that shared server, destabilizing it and killing the co-tenant parent
+pane → no factory-status footer → `failed`. The CLAUDE.md session-name-collision guess was wrong;
+it's server/socket-level. **Critical gotcha discovered during the fix:** Bun snapshots a child's
+env at spawn, so an env-only fix (unset `$TMUX` / set `TMUX_TMPDIR` in-process) does NOT reach the
+spawned tmux — verified directly. The isolation lever must be a **CLI arg computed in-JS**.
 
-Verification: `bun run typecheck` clean · `bun run check` clean (2 pre-existing warnings) ·
-`bun test` decisions-router (7), resurface-github (1), inbox-resurface (1), github-task-store
-(20), pwa source-link (9) all pass.
-</content>
-</invoke>
+- [x] **Fix:** `tmuxSocketArgs()` in `packages/runtime/src/tmux.ts` returns `["-L", FACTORY_TMUX_SOCKET]`
+      when the env var is set (else `[]`). Wired into the `tmux()` helper + the 3 raw `bunSpawn(["tmux"…])`
+      kill-session sites (`workers/recover.ts`, `interventions/orchestrate.ts`, `routers/runs.ts`).
+      Production-identical (env unset → no flag).
+- [x] **Test isolation:** both integration suites set `FACTORY_TMUX_SOCKET=factory-test-<pid>-<n>` in
+      setup (restored in cleanup) and tear down their private server via `tmux -L <socket> kill-server`.
+- [x] **Verified safely** (staged stand-in parent on a private socket, `$TMUX` faked to it = the
+      agent-pane scenario): broken env-version killed the parent; `-L` version → parent survives.
+      Full daemon suite **363 pass / 0 fail** (59 files) with the parent pane intact. typecheck +
+      biome clean (2 pre-existing warnings only).
+- [x] Updated AGENTS.md "wide `bun test`" contract note to reflect the fix.
+- [ ] **Follow-up (operator):** confirm on the live host under a real self-hosting run, then this
+      note can drop entirely. Optional hygiene: set `FACTORY_TMUX_SOCKET` for the daemon too so
+      live/dev instances also get isolated tmux servers (not needed for the bug; nice-to-have).
+
+## WS A — The Trust Ladder  *(biggest single inbox cut; plumbing exists)*
+
+- [ ] ADR: `autonomyMode` enum → graduated L1–L4 (Operator/Collaborator/Approver/Observer).
+- [ ] **Fix latent bug first:** autonomous mode does NOT actually suppress `agent_decision`
+      (backbar/backlot went through collaborative flow in prod data). Make the footer-swap +
+      `decisionsEnabled` path (`runner.ts:351`, `factory-status.ts:415-434`) auto-resolve forks.
+- [ ] L2: agent auto-resolves `agent_decision` to "most defensible path," posts chosen fork +
+      reasoning as inbox `notify` (not `review`). Seam: `workers/agent-decisions.ts`.
+- [ ] Auto-movement: ratchet level up after N consecutive clean verifier-green auto-merges; contract
+      immediately on failure / merge conflict / operator override. Read track record from `runs`.
+- [ ] PWA: surface level + trend in project header beside TierPicker.
+- [ ] L3/L4 deferred behind WS C + WS B.
+
+## WS C — The Verifier-Coverage Gate  *(makes widening the ladder defensible)*
+
+- [ ] ADR: verifier-confidence score as autonomy-eligibility signal.
+- [ ] Compose from existing signals: factory-status `done` + all acceptance criteria met
+      (`runner.ts:530`) + quality green (`quality.ts`) + cross-model validation (WS D).
+- [ ] Frozen testable acceptance criteria = **freeze precondition** (no criteria → not eligible).
+- [ ] Diff reversibility/blast-radius → routing: high+contained → auto-land; low → `review`.
+- [ ] **WS D (fast-follow, near-free):** cross-model adversarial validation — route verification to
+      the *other* family (claude↔codex) via existing AgentModelPicker resolution.
+
+## WS B — The Watch  *(reactive→proactive flip; the Heimdall thesis)*
+
+- [ ] ADR: `workers/scheduler.ts` (third 60s tick, shape of `usage-cap.ts`/`inbox-resurface.ts`;
+      EventBus `run_merged`/`plan_frozen`; skip-if-inflight per ADR-004). Verify v0.4 scheduler
+      shipped first.
+- [ ] **Cadence:** backlog grooming; decompose-next-milestone on queue-drain (replace bare
+      `queue_empty` at `inbox/queue-empty.ts:53`); scheduled health audits (exercise empty `audits`
+      table); doc-drift at release; dependency sweeps → inbox.
+- [ ] **Ambient self-generated intake** (Jules Suggestions): read-only repo/issue/error/audit scan →
+      proposes own tasks to inbox.
+- [ ] **★ Out-of-band-work watcher (operator's enhancement):** periodic read-only pass over the local
+      host's `~/.claude/projects/*` + `~/.codex/` history → synthesize work done *outside* Factory
+      into memory (patterns, corrections, new conventions/skills); surface "you keep doing X by hand
+      — want me to own it?" to inbox. Respect `.env*` deny rules; write ONLY to memory + inbox, never
+      a repo. Memory becomes Factory-earned, not operator-curated.
+
+## Cross-cutting guardrails (every WS honors)
+
+- Operator is the only path to a repo write (VISION/ADR-004 §9) — autonomy expands via read-mostly +
+  low-risk-write auto-approval gated on verifier confidence, never by removing merge/approve gates.
+- Unattended-run guardrails: no force-push, `main` via PR only, no prod restarts, no long-lived
+  processes, no scope invention, auditable trail.
+- Suggest a release after each coherent operator-visible WS lands.

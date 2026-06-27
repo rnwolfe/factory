@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { schema } from "@factory/db";
+import { tmuxSocketArgs } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { eq, inArray } from "drizzle-orm";
@@ -14,7 +15,7 @@ import { resumeOrphanedRun, type SubmitRunDeps } from "./submit.ts";
 async function killTmuxSession(name: string): Promise<void> {
   try {
     const proc = bunSpawn({
-      cmd: ["tmux", "kill-session", "-t", name],
+      cmd: ["tmux", ...tmuxSocketArgs(), "kill-session", "-t", name],
       stdout: "pipe",
       stderr: "pipe",
     });
