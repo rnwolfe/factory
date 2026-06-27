@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { GithubAppClient } from "../src/github/app-auth.ts";
 import {
+  addCommentReaction,
   GithubIssuesStore,
   parseTaskIssueBody,
   postIssueComment,
@@ -504,6 +505,53 @@ describe("postIssueComment", () => {
     );
     expect(ok).toBe(true);
     expect(posted?.body).toBe("the comment");
+  });
+});
+
+describe("addCommentReaction", () => {
+  test("no-op (no network) for file-backed projects", async () => {
+    let called = false;
+    const ok = await addCommentReaction(
+      appConfig,
+      { taskBackend: "file" },
+      555,
+      "eyes",
+      asFetch(async () => {
+        called = true;
+        return json({});
+      }),
+    );
+    expect(ok).toBe(false);
+    expect(called).toBe(false);
+  });
+
+  test("POSTs the reaction to the comment for github-backed projects", async () => {
+    let posted: { content: string } | undefined;
+    let reactedUrl = "";
+    const ok = await addCommentReaction(
+      appConfig,
+      {
+        taskBackend: "github-issues",
+        githubRemote: "https://github.com/o/r.git",
+        githubInstallationId: 42,
+      },
+      555,
+      "eyes",
+      asFetch(async (url, init) => {
+        const u = String(url);
+        const t = tokenRoute(u);
+        if (t) return t;
+        if (init?.method === "POST" && u.includes("/issues/comments/555/reactions")) {
+          reactedUrl = u;
+          posted = JSON.parse(String(init.body));
+          return json({}, 201);
+        }
+        throw new Error(`unexpected ${u}`);
+      }),
+    );
+    expect(ok).toBe(true);
+    expect(posted?.content).toBe("eyes");
+    expect(reactedUrl).toContain("/repos/o/r/issues/comments/555/reactions");
   });
 });
 

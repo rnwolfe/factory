@@ -57,6 +57,7 @@ describe("classifyWebhook — task-048 additions", () => {
     expect(r.status).toBe("processed");
     expect(r.comment).toEqual({
       number: 7,
+      commentId: 0,
       author: "alice",
       body: "any update?",
       authorAssociation: "NONE",
@@ -90,6 +91,15 @@ describe("classifyWebhook — task-048 additions", () => {
       PROJECTS,
     );
     expect(r.comment?.authorAssociation).toBe("COLLABORATOR");
+  });
+
+  test("carries the comment id (for the 👀 reaction)", () => {
+    const r = classifyWebhook(
+      "issue_comment",
+      commentPayload({ comment: { id: 555, body: "ping", user: { login: "alice" } } }),
+      PROJECTS,
+    );
+    expect(r.comment?.commentId).toBe(555);
   });
 });
 

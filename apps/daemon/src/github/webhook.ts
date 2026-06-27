@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import { type DialogProject, runDecisionReply } from "../decisions/dialog.ts";
 import type { EventBus } from "../events.ts";
+import { addCommentReaction } from "../projects/github-task-store.ts";
 import { parseGithubRepo } from "./app-auth.ts";
 import {
   appendOperatorComment,
@@ -58,6 +59,7 @@ export interface GithubWebhookPayload {
     pull_request?: unknown;
   };
   comment?: {
+    id?: number;
     body?: string;
     user?: { login?: string };
     /** OWNER | COLLABORATOR | MEMBER | CONTRIBUTOR | NONE | … */
@@ -73,7 +75,14 @@ export interface WebhookResult {
   /** Present when an externally-authored issue should be offered for intake. */
   intake?: { number: number; title: string; author: string; htmlUrl?: string; body?: string };
   /** Present for an inbound human comment on a tracked issue (task-048). */
-  comment?: { number: number; author: string; body: string; authorAssociation: string };
+  comment?: {
+    number: number;
+    /** The comment's own id — for reacting (👀) to it. 0 if absent. */
+    commentId: number;
+    author: string;
+    body: string;
+    authorAssociation: string;
+  };
   /**
    * Present when a tracked issue's open/closed state changed on GitHub. The
    * github-issues store derives task status live from issue state, so there's
@@ -194,6 +203,7 @@ export function classifyWebhook(
       projectId: project.id,
       comment: {
         number: payload.issue.number,
+        commentId: payload.comment?.id ?? 0,
         author: author || payload.sender?.login || "unknown",
         body: commentBody,
         authorAssociation: payload.comment?.author_association ?? "NONE",
@@ -293,6 +303,12 @@ export async function handleGithubWebhook(
       config.githubReplyAllowlist,
     );
     if (project && allowed) {
+      // Acknowledge the comment we're about to act on with a 👀 reaction.
+      // Fire-and-forget; a reaction failure must never hold up the reply.
+      if (result.comment.commentId > 0) {
+        const commentId = result.comment.commentId;
+        void addCommentReaction(config, project, commentId, "eyes").catch(() => false);
+      }
       const decision = await findDecisionForIssue(db, result.projectId, result.comment.number);
       if (decision) {
         await appendOperatorComment(db, decision.id, result.comment.body);

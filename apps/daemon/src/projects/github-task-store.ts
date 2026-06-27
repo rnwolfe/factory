@@ -434,6 +434,18 @@ export class GithubIssuesStore implements TaskStore {
     });
     if (!res.ok) await this.fail(res, `comment on issue #${taskId}`);
   }
+
+  /** Add a reaction (e.g. `eyes`) to an issue comment. Idempotent server-side:
+   * re-reacting with the same content returns 200 and doesn't duplicate. */
+  async reactToComment(commentId: number, content: string): Promise<void> {
+    const headers = await this.headers();
+    const res = await this.fetchFn(`${this.base()}/issues/comments/${commentId}/reactions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) await this.fail(res, `react to comment ${commentId}`);
+  }
 }
 
 export interface IssueComment {
@@ -577,6 +589,43 @@ export async function postIssueComment(
   );
   try {
     await store.postComment(taskId, body);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * React to an issue comment as the bot (e.g. 👀 to acknowledge a comment Factory
+ * is about to act on). No-op for file-backed projects or when the App isn't
+ * configured; best-effort — returns false on any error so it never breaks the
+ * caller. `content` is a GitHub reaction id: `eyes`, `+1`, `rocket`, etc.
+ */
+export async function addCommentReaction(
+  config: Pick<FactoryConfig, "githubApp">,
+  project: {
+    taskBackend?: string | null;
+    githubRemote?: string | null;
+    githubInstallationId?: number | null;
+  },
+  commentId: number,
+  content: string,
+  fetchFn: FetchFn = globalThis.fetch,
+): Promise<boolean> {
+  if (project.taskBackend !== "github-issues" || !project.githubRemote) return false;
+  const client = githubAppClientFromConfig(config, fetchFn);
+  if (!client) return false;
+  const repo = parseGithubRepo(project.githubRemote);
+  if (!repo) return false;
+  const store = new GithubIssuesStore(
+    client,
+    repo.owner,
+    repo.repo,
+    project.githubInstallationId ?? null,
+    fetchFn,
+  );
+  try {
+    await store.reactToComment(commentId, content);
     return true;
   } catch {
     return false;

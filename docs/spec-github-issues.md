@@ -285,6 +285,12 @@ Factory — the conversational reply links the **task** + **project**; intake an
 (`factoryLinkFooter`). Links are absolute, built from the `public-base-url`
 setting; when it's unset the footer is omitted rather than rendered broken.
 
+**Acknowledgement reaction.** The moment Factory accepts a comment for a reply
+(author passes the gate), it adds a 👀 reaction to that comment
+(`addCommentReaction` → `POST /issues/comments/{id}/reactions`, content `eyes`).
+Fire-and-forget — a reaction failure never holds up the reply — so the operator
+sees "seen, thinking" before the reply lands.
+
 **Trust gate (`isAllowedReplyAuthor`).** Replies are public posts, so they're
 **deny-by-default**. An author passes when their login is on the operator's
 allowlist **or** they have repo write-access (`author_association ∈
