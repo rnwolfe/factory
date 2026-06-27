@@ -117,3 +117,5 @@ When in doubt, name the operator-visible delta and let the operator decide. ("Th
 The release skill handles the version bump, changelog generation, annotated tag, and prints the push commands. **Do not push tags yourself** — that's an operator-authorized action. The skill stops at "here are the commands; you run them."
 
 `channel: stable` resolves the highest `v*.*.*` tag on origin; channel resolution skips pre-release identifiers (e.g. `v1.2.0-rc.1`). If the release isn't ready for the stable channel yet, leave the tag off — operators on `nightly`/`dev` will still pick the change up at the next upgrade.
+
+- **VISION.md** lives at `docs/internal/VISION.md` — read it before any non-trivial change. It states identity, principles, phases, and out-of-scope items.

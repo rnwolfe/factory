@@ -3,6 +3,26 @@
 Rules-for-future-Claude distilled from corrections in this repo. Read at
 session start; update after any user correction.
 
+- **`-webkit-line-clamp` + `overflow-wrap:anywhere`/`break-words` reserves the
+  full unclamped text height on WebKit/Blink — paints N lines, but the box is
+  sized to the whole string.** Symptom: an inbox/decision card with a long
+  `summary` shows a 2-line headline, then a big empty gap (~content height),
+  then the footer/question pinned below. Seen on the blocked-run DecisionCard
+  (`apps/pwa/src/components/decision-card.tsx`) whose headline had
+  `line-clamp-2 break-words [overflow-wrap:anywhere]` while the question span
+  (`line-clamp-2` alone) rendered compactly. Fix: clamp with `line-clamp-2`
+  only — it already sets `overflow:hidden`, so long tokens clip horizontally
+  instead of reserving vertical space. Don't pair the wrap utilities with
+  line-clamp. (2026-06-26)
+- **The live host (`factory.service`, port 4082, `~/.factory-live` data) runs
+  the daemon from the dev checkout (`/home/rnwolfe/dev/factory/apps/daemon`,
+  HEAD) but serves a *pre-built* PWA `dist` (`apps/pwa/dist`, last `bun run
+  build`).** So a frontend source fix on HEAD is NOT live until the PWA is
+  rebuilt + the daemon redeployed/restarted; the dev vite server (4081, HMR)
+  does reflect HEAD immediately. When diagnosing a UI bug from a screenshot,
+  read the actual served bundle (`apps/pwa/dist/assets/index-*.js`) — it may
+  lag HEAD. (2026-06-26)
+
 - **A code-changing run can't cleanly push to origin — it lives in a per-run
   `factory/run-*` worktree, and `mergeIntoMain` (worktree.ts) merges into the
   project's *local* `main` only, after the run, and never pushes.** So any

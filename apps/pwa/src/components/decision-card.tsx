@@ -350,7 +350,7 @@ export function DecisionCard({
           </div>
         ) : (
           <button type="button" onClick={onOpen} className="w-full text-left px-4 pb-3">
-            <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2 break-words [overflow-wrap:anywhere]">
+            <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2">
               {headline}
             </div>
             {decision.payload.rationale ? (
