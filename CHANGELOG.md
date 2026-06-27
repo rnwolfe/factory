@@ -4,6 +4,18 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.30.1 — 2026-06-27
+
+### Fixed
+- **Wide `bun test` no longer kills the parent run.** Factory now isolates its
+  tmux onto a private socket (`-L`, via `FACTORY_TMUX_SOCKET`), so the daemon's
+  tmux integration tests can no longer destabilize the shared tmux server that a
+  self-hosting run's `claude --print` pane lives on. This was the dominant cause
+  of spurious run failures — a run would commit its work but be marked `failed`
+  with no factory-status footer, and it severed roughly half of all autonomous
+  run chains. Production tmux behavior is unchanged (the socket flag only appears
+  when the test-only env var is set).
+
 ## v0.30.0 — 2026-06-27
 
 ### Added
