@@ -3,17 +3,25 @@
 Rules-for-future-Claude distilled from corrections in this repo. Read at
 session start; update after any user correction.
 
-- **`-webkit-line-clamp` + `overflow-wrap:anywhere`/`break-words` reserves the
-  full unclamped text height on WebKit/Blink — paints N lines, but the box is
-  sized to the whole string.** Symptom: an inbox/decision card with a long
-  `summary` shows a 2-line headline, then a big empty gap (~content height),
-  then the footer/question pinned below. Seen on the blocked-run DecisionCard
-  (`apps/pwa/src/components/decision-card.tsx`) whose headline had
-  `line-clamp-2 break-words [overflow-wrap:anywhere]` while the question span
-  (`line-clamp-2` alone) rendered compactly. Fix: clamp with `line-clamp-2`
-  only — it already sets `overflow:hidden`, so long tokens clip horizontally
-  instead of reserving vertical space. Don't pair the wrap utilities with
-  line-clamp. (2026-06-26)
+- **`-webkit-line-clamp` (`display:-webkit-box`) leaks its *intrinsic* height
+  into block flow on WebKit/iOS Safari — fix with `[contain:layout]`, NOT by
+  touching `overflow-wrap`.** Symptom: a decision card with a long `summary`
+  shows a 2-line headline, then a ~340px empty gap, then the question/buttons
+  pinned below. Proven mechanism (measured in real WebKit): the clamped div has
+  `offsetHeight≈47` (2 lines, visually clipped) but `scrollHeight≈397`, and that
+  scrollHeight leaks into the parent block flow, pushing the next sibling down by
+  the un-clamped height. **Blink is unaffected — it only reproduces on iPhone.**
+  The question `<span>` never gapped because it's a *flex item* (flex sizes
+  children by border-box, absorbing the leak); the headline `<div>` is a block
+  child, so it leaks. Fix: add `[contain:layout]` to every line-clamped
+  *block-context* element (`apps/pwa/src/components/decision-card.tsx` headline +
+  rationale/message/context `<p>`s). Two false starts cost a wrong release
+  (v0.28.1 removed `overflow-wrap` — a no-op): **a `-webkit-line-clamp` gap that
+  only shows on one engine MUST be reproduced in that engine before fixing.**
+  Playwright `webkit` on this host needs `sudo playwright install-deps webkit`
+  (libgtk-4 + media libs); drive the real app via `localStorage['factory.token']`
+  against `http://localhost:4082`, and compare `offsetHeight` vs `scrollHeight`
+  to find the leaking node. (2026-06-26)
 - **The live host (`factory.service`, port 4082, `~/.factory-live` data) runs
   the daemon from the dev checkout (`/home/rnwolfe/dev/factory/apps/daemon`,
   HEAD) but serves a *pre-built* PWA `dist` (`apps/pwa/dist`, last `bun run

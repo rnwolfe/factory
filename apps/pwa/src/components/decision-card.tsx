@@ -350,11 +350,21 @@ export function DecisionCard({
           </div>
         ) : (
           <button type="button" onClick={onOpen} className="w-full text-left px-4 pb-3">
-            <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2">
+            {/*
+              [contain:layout] is load-bearing on every line-clamped block here.
+              WebKit/iOS Safari `-webkit-line-clamp` clips the element visually to
+              N lines (offsetHeight ≈ 2 lines) but leaks its full intrinsic height
+              (scrollHeight) into the parent's block flow, pushing siblings down by
+              the un-clamped height — a huge empty gap on long summaries. (Blink is
+              unaffected, so it only shows on iPhone.) Layout containment isolates
+              that leak. The question <span> escapes the bug only because it's a
+              flex item; these block-context clamps need the contain. Don't remove.
+            */}
+            <div className="display text-[17px] leading-snug text-[var(--color-fg)] line-clamp-2 [contain:layout]">
               {headline}
             </div>
             {decision.payload.rationale ? (
-              <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--color-fg-2)] line-clamp-2">
+              <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--color-fg-2)] line-clamp-2 [contain:layout]">
                 {decision.payload.rationale}
               </p>
             ) : null}
@@ -377,7 +387,7 @@ export function DecisionCard({
             ))}
           </ul>
         ) : isMergeFailure && decision.payload.message ? (
-          <p className="px-4 pb-3 mono text-[11.5px] leading-snug text-[var(--color-fg-2)] line-clamp-3">
+          <p className="px-4 pb-3 mono text-[11.5px] leading-snug text-[var(--color-fg-2)] line-clamp-3 [contain:layout]">
             {decision.payload.message}
           </p>
         ) : isAgentDecision ? (
@@ -390,7 +400,7 @@ export function DecisionCard({
               {decision.payload.kind ? <span>· {decision.payload.kind}</span> : null}
             </div>
             {decision.payload.context ? (
-              <p className="text-[12.5px] leading-snug text-[var(--color-fg-2)] line-clamp-2">
+              <p className="text-[12.5px] leading-snug text-[var(--color-fg-2)] line-clamp-2 [contain:layout]">
                 {decision.payload.context}
               </p>
             ) : null}
