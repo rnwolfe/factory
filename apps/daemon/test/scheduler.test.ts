@@ -5,6 +5,7 @@ import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
 import { eq } from "drizzle-orm";
 import { EventBus } from "../src/events.ts";
+import { createDbCursorStore } from "../src/watch/cursor-store.ts";
 import type { HarnessSource } from "../src/watch/sources/types.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "../src/watch/synthesis-job.ts";
 import { startScheduler } from "../src/workers/scheduler.ts";
@@ -186,6 +187,69 @@ describe("readWatchSynthesisCadence", () => {
         .where(eq(schema.settings.key, "watch-synthesis-cadence"))
         .run();
       expect(readWatchSynthesisCadence(db)).toBe("daily"); // invalid → default
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("createDbCursorStore", () => {
+  test("roundtrips and upserts a per-source cursor", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "watch-cursor-"));
+    try {
+      const dbPath = path.join(root, "data.db");
+      runMigrations(dbPath);
+      const store = createDbCursorStore(createDb(dbPath));
+
+      expect(store.get("claude-code")).toBeNull();
+      store.set({ sourceId: "claude-code", position: "2026-06-01T00:00:00.000Z" });
+      expect(store.get("claude-code")?.position).toBe("2026-06-01T00:00:00.000Z");
+      store.set({ sourceId: "claude-code", position: "2026-06-02T00:00:00.000Z" }); // upsert
+      expect(store.get("claude-code")?.position).toBe("2026-06-02T00:00:00.000Z");
+      expect(store.get("codex")).toBeNull(); // isolated per source
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a fresh synthesis job resumes from the persisted cursor", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "watch-durable-"));
+    try {
+      const dbPath = path.join(root, "data.db");
+      runMigrations(dbPath);
+      const store = createDbCursorStore(createDb(dbPath));
+
+      let calls = 0;
+      let seenCursorPos: string | null | undefined;
+      const fake: HarnessSource = {
+        id: "fake",
+        label: "Fake",
+        isAvailable: async () => true,
+        async scan(cursor) {
+          calls++;
+          seenCursorPos = cursor?.position ?? null;
+          return { records: [], next: { sourceId: "fake", position: `p${calls}` } };
+        },
+        readMemories: async () => [],
+      };
+
+      // First job instance writes p1 to the durable store.
+      await createSynthesisJob({
+        cadence: () => "daily",
+        listSources: async () => [fake],
+        cursors: store,
+      }).run();
+
+      // A brand-new job instance (simulating a daemon restart) must read p1 from
+      // the store, not fall back to the lookback default.
+      await createSynthesisJob({
+        cadence: () => "daily",
+        listSources: async () => [fake],
+        cursors: store,
+      }).run();
+
+      expect(calls).toBe(2);
+      expect(seenCursorPos).toBe("p1");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

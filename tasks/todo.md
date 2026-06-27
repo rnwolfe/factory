@@ -86,9 +86,17 @@ spawned tmux — verified directly. The isolation lever must be a **CLI arg comp
       operator-tunable setting** `watch-synthesis-cadence` (`off|hourly|daily|weekly`, default daily,
       read live each tick — no restart), validated in the settings router. Wired in `index.ts` +
       shutdown. 7 tests; full daemon suite 376 pass.
-- [ ] **Slice 3 — synthesis + observations** (`claude --print` over `WorkRecord[]`/`MemoryDoc[]` →
-      `watch_observations`; `watch_cursors` (durable, replaces in-memory) + `watch_insight` decision
-      kind; operator-memory repo IO + PWA viewer; first-run ingests all harness memories).
+- [x] **Slice 3a — schema + durable cursors (landed).** `watch_cursors` + `watch_observations`
+      tables (migration `0033`), enums (`watchObservationKind/Proposal/Status`). `watch/cursor-store.ts`
+      (DB-backed + in-memory), wired into the synthesis job + daemon boot so scans resume across
+      restarts. 2 tests incl. fresh-instance-resumes-from-store. Full suite 378 pass. (`watch_insight`
+      decision kind deferred to 3c so the enum + its PWA card handler move together.)
+- [ ] **Slice 3b — the synthesizer** (`claude --print` over `WorkRecord[]` + `readMemories()` →
+      `Observation[]`, fenced JSON + null-parse-fail; dedupeKey; persist to `watch_observations`).
+- [ ] **Slice 3c — inbox surfacing** (`watch_insight` decision kind + PWA decision card; notify-grade;
+      promote → task / convention / note).
+- [ ] **Slice 3d — operator-memory repo** (`operator-memory.ts`: fresh Factory-owned git repo,
+      Claude-format; first run ingests all harness memories; injectable as run context) + **PWA viewer**.
 - [ ] **Cadence:** backlog grooming; decompose-next-milestone on queue-drain (replace bare
       `queue_empty` at `inbox/queue-empty.ts:53`); scheduled health audits (exercise empty `audits`
       table); doc-drift at release; dependency sweeps → inbox.

@@ -1,6 +1,7 @@
 import type { Db } from "@factory/db";
 import { readAllSettings } from "../settings/store.ts";
 import { type Cadence, isCadence, type ScheduledJob } from "../workers/scheduler.ts";
+import { type CursorStore, createMemoryCursorStore } from "./cursor-store.ts";
 import { availableHarnessSources } from "./sources/registry.ts";
 import type { HarnessSource, WatchCursor } from "./sources/types.ts";
 
@@ -33,15 +34,17 @@ export interface SynthesisJobDeps {
   listSources?: () => Promise<HarnessSource[]>;
   /**
    * How far back the first (cursorless) scan of each source looks, bounding the
-   * cold-start cost. Durable cursors in slice 3 make this a one-time floor.
+   * cold-start cost. Once a durable cursor exists this is a one-time floor.
    */
   initialLookbackDays?: number;
+  /** Durable scan positions; defaults to a non-durable in-memory store. */
+  cursors?: CursorStore;
 }
 
 export function createSynthesisJob(deps: SynthesisJobDeps): ScheduledJob {
   const listSources = deps.listSources ?? availableHarnessSources;
   const lookbackMs = (deps.initialLookbackDays ?? 7) * 24 * 60 * 60_000;
-  const cursors = new Map<string, WatchCursor>(); // in-memory; durable in slice 3
+  const cursors = deps.cursors ?? createMemoryCursorStore();
 
   return {
     id: "watch-synthesis",
@@ -58,7 +61,7 @@ export function createSynthesisJob(deps: SynthesisJobDeps): ScheduledJob {
               position: new Date(Date.now() - lookbackMs).toISOString(),
             } satisfies WatchCursor);
           const { records, next } = await src.scan(cursor);
-          cursors.set(src.id, next);
+          cursors.set(next);
           scanned += records.length;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

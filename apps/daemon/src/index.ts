@@ -25,6 +25,7 @@ import { notifyReady } from "./sd-notify.ts";
 import { recoverOrphanedSessions, tmuxNameForSession } from "./sessions/orchestrate.ts";
 import { applySettingsFromDb } from "./settings/store.ts";
 import { makeStaticHandler } from "./static.ts";
+import { createDbCursorStore } from "./watch/cursor-store.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
@@ -200,10 +201,16 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // The Watch (ADR-010): proactive scheduler tick. Today it drives the
   // out-of-band-work synthesis job at the operator-tunable
   // `watch-synthesis-cadence` (cadence read live each tick; scan-only until
-  // slice 3 wires synthesis). Cadence + event jobs register here.
+  // synthesis is wired). Scan positions persist in `watch_cursors` so a restart
+  // resumes rather than re-reading. Cadence + event jobs register here.
   const scheduler = startScheduler({
     events,
-    jobs: [createSynthesisJob({ cadence: () => readWatchSynthesisCadence(db) })],
+    jobs: [
+      createSynthesisJob({
+        cadence: () => readWatchSynthesisCadence(db),
+        cursors: createDbCursorStore(db),
+      }),
+    ],
   });
 
   const buildCtx = (req: Request): DaemonContext => ({

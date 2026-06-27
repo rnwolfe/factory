@@ -232,6 +232,13 @@
       "when": 1781962572625,
       "tag": "0032_special_sebastian_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1782588205112,
+      "tag": "0033_fixed_ravenous",
+      "breakpoints": true
     }
   ]
 }

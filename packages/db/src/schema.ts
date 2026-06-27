@@ -23,6 +23,9 @@ export const decisionKindEnum = [
   // Informational nudge so a project doesn't stall silently; gated behind
   // the `notify-on-queue-empty` setting. See inbox/queue-empty.ts.
   "queue_empty",
+  // NOTE: the `watch_insight` kind (ADR-010 — surface a synthesized observation
+  // to the inbox) lands with the synthesis/inbox step, alongside its PWA
+  // decision-card handler, so the enum and its consumers move together.
 ] as const;
 export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
 export const taskBackendEnum = ["file", "github-issues"] as const;
@@ -1097,3 +1100,80 @@ export const taskTemplates = sqliteTable(
 
 export type TaskTemplate = typeof taskTemplates.$inferSelect;
 export type NewTaskTemplate = typeof taskTemplates.$inferInsert;
+
+// ── The Watch (ADR-010) ──────────────────────────────────────────────────────
+// Two index-only tables: durable scan cursors and synthesized observations. If
+// the DB is wiped, project value is preserved — observations promote into tasks
+// / AGENTS.md / the operator-memory repo, which are the canonical artifacts.
+
+/**
+ * Per-harness-source incremental scan position. Replaces the slice-2 in-memory
+ * cursor so a daemon restart resumes where the last scan left off instead of
+ * re-reading (and re-synthesizing) the whole lookback window.
+ */
+export const watchCursors = sqliteTable("watch_cursors", {
+  /** Harness source id (`claude-code`, `codex`, …) — see HARNESS_SOURCE_REGISTRY. */
+  sourceId: text("source_id").primaryKey(),
+  /** Opaque, source-defined position (an ISO timestamp for the built-in sources). */
+  position: text("position").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export type WatchCursorRow = typeof watchCursors.$inferSelect;
+export type NewWatchCursorRow = typeof watchCursors.$inferInsert;
+
+export const watchObservationKindEnum = [
+  "repeated-ritual",
+  "new-convention",
+  "correction-pattern",
+  "candidate-task",
+  "tooling-gap",
+] as const;
+
+/** What the operator can do with an observation from the inbox. */
+export const watchObservationProposalEnum = [
+  "adopt-as-task",
+  "record-as-convention",
+  "note-only",
+] as const;
+
+export const watchObservationStatusEnum = [
+  "pending", // synthesized, not yet surfaced to the inbox
+  "surfaced", // a watch_insight decision exists for it
+  "adopted", // operator promoted it (task / convention / memory)
+  "dismissed", // operator declined
+  "superseded", // replaced by a newer observation on the same dedupe key
+] as const;
+
+/**
+ * A synthesized insight about the operator's out-of-band work. The synthesizer
+ * writes these; the inbox surfaces them as `watch_insight` decisions; operator
+ * action promotes them into canonical artifacts. `dedupeKey` is the idempotency
+ * handle — an observation already surfaced or dismissed is never re-raised.
+ */
+export const watchObservations = sqliteTable(
+  "watch_observations",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: watchObservationKindEnum }).notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull(),
+    /** JSON `{ sourceId, sessionId }[]` — provenance back to the originating sessions. */
+    evidence: text("evidence").notNull(),
+    proposal: text("proposal", { enum: watchObservationProposalEnum }).notNull(),
+    /** Factory project slug this maps to, or null for operator-level (cross-project). */
+    targetProjectSlug: text("target_project_slug"),
+    status: text("status", { enum: watchObservationStatusEnum }).notNull().default("pending"),
+    /** Stable key for dedup across synthesis runs (normalized kind+subject). */
+    dedupeKey: text("dedupe_key").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("watch_observations_dedupe_uniq").on(t.dedupeKey),
+    index("watch_observations_status_idx").on(t.status),
+  ],
+);
+
+export type WatchObservation = typeof watchObservations.$inferSelect;
+export type NewWatchObservation = typeof watchObservations.$inferInsert;
