@@ -9,6 +9,7 @@ import {
   snapshotSettings,
 } from "../settings/store.ts";
 import { protectedProcedure, router } from "../trpc.ts";
+import { isCadence } from "../workers/scheduler.ts";
 
 const KeyEnum = z.enum(SETTING_KEYS as unknown as [string, ...string[]]);
 
@@ -149,6 +150,12 @@ export const settingsRouter = router({
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "landing-route: 'inbox' or 'ops'",
+        });
+      }
+      if (input.key === "watch-synthesis-cadence" && !isCadence(input.value)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "watch-synthesis-cadence: 'off' | 'hourly' | 'daily' | 'weekly'",
         });
       }
       // default-model is opaque (CLI accepts any model id); just trim

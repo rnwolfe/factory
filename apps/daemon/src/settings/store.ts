@@ -65,6 +65,11 @@ export const SETTING_KEYS = [
   // `agents.list` reads it to conditionally append the model; nothing in
   // FactoryConfig depends on it.
   "experimental-fable-5",
+  // The Watch (ADR-010): how often the out-of-band-work synthesis job runs.
+  // "off" | "hourly" | "daily" | "weekly" (default daily). Read live each tick
+  // by the scheduler — operator-tunable without a restart. Token-intensive once
+  // slice 3 wires synthesis, so it is a first-class knob from the start.
+  "watch-synthesis-cadence",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];

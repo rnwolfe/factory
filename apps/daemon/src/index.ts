@@ -25,9 +25,11 @@ import { notifyReady } from "./sd-notify.ts";
 import { recoverOrphanedSessions, tmuxNameForSession } from "./sessions/orchestrate.ts";
 import { applySettingsFromDb } from "./settings/store.ts";
 import { makeStaticHandler } from "./static.ts";
+import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
 import { RunRegistry } from "./workers/registry.ts";
+import { startScheduler } from "./workers/scheduler.ts";
 import { startUsageCapResumer } from "./workers/usage-cap.ts";
 import { attachWsChannel, detachWsChannel, planWsUpgrade, type WsClientData } from "./ws/hub.ts";
 
@@ -194,6 +196,15 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // expired timestamps as active; this loop makes expiry proactive by clearing
   // the snooze and publishing the same event path as a newly-landed item.
   const stopInboxSnoozeResurfacer = startInboxSnoozeResurfacer({ db, events });
+
+  // The Watch (ADR-010): proactive scheduler tick. Today it drives the
+  // out-of-band-work synthesis job at the operator-tunable
+  // `watch-synthesis-cadence` (cadence read live each tick; scan-only until
+  // slice 3 wires synthesis). Cadence + event jobs register here.
+  const scheduler = startScheduler({
+    events,
+    jobs: [createSynthesisJob({ cadence: () => readWatchSynthesisCadence(db) })],
+  });
 
   const buildCtx = (req: Request): DaemonContext => ({
     config,
@@ -365,6 +376,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     stopPushDispatcher();
     stopUsageCapResumer();
     stopInboxSnoozeResurfacer();
+    scheduler.stop();
     await pool.drain();
     console.log("[factoryd] shutdown complete.");
   };

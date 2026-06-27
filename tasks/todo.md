@@ -79,9 +79,16 @@ spawned tmux — verified directly. The isolation lever must be a **CLI arg comp
       (read-only incremental `scan(cursor)` + `readMemories()`, skip `.env*`), `fs-util.ts`.
       6 tests pass; validated against real `~/.claude` (32 recent sessions, 83 memory docs) and
       `~/.codex` (ts=epoch-seconds confirmed). No LLM/scheduler/DB yet — pure pluggable foundation.
-- [ ] **Slice 2 — scheduler tick** (`workers/scheduler.ts`, 3rd 60s tick + EventBus, skip-if-inflight).
+- [x] **Slice 2 — scheduler tick (landed).** `workers/scheduler.ts`: generic 3rd 60s tick +
+      EventBus, time-cadence + event jobs, **skip-if-inflight**, injectable clock + `runDue(at)` for
+      deterministic tests. `watch/synthesis-job.ts`: the out-of-band job (scan-only; synthesis is
+      slice 3), bounded cold-start lookback, per-source in-memory cursors. **Cadence is an
+      operator-tunable setting** `watch-synthesis-cadence` (`off|hourly|daily|weekly`, default daily,
+      read live each tick — no restart), validated in the settings router. Wired in `index.ts` +
+      shutdown. 7 tests; full daemon suite 376 pass.
 - [ ] **Slice 3 — synthesis + observations** (`claude --print` over `WorkRecord[]`/`MemoryDoc[]` →
-      `watch_observations`; `watch_cursors` + `watch_insight` decision kind; operator-memory repo IO).
+      `watch_observations`; `watch_cursors` (durable, replaces in-memory) + `watch_insight` decision
+      kind; operator-memory repo IO + PWA viewer; first-run ingests all harness memories).
 - [ ] **Cadence:** backlog grooming; decompose-next-milestone on queue-drain (replace bare
       `queue_empty` at `inbox/queue-empty.ts:53`); scheduled health audits (exercise empty `audits`
       table); doc-drift at release; dependency sweeps → inbox.
