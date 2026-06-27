@@ -91,8 +91,12 @@ spawned tmux — verified directly. The isolation lever must be a **CLI arg comp
       (DB-backed + in-memory), wired into the synthesis job + daemon boot so scans resume across
       restarts. 2 tests incl. fresh-instance-resumes-from-store. Full suite 378 pass. (`watch_insight`
       decision kind deferred to 3c so the enum + its PWA card handler move together.)
-- [ ] **Slice 3b — the synthesizer** (`claude --print` over `WorkRecord[]` + `readMemories()` →
-      `Observation[]`, fenced JSON + null-parse-fail; dedupeKey; persist to `watch_observations`).
+- [x] **Slice 3b — the synthesizer (landed).** `watch/synthesize.ts` (`claude --print` over
+      `WorkRecord[]` + first-seen `readMemories()` → `RawObservation[]`; injectable invoke; fenced
+      JSON + null-parse-fail; validation drops bad kind/proposal/evidence). `watch/observation-store.ts`
+      (dedupeKey + insert-once into `watch_observations`). Job rewired: scan→synthesize→save, cursors
+      committed only after success (failed turn re-scans, dedup-idempotent). Wired real synth+save at
+      boot. 6 tests; full suite 384 pass. NOT yet surfaced to the operator (that's 3c).
 - [ ] **Slice 3c — inbox surfacing** (`watch_insight` decision kind + PWA decision card; notify-grade;
       promote → task / convention / note).
 - [ ] **Slice 3d — operator-memory repo** (`operator-memory.ts`: fresh Factory-owned git repo,

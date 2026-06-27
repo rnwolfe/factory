@@ -13,6 +13,12 @@ import { startScheduler } from "../src/workers/scheduler.ts";
 const HOUR = 60 * 60_000;
 const flush = () => new Promise<void>((r) => setTimeout(r, 1));
 
+// No-op synthesis collaborators for tests that only exercise scan/cursor flow.
+const NOOP_SYNTH = {
+  synthesize: async () => [],
+  saveObservations: () => ({ inserted: 0, skipped: 0 }),
+};
+
 describe("startScheduler", () => {
   test("runs a time-cadence job once per interval, not on boot", async () => {
     const t0 = 1_700_000_000_000;
@@ -141,7 +147,11 @@ describe("createSynthesisJob", () => {
       },
       readMemories: async () => [],
     };
-    const job = createSynthesisJob({ cadence: () => "daily", listSources: async () => [fake] });
+    const job = createSynthesisJob({
+      cadence: () => "daily",
+      listSources: async () => [fake],
+      ...NOOP_SYNTH,
+    });
 
     await job.run(); // first scan: cursor is the lookback default
     expect(calls).toBe(1);
@@ -162,7 +172,11 @@ describe("createSynthesisJob", () => {
       },
       readMemories: async () => [],
     };
-    const job = createSynthesisJob({ cadence: () => "daily", listSources: async () => [bad] });
+    const job = createSynthesisJob({
+      cadence: () => "daily",
+      listSources: async () => [bad],
+      ...NOOP_SYNTH,
+    });
     await expect(job.run()).resolves.toBeUndefined();
   });
 });
@@ -228,7 +242,12 @@ describe("createDbCursorStore", () => {
         async scan(cursor) {
           calls++;
           seenCursorPos = cursor?.position ?? null;
-          return { records: [], next: { sourceId: "fake", position: `p${calls}` } };
+          // First scan yields a record so the cursor commits (cursors advance
+          // only after a non-empty synthesis); the second sees nothing new.
+          return {
+            records: calls === 1 ? [stubRecord()] : [],
+            next: { sourceId: "fake", position: `p${calls}` },
+          };
         },
         readMemories: async () => [],
       };
@@ -238,6 +257,7 @@ describe("createDbCursorStore", () => {
         cadence: () => "daily",
         listSources: async () => [fake],
         cursors: store,
+        ...NOOP_SYNTH,
       }).run();
 
       // A brand-new job instance (simulating a daemon restart) must read p1 from
@@ -246,6 +266,7 @@ describe("createDbCursorStore", () => {
         cadence: () => "daily",
         listSources: async () => [fake],
         cursors: store,
+        ...NOOP_SYNTH,
       }).run();
 
       expect(calls).toBe(2);

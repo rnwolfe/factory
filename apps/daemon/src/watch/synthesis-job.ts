@@ -3,18 +3,27 @@ import { readAllSettings } from "../settings/store.ts";
 import { type Cadence, isCadence, type ScheduledJob } from "../workers/scheduler.ts";
 import { type CursorStore, createMemoryCursorStore } from "./cursor-store.ts";
 import { availableHarnessSources } from "./sources/registry.ts";
-import type { HarnessSource, WatchCursor } from "./sources/types.ts";
+import type { HarnessSource, MemoryDoc, WatchCursor, WorkRecord } from "./sources/types.ts";
+import type { RawObservation } from "./synthesize.ts";
 
 /**
  * The out-of-band-work synthesis job (ADR-010 §3). On its operator-tunable
- * cadence it scans every available harness source for new work since last time.
+ * cadence it scans every available harness source for new work since last time,
+ * synthesizes high-signal observations from it (ingesting a source's existing
+ * memory the first time that source is seen), and persists them deduped.
  *
- * SLICE 2 scope: scan + advance an in-memory cursor + report volume. The
- * token-intensive synthesis — feeding `WorkRecord`s + `readMemories()` to a
- * `claude --print` pass → `watch_insight` inbox items, and persisting cursors in
- * `watch_cursors` — lands in slice 3. The cadence knob already governs it now,
- * so the operator can dial spend before the tokens start flowing.
+ * Cursors are committed only AFTER synthesis + save succeed, so a failed turn
+ * leaves the batch to be re-scanned next cadence (dedup makes that idempotent)
+ * rather than silently dropping records. The `synthesize` / `saveObservations`
+ * collaborators are injected, keeping this a pure orchestrator.
  */
+
+export type SynthesizeFn = (
+  records: WorkRecord[],
+  memories: MemoryDoc[],
+) => Promise<RawObservation[]>;
+
+export type SaveObservationsFn = (obs: RawObservation[]) => { inserted: number; skipped: number };
 
 const DEFAULT_CADENCE: Cadence = "daily";
 
@@ -30,6 +39,10 @@ export function readWatchSynthesisCadence(db: Db): Cadence {
 
 export interface SynthesisJobDeps {
   cadence: () => Cadence;
+  /** Turn scanned work (+ first-seen memories) into observations. */
+  synthesize: SynthesizeFn;
+  /** Persist observations (deduped); returns insert/skip counts. */
+  saveObservations: SaveObservationsFn;
   /** Injectable for tests; defaults to the registry's available sources. */
   listSources?: () => Promise<HarnessSource[]>;
   /**
@@ -51,26 +64,41 @@ export function createSynthesisJob(deps: SynthesisJobDeps): ScheduledJob {
     cadence: deps.cadence,
     async run() {
       const sources = await listSources();
-      let scanned = 0;
+      const records: WorkRecord[] = [];
+      const memories: MemoryDoc[] = [];
+      const pending: WatchCursor[] = []; // committed only after success
+
       for (const src of sources) {
         try {
+          const existing = cursors.get(src.id);
           const cursor =
-            cursors.get(src.id) ??
+            existing ??
             ({
               sourceId: src.id,
               position: new Date(Date.now() - lookbackMs).toISOString(),
             } satisfies WatchCursor);
-          const { records, next } = await src.scan(cursor);
-          cursors.set(next);
-          scanned += records.length;
+          const scan = await src.scan(cursor);
+          records.push(...scan.records);
+          pending.push(scan.next);
+          // First time we see a source, ingest its existing memory as grounding.
+          if (!existing) memories.push(...(await src.readMemories()));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(`[watch] source ${src.id} scan failed: ${msg}`);
         }
       }
-      // Slice 3: synthesize the scanned work (+ readMemories) into observations.
+
+      if (records.length === 0) {
+        console.log(`[watch] scanned 0 new work record(s) across ${sources.length} source(s)`);
+        return;
+      }
+
+      const observations = await deps.synthesize(records, memories);
+      const { inserted, skipped } = deps.saveObservations(observations);
+      // Only now is the work safely synthesized + persisted — advance cursors.
+      for (const c of pending) cursors.set(c);
       console.log(
-        `[watch] scanned ${scanned} new work record(s) across ${sources.length} source(s)`,
+        `[watch] ${records.length} record(s) → ${observations.length} observation(s) (${inserted} new, ${skipped} dup)`,
       );
     },
   };

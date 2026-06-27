@@ -2,7 +2,7 @@ import { createDb, runMigrations, schema } from "@factory/db";
 import { resizeTmuxWindow, sendKeysToTmux } from "@factory/runtime";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
-import { bindAgentBudgetConfig } from "./agent-budget.ts";
+import { bindAgentBudgetConfig, getAgentBudgetSeconds } from "./agent-budget.ts";
 import { authorizeRequest } from "./auth.ts";
 import { ensureVapid, type FactoryConfig, loadConfig, writeInitialConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
@@ -26,7 +26,9 @@ import { recoverOrphanedSessions, tmuxNameForSession } from "./sessions/orchestr
 import { applySettingsFromDb } from "./settings/store.ts";
 import { makeStaticHandler } from "./static.ts";
 import { createDbCursorStore } from "./watch/cursor-store.ts";
+import { saveObservations } from "./watch/observation-store.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
+import { synthesizeObservations } from "./watch/synthesize.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
 import { RunRegistry } from "./workers/registry.ts";
@@ -198,17 +200,20 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // the snooze and publishing the same event path as a newly-landed item.
   const stopInboxSnoozeResurfacer = startInboxSnoozeResurfacer({ db, events });
 
-  // The Watch (ADR-010): proactive scheduler tick. Today it drives the
-  // out-of-band-work synthesis job at the operator-tunable
-  // `watch-synthesis-cadence` (cadence read live each tick; scan-only until
-  // synthesis is wired). Scan positions persist in `watch_cursors` so a restart
-  // resumes rather than re-reading. Cadence + event jobs register here.
+  // The Watch (ADR-010): proactive scheduler tick. It scans the operator's
+  // out-of-band harness work on the operator-tunable `watch-synthesis-cadence`
+  // (read live each tick), synthesizes observations via `claude --print`, and
+  // persists them deduped to `watch_observations`. Scan positions persist in
+  // `watch_cursors` so a restart resumes rather than re-reading.
   const scheduler = startScheduler({
     events,
     jobs: [
       createSynthesisJob({
         cadence: () => readWatchSynthesisCadence(db),
         cursors: createDbCursorStore(db),
+        synthesize: (records, memories) =>
+          synthesizeObservations(records, memories, { budgetSeconds: getAgentBudgetSeconds() }),
+        saveObservations: (obs) => saveObservations(db, obs),
       }),
     ],
   });
