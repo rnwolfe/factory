@@ -4,6 +4,24 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.29.0 — 2026-06-27
+
+### Added
+- **The Factory GitHub App now answers issue comments from trusted accounts.**
+  When an allowlisted person comments on a tracked issue, the bot replies on the
+  thread as `factory[bot]`, grounded in the project, the issue, and the
+  conversation so far. Comments with no open inbox card get a free-form
+  conversational reply; comments on intake/blocked-run/agent-decision cards reply
+  through their existing thread.
+- **Issue reply allowlist** (Settings → operator settings). A GitHub-login
+  allowlist that gates who the App will answer; repo collaborators
+  (owner/member/collaborator) are always answered. Empty list + no write-access =
+  the bot stays silent (deny-by-default — replies are public posts).
+- **Deep links back into Factory** on every bot reply — the task/project for a
+  conversational reply, the inbox decision/project for intake and
+  blocked-run/agent-decision replies. Built from the new **public base URL**
+  setting (Settings → operator settings); omitted when it isn't set.
+
 ## v0.28.2 — 2026-06-26
 
 ### Fixed
