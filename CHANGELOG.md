@@ -4,6 +4,18 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.28.1 — 2026-06-26
+
+### Fixed
+- **Blocked-run inbox cards no longer show a large empty gap.** The card
+  headline paired `-webkit-line-clamp` with `overflow-wrap: anywhere`, which
+  makes WebKit/Blink reserve the full unclamped text height while painting only
+  two lines — leaving a tall dead space above the question on long run
+  summaries. The headline now clamps cleanly like the rest of the card.
+- **GitHub-closed issues reconcile into the Factory task list.** Issues closed
+  on GitHub are reflected back into the task list instead of lingering as open
+  work.
+
 ## v0.28.0 — 2026-06-21
 
 ### Added
