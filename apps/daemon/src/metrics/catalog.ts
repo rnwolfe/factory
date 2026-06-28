@@ -140,4 +140,22 @@ export const METRIC_CATALOG: MetricDef[] = [
     scope: "portfolio",
     compute: (c) => c.projects.filter((p) => p.autonomyMode === "autonomous").length,
   },
+
+  // The Watch output (DB flow): observations synthesized per day — makes the
+  // synthesis loop's productivity chartable over time.
+  {
+    key: "watch_observations_created",
+    scope: "portfolio",
+    compute: (c) =>
+      c.db
+        .select({ n: count() })
+        .from(schema.watchObservations)
+        .where(
+          and(
+            gte(schema.watchObservations.createdAt, c.dayStartMs),
+            lt(schema.watchObservations.createdAt, c.dayEndMs),
+          ),
+        )
+        .get()?.n ?? 0,
+  },
 ];

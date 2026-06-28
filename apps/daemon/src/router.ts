@@ -22,6 +22,7 @@ import { sessionsRouter } from "./routers/sessions.ts";
 import { settingsRouter } from "./routers/settings.ts";
 import { skillsRouter } from "./routers/skills.ts";
 import { taskTemplatesRouter } from "./routers/task-templates.ts";
+import { watchRouter } from "./routers/watch.ts";
 import { worktreesRouter } from "./routers/worktrees.ts";
 import { router } from "./trpc.ts";
 
@@ -50,6 +51,7 @@ export const appRouter = router({
   settings: settingsRouter,
   skills: skillsRouter,
   taskTemplates: taskTemplatesRouter,
+  watch: watchRouter,
   worktrees: worktreesRouter,
 });
 
