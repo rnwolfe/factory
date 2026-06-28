@@ -56,10 +56,15 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
 
 ## WS C — Verifier-Coverage Gate  *(prereq for Trust Ladder step-up + L4)*
 
-- [ ] ADR + verifier-confidence score: factory-status `done` + all acceptance criteria met
-      (`runner.ts:530`) + quality green (`quality.ts`) + cross-model validation. Frozen testable
-      acceptance criteria = **freeze precondition**. Diff reversibility/blast-radius → routing
-      (auto-land vs review).
+- [~] **Slice 1 — the verifier-confidence score (landed, informational).** ADR-014 + `verifier.ts`
+      (`computeVerifierReport`): three-state coverage (pass/fail/**absent**) over acceptance + quality,
+      weighted score + level (none/low/medium/high). `absent` = 0 → a "completed" run that nothing
+      checked scores `none`. Computed at completion, persisted on `runs.verifier_report` (migration
+      0035). Changes NO routing yet (mirrors quality v0.2→v0.3). Cross-model joins as a signal (WS D).
+  - [ ] **Slice 2 — the gate**: `level` + diff reversibility/blast-radius → auto-land vs `review`.
+  - [ ] **Slice 3 — freeze precondition**: frozen testable acceptance criteria required for
+        autonomy-eligible plans (no checkable criteria = ineligible — closes the `absent` case).
+  - [ ] **PWA**: surface the verifier report (level chip + per-signal coverage) on the run card.
 - [ ] **WS D — cross-model validation** (near-free): route verification to the *other* family
       (claude↔codex) via the existing AgentModelPicker resolution — strongest input to the score.
 

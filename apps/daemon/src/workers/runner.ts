@@ -39,6 +39,7 @@ import type { WorkerPool } from "./pool.ts";
 import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
+import { computeVerifierReport } from "./verifier.ts";
 
 export interface RunnerDeps {
   config: FactoryConfig;
@@ -740,6 +741,22 @@ export async function executeRun(
           .set({ qualityReport: JSON.stringify(report) })
           .where(eq(schema.runs.id, runId));
       }
+    }
+
+    // Verifier-Coverage report (ADR-014, WS C): measure how much actually
+    // VERIFIED this run — acceptance coverage + quality coverage — so
+    // "completed" is no longer conflated with "verified." Informational for
+    // now: it is persisted (and will feed the future auto-land gate) but does
+    // NOT hold back the merge below. `absent` signals score zero on purpose.
+    if (finalStatus === "completed") {
+      const verifierReport = computeVerifierReport({
+        acceptance: parsed?.acceptance ?? [],
+        qualityReport,
+      });
+      await db
+        .update(schema.runs)
+        .set({ verifierReport: JSON.stringify(verifierReport) })
+        .where(eq(schema.runs.id, runId));
     }
 
     // Merge the run's branch back into the project's main so subsequent

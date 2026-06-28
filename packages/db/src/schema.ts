@@ -493,6 +493,13 @@ export const runs = sqliteTable("runs", {
    */
   qualityReport: text("quality_report"),
   /**
+   * Captured VerifierReport (JSON-stringified) — the verifier-confidence score
+   * + per-signal coverage breakdown (ADR-014, WS C). Informational for now; the
+   * gate slice will route auto-land vs review on its `level`. Null for runs that
+   * predate WS C or didn't reach completion.
+   */
+  verifierReport: text("verifier_report"),
+  /**
    * Parsed `acceptance` array from the agent's factory-status block, when
    * the run had a frozen task_plan attached and the agent emitted per-
    * criterion results. JSON array of {criterion, met, evidence?, reason?}.
