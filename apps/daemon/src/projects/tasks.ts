@@ -4,7 +4,11 @@ import path from "node:path";
 import YAML from "yaml";
 import type { GithubAppClient } from "../github/app-auth.ts";
 import { parseGithubRepo } from "../github/app-auth.ts";
-import { GithubIssuesStore } from "./github-task-store.ts";
+import {
+  GithubIssuesStore,
+  type IssueComment,
+  type IssueConversation,
+} from "./github-task-store.ts";
 
 export interface TaskFile {
   id: string;
@@ -157,6 +161,26 @@ export interface TaskStore {
   updateModel(id: string, model: string): Promise<TaskFile | null>;
   updateAgent(id: string, agent: string): Promise<TaskFile | null>;
   updateBody(id: string, body: string): Promise<TaskFile | null>;
+
+  // --- Remote-discussion / adoption ops. ---------------------------------
+  // The issue-backed backend implements these against the GitHub issue's
+  // comment thread; file-backed projects have no remote thread and implement
+  // them as no-ops. Dispatch lives in the store so no caller branches on the
+  // backend (the standalone facades below are thin wrappers over these).
+  /** The task's remote comment thread (chronological). `[]` when none. */
+  listComments(taskId: string): Promise<IssueComment[]>;
+  /** Post a machine comment to the task's remote thread. */
+  postComment(taskId: string, body: string): Promise<void>;
+  /** Add a reaction (e.g. `eyes`) to a remote comment by its id. */
+  reactToComment(commentId: number, content: string): Promise<void>;
+  /** Adopt an externally-authored remote issue as a Factory task. */
+  adopt(taskId: string): Promise<TaskFile | null>;
+  /** Render the remote thread as a delimited Discussion prompt block. */
+  fetchDiscussion(taskId: string): Promise<string>;
+  /** Fetch title/body + rendered thread for a conversational reply. */
+  fetchConversation(taskId: string): Promise<IssueConversation | null>;
+  /** Post to the remote thread as the OPERATOR (their PAT), not the bot. */
+  replyAsOperator(token: string, taskId: string, body: string): Promise<void>;
 }
 
 /**
@@ -311,6 +335,42 @@ export class FileTaskStore implements TaskStore {
     await writeFile(filePath, renderTaskMarkdown(file), "utf8");
     return file;
   }
+
+  // --- Remote-discussion ops: file-backed tasks have no remote thread. -----
+  /** No remote thread → empty. */
+  async listComments(): Promise<IssueComment[]> {
+    return [];
+  }
+
+  /** No remote thread → unsupported; best-effort callers swallow the throw as "not posted". */
+  async postComment(): Promise<void> {
+    throw new Error("file-backed tasks have no remote comment thread");
+  }
+
+  /** No remote thread → unsupported (see postComment). */
+  async reactToComment(): Promise<void> {
+    throw new Error("file-backed tasks have no remote comment thread");
+  }
+
+  /** File tasks aren't adopted from a remote issue → nothing to adopt. */
+  async adopt(): Promise<TaskFile | null> {
+    return null;
+  }
+
+  /** No remote thread → empty discussion block. */
+  async fetchDiscussion(): Promise<string> {
+    return "";
+  }
+
+  /** No remote issue → no conversation. */
+  async fetchConversation(): Promise<IssueConversation | null> {
+    return null;
+  }
+
+  /** No remote issue → operator replies are unsupported. */
+  async replyAsOperator(): Promise<void> {
+    throw new Error("file-backed tasks have no remote issue to reply to");
+  }
 }
 
 let sharedGithubClient: GithubAppClient | null = null;
@@ -326,28 +386,50 @@ export function configureGithubTaskBackend(client: GithubAppClient | null): void
 }
 
 /**
- * Resolve the task store for a target. Single dispatch point — `github-issues`
- * projects get a `GithubIssuesStore`; everything else stays file-backed.
+ * A backend factory: given a resolution target, build its `TaskStore`. Adding a
+ * backend is a new `TaskStore` impl + one `registerBackend` call — no caller and
+ * no dispatch site changes (ADR-015).
  */
-export function taskStoreFor(target: TaskTarget): TaskStore {
-  if (target.taskBackend === "github-issues") {
-    if (!sharedGithubClient) {
-      throw new Error(
-        "project uses the github-issues task backend but the Factory App is not configured",
-      );
-    }
-    const repo = target.githubRemote ? parseGithubRepo(target.githubRemote) : null;
-    if (!repo) {
-      throw new Error("github-issues task backend requires a parseable github remote");
-    }
-    return new GithubIssuesStore(
-      sharedGithubClient,
-      repo.owner,
-      repo.repo,
-      target.githubInstallationId ?? null,
+export type TaskStoreFactory = (target: TaskTarget) => TaskStore;
+
+const backendRegistry = new Map<TaskBackend, TaskStoreFactory>();
+
+/** Register (or override) the store factory for a task backend. */
+export function registerBackend(backend: TaskBackend, factory: TaskStoreFactory): void {
+  backendRegistry.set(backend, factory);
+}
+
+// Built-in backends. The file backend is the default and the fallback.
+registerBackend("file", (target) => new FileTaskStore(target.workdirPath));
+registerBackend("github-issues", (target) => {
+  if (!sharedGithubClient) {
+    throw new Error(
+      "project uses the github-issues task backend but the Factory App is not configured",
     );
   }
-  return new FileTaskStore(target.workdirPath);
+  const repo = target.githubRemote ? parseGithubRepo(target.githubRemote) : null;
+  if (!repo) {
+    throw new Error("github-issues task backend requires a parseable github remote");
+  }
+  return new GithubIssuesStore(
+    sharedGithubClient,
+    repo.owner,
+    repo.repo,
+    target.githubInstallationId ?? null,
+  );
+});
+
+/**
+ * Resolve the task store for a target. Single dispatch point — looks the backend
+ * up in the registry (defaulting to `file`) rather than branching inline, so a
+ * new backend never touches this function.
+ */
+export function taskStoreFor(target: TaskTarget): TaskStore {
+  const factory = backendRegistry.get(target.taskBackend ?? "file") ?? backendRegistry.get("file");
+  if (!factory) {
+    throw new Error("no task backend registered (file backend missing)");
+  }
+  return factory(target);
 }
 
 // --- Free-function facade -------------------------------------------------

@@ -4,6 +4,7 @@ import type { GithubAppClient } from "../github/app-auth.ts";
 import { githubAppClientFromConfig, parseGithubRepo } from "../github/app-auth.ts";
 import { GithubError } from "./github.ts";
 import type { CreateTaskInput, TaskFile, TaskFrontmatter, TaskStore } from "./tasks.ts";
+import { FileTaskStore } from "./tasks.ts";
 
 /**
  * GitHub Issues task backend (ADR-007 Phase 2). The issue IS the task: its
@@ -163,7 +164,9 @@ export class GithubIssuesStore implements TaskStore {
   private installationId: number | null;
 
   constructor(
-    private readonly client: GithubAppClient,
+    // Nullable so the operator-reply path (PAT auth, no App client) can build a
+    // store keyed only on the remote. App-token ops then fail fast via headers().
+    private readonly client: GithubAppClient | null,
     private readonly owner: string,
     private readonly repo: string,
     installationId: number | null = null,
@@ -173,10 +176,14 @@ export class GithubIssuesStore implements TaskStore {
   }
 
   private async headers(): Promise<Record<string, string>> {
-    if (this.installationId == null) {
-      this.installationId = await this.client.installationId(this.owner, this.repo);
+    const client = this.client;
+    if (!client) {
+      throw new GithubError("network", "github app client not configured for this store");
     }
-    const token = await this.client.installationToken(this.installationId);
+    if (this.installationId == null) {
+      this.installationId = await client.installationId(this.owner, this.repo);
+    }
+    const token = await client.installationToken(this.installationId);
     return {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
@@ -446,6 +453,41 @@ export class GithubIssuesStore implements TaskStore {
     });
     if (!res.ok) await this.fail(res, `react to comment ${commentId}`);
   }
+
+  /** Render the issue's comment thread as a delimited Discussion prompt block. */
+  async fetchDiscussion(taskId: string): Promise<string> {
+    return renderDiscussion(taskId, await this.listComments(taskId));
+  }
+
+  /** Fetch the issue's title/body plus its rendered comment thread in one call. */
+  async fetchConversation(taskId: string): Promise<IssueConversation | null> {
+    const issue = await this.read(taskId);
+    if (!issue) return null;
+    const discussion = renderDiscussion(taskId, await this.listComments(taskId));
+    return { title: issue.frontmatter.title, body: issue.body ?? "", discussion };
+  }
+
+  /**
+   * Post to the issue thread as the OPERATOR (their github-token PAT), not the
+   * bot — operator replies should look like the operator on GitHub (ADR-007
+   * §D2). Uses the passed token directly; the App client is not consulted.
+   */
+  async replyAsOperator(token: string, taskId: string, body: string): Promise<void> {
+    const res = await this.fetchFn(`${this.base()}/issues/${taskId}/comments`, {
+      method: "POST",
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": UA,
+        "X-GitHub-Api-Version": API_VERSION,
+      },
+      body: JSON.stringify({ body }),
+    });
+    if (!res.ok) {
+      const code = res.status === 401 || res.status === 403 ? "bad_token" : "network";
+      throw new GithubError(code, `reply failed (${res.status}): ${await res.text()}`);
+    }
+  }
 }
 
 export interface IssueComment {
@@ -479,6 +521,70 @@ export function renderDiscussion(taskId: string, comments: IssueComment[]): stri
   ].join("\n");
 }
 
+export interface IssueConversation {
+  title: string;
+  body: string;
+  /** Rendered, delimited thread (UNTRUSTED INPUT block). "" when no comments. */
+  discussion: string;
+}
+
+// --- Store resolution for the discussion/adopt facades --------------------
+// These entry points carry per-call App credentials (`config`) and an
+// injectable `fetchFn`, so they resolve a store from `config` rather than the
+// boot-time shared client used by `taskStoreFor`. Resolving to a `FileTaskStore`
+// for non-github / unconfigured projects keeps the per-function `taskBackend`
+// branch out of every facade — the no-op behavior lives in the store (ADR-015).
+
+/**
+ * Resolve a `TaskStore` from per-call config for the discussion/adopt ops.
+ * Returns a `FileTaskStore` (whose remote ops are no-ops) for non-github
+ * projects, when the App isn't configured, or when the remote can't be parsed.
+ */
+function discussionStoreFor(
+  config: Pick<FactoryConfig, "githubApp">,
+  project: {
+    taskBackend?: string | null;
+    githubRemote?: string | null;
+    githubInstallationId?: number | null;
+  },
+  fetchFn: FetchFn,
+): TaskStore {
+  if (project.taskBackend === "github-issues" && project.githubRemote) {
+    const client = githubAppClientFromConfig(config, fetchFn);
+    const repo = parseGithubRepo(project.githubRemote);
+    if (client && repo) {
+      return new GithubIssuesStore(
+        client,
+        repo.owner,
+        repo.repo,
+        project.githubInstallationId ?? null,
+        fetchFn,
+      );
+    }
+  }
+  return new FileTaskStore("");
+}
+
+/**
+ * Resolve a `TaskStore` for the OPERATOR-reply path, keyed only on a parseable
+ * github remote (the operator token is the auth, not the App). Non-github /
+ * unparseable remotes get a `FileTaskStore`, whose `replyAsOperator` throws.
+ */
+function operatorReplyStore(
+  project: { githubRemote?: string | null },
+  fetchFn: FetchFn,
+): TaskStore {
+  const repo = project.githubRemote ? parseGithubRepo(project.githubRemote) : null;
+  if (!repo) return new FileTaskStore("");
+  return new GithubIssuesStore(null, repo.owner, repo.repo, null, fetchFn);
+}
+
+// --- Free-function facades ------------------------------------------------
+// Signatures preserved for call-site stability; each is a thin dispatcher over
+// the resolved store. No facade branches on `taskBackend` — that decision lives
+// in `discussionStoreFor` / `operatorReplyStore`, and the file backend's no-ops
+// produce the legacy "" / null / false / [] results.
+
 /**
  * For a github-backed project, fetch the issue thread and render it as a
  * Discussion prompt section. Returns "" for file-backed projects, when the App
@@ -495,30 +601,11 @@ export async function fetchIssueDiscussion(
   taskId: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<string> {
-  if (project.taskBackend !== "github-issues" || !project.githubRemote) return "";
-  const client = githubAppClientFromConfig(config, fetchFn);
-  if (!client) return "";
-  const repo = parseGithubRepo(project.githubRemote);
-  if (!repo) return "";
-  const store = new GithubIssuesStore(
-    client,
-    repo.owner,
-    repo.repo,
-    project.githubInstallationId ?? null,
-    fetchFn,
-  );
   try {
-    return renderDiscussion(taskId, await store.listComments(taskId));
+    return await discussionStoreFor(config, project, fetchFn).fetchDiscussion(taskId);
   } catch {
     return "";
   }
-}
-
-export interface IssueConversation {
-  title: string;
-  body: string;
-  /** Rendered, delimited thread (UNTRUSTED INPUT block). "" when no comments. */
-  discussion: string;
 }
 
 /**
@@ -537,23 +624,8 @@ export async function fetchIssueConversation(
   taskId: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<IssueConversation | null> {
-  if (project.taskBackend !== "github-issues" || !project.githubRemote) return null;
-  const client = githubAppClientFromConfig(config, fetchFn);
-  if (!client) return null;
-  const repo = parseGithubRepo(project.githubRemote);
-  if (!repo) return null;
-  const store = new GithubIssuesStore(
-    client,
-    repo.owner,
-    repo.repo,
-    project.githubInstallationId ?? null,
-    fetchFn,
-  );
   try {
-    const issue = await store.read(taskId);
-    if (!issue) return null;
-    const discussion = renderDiscussion(taskId, await store.listComments(taskId));
-    return { title: issue.frontmatter.title, body: issue.body ?? "", discussion };
+    return await discussionStoreFor(config, project, fetchFn).fetchConversation(taskId);
   } catch {
     return null;
   }
@@ -575,20 +647,8 @@ export async function postIssueComment(
   body: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<boolean> {
-  if (project.taskBackend !== "github-issues" || !project.githubRemote) return false;
-  const client = githubAppClientFromConfig(config, fetchFn);
-  if (!client) return false;
-  const repo = parseGithubRepo(project.githubRemote);
-  if (!repo) return false;
-  const store = new GithubIssuesStore(
-    client,
-    repo.owner,
-    repo.repo,
-    project.githubInstallationId ?? null,
-    fetchFn,
-  );
   try {
-    await store.postComment(taskId, body);
+    await discussionStoreFor(config, project, fetchFn).postComment(taskId, body);
     return true;
   } catch {
     return false;
@@ -612,20 +672,8 @@ export async function addCommentReaction(
   content: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<boolean> {
-  if (project.taskBackend !== "github-issues" || !project.githubRemote) return false;
-  const client = githubAppClientFromConfig(config, fetchFn);
-  if (!client) return false;
-  const repo = parseGithubRepo(project.githubRemote);
-  if (!repo) return false;
-  const store = new GithubIssuesStore(
-    client,
-    repo.owner,
-    repo.repo,
-    project.githubInstallationId ?? null,
-    fetchFn,
-  );
   try {
-    await store.reactToComment(commentId, content);
+    await discussionStoreFor(config, project, fetchFn).reactToComment(commentId, content);
     return true;
   } catch {
     return false;
@@ -647,19 +695,7 @@ export async function adoptIssue(
   taskId: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<TaskFile | null> {
-  if (project.taskBackend !== "github-issues" || !project.githubRemote) return null;
-  const client = githubAppClientFromConfig(config, fetchFn);
-  if (!client) return null;
-  const repo = parseGithubRepo(project.githubRemote);
-  if (!repo) return null;
-  const store = new GithubIssuesStore(
-    client,
-    repo.owner,
-    repo.repo,
-    project.githubInstallationId ?? null,
-    fetchFn,
-  );
-  return store.adopt(taskId);
+  return discussionStoreFor(config, project, fetchFn).adopt(taskId);
 }
 
 /**
@@ -676,20 +712,8 @@ export async function taskThread(
   taskId: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<IssueComment[]> {
-  if (project.taskBackend !== "github-issues" || !project.githubRemote) return [];
-  const client = githubAppClientFromConfig(config, fetchFn);
-  if (!client) return [];
-  const repo = parseGithubRepo(project.githubRemote);
-  if (!repo) return [];
-  const store = new GithubIssuesStore(
-    client,
-    repo.owner,
-    repo.repo,
-    project.githubInstallationId ?? null,
-    fetchFn,
-  );
   try {
-    return await store.listComments(taskId);
+    return await discussionStoreFor(config, project, fetchFn).listComments(taskId);
   } catch {
     return [];
   }
@@ -707,20 +731,5 @@ export async function replyAsOperator(
   body: string,
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<void> {
-  const repo = project.githubRemote ? parseGithubRepo(project.githubRemote) : null;
-  if (!repo) throw new GithubError("bad_owner", "project has no parseable github remote");
-  const res = await fetchFn(`${API}/repos/${repo.owner}/${repo.repo}/issues/${taskId}/comments`, {
-    method: "POST",
-    headers: {
-      Authorization: `token ${token}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": UA,
-      "X-GitHub-Api-Version": API_VERSION,
-    },
-    body: JSON.stringify({ body }),
-  });
-  if (!res.ok) {
-    const code = res.status === 401 || res.status === 403 ? "bad_token" : "network";
-    throw new GithubError(code, `reply failed (${res.status}): ${await res.text()}`);
-  }
+  await operatorReplyStore(project, fetchFn).replyAsOperator(token, taskId, body);
 }
