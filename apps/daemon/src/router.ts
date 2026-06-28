@@ -7,6 +7,7 @@ import { feedbackRouter } from "./routers/feedback.ts";
 import { healthRouter } from "./routers/health.ts";
 import { ideasRouter } from "./routers/ideas.ts";
 import { interventionsRouter } from "./routers/interventions.ts";
+import { memoryRouter } from "./routers/memory.ts";
 import { metricsRouter } from "./routers/metrics.ts";
 import { notificationsRouter } from "./routers/notifications.ts";
 import { opsRouter } from "./routers/ops.ts";
@@ -42,6 +43,7 @@ export const appRouter = router({
   agents: agentsRouter,
   audits: auditsRouter,
   changelog: changelogRouter,
+  memory: memoryRouter,
   metrics: metricsRouter,
   notifications: notificationsRouter,
   ops: opsRouter,

@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../src/config.ts";
 import type { DaemonContext } from "../src/context.ts";
 import { type DaemonEvent, EventBus } from "../src/events.ts";
+import { defaultOperatorMemoryPath, listMemoryFacts } from "../src/memory/operator-memory.ts";
 import { listTasks, pickNextReadyTask } from "../src/projects/tasks.ts";
 import { decisionsRouter } from "../src/routers/decisions.ts";
 import { ScriptRegistry } from "../src/scripts/registry.ts";
@@ -267,6 +268,28 @@ describe("decisionsRouter", () => {
         .where(eq(schema.decisions.id, decisionId))
         .get();
       expect(dec?.status).toBe("actioned");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("watch_insight record-as-convention writes a fact to the operator-memory repo", async () => {
+    const h = setupHarness();
+    try {
+      const { obsId, decisionId } = seedWatchInsight(h, { proposal: "record-as-convention" });
+      await h.caller.action({ decisionId, action: "approve" });
+
+      const facts = await listMemoryFacts(defaultOperatorMemoryPath(h.root));
+      expect(facts).toHaveLength(1);
+      expect(facts[0]?.type).toBe("feedback");
+      expect(facts[0]?.provenance?.[0]).toBe(`watch:${obsId}`);
+
+      const obs = h.db
+        .select()
+        .from(schema.watchObservations)
+        .where(eq(schema.watchObservations.id, obsId))
+        .get();
+      expect(obs?.status).toBe("adopted");
     } finally {
       h.cleanup();
     }

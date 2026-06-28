@@ -12,6 +12,7 @@ import {
   resurfaceWorkForDecision,
 } from "../decisions/resurface.ts";
 import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
+import { defaultOperatorMemoryPath, slugify, writeMemoryFact } from "../memory/operator-memory.ts";
 import { seedProjectSpecDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
@@ -522,12 +523,11 @@ export const decisionsRouter = router({
       }
 
       if (decision.kind === "watch_insight") {
-        // An insight from The Watch. `approve` adopts it: when the proposal is
-        // adopt-as-task and it maps to a project, create the task; otherwise
-        // approve is a plain acknowledgement. `dismiss` declines it. Either way
-        // the underlying observation's status moves off `surfaced` so it stays
-        // out of the inbox. (record-as-convention writes land with the
-        // operator-memory repo — until then, approve acknowledges them.)
+        // An insight from The Watch. `approve` adopts it: adopt-as-task creates a
+        // task (when it maps to a project); record-as-convention writes the
+        // convention into the operator-memory repo; note-only is a plain
+        // acknowledgement. `dismiss` declines it. Either way the observation's
+        // status moves off `surfaced` so it stays out of the inbox.
         const payload = decision.payload as WatchInsightPayload;
         if (input.action === "approve") {
           if (payload.proposal === "adopt-as-task" && decision.projectId) {
@@ -551,6 +551,24 @@ export const decisionsRouter = router({
                 estimate: "small",
               });
               projectId = project.id;
+            }
+          } else if (payload.proposal === "record-as-convention") {
+            // Write an operator-level convention into the operator-memory repo
+            // (ADR-010 §4). Best-effort: a git hiccup must not fail the action.
+            try {
+              await writeMemoryFact(defaultOperatorMemoryPath(ctx.config.workdir), {
+                name: slugify(payload.title),
+                description: payload.title,
+                type: "feedback",
+                body: `${payload.detail}\n\n_Recorded from a Watch observation (${payload.observationKind})._`,
+                provenance: [
+                  `watch:${payload.observationId}`,
+                  ...payload.evidence.map((e) => `${e.sourceId}/${e.sessionId.slice(0, 8)}`),
+                ],
+              });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.warn(`[memory] record-as-convention write failed: ${msg}`);
             }
           }
           await ctx.db
