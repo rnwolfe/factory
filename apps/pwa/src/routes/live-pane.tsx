@@ -7,6 +7,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { QualityReportPanel, type QualityReportView } from "../components/quality-report.tsx";
 import { RunEventStream } from "../components/run-event-stream.tsx";
+import {
+  parseVerifierReport,
+  VerifierReport,
+  type VerifierReportView,
+} from "../components/verifier-report.tsx";
 import { getToken } from "../lib/auth.ts";
 import { useRunChannel } from "../lib/channels.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -357,6 +362,11 @@ export function LivePane() {
     }
   }, [run.data?.qualityReport]);
 
+  const verifierReport = useMemo<VerifierReportView | null>(
+    () => parseVerifierReport(run.data?.verifierReport),
+    [run.data?.verifierReport],
+  );
+
   const acceptanceResults = useMemo<AcceptanceResultView[] | null>(() => {
     if (!run.data?.acceptanceResults) return null;
     try {
@@ -456,6 +466,10 @@ export function LivePane() {
 
       {qualityReport || run.data?.status === "completed" ? (
         <QualityReportPanel report={qualityReport} />
+      ) : null}
+
+      {verifierReport || run.data?.status === "completed" ? (
+        <VerifierReport report={verifierReport} />
       ) : null}
 
       <div className="flex items-center gap-2 mb-1.5">
