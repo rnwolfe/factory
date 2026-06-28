@@ -1,7 +1,8 @@
-import { type ClaudeMetricsOwnerKind, schema } from "@factory/db";
+import { type ClaudeMetricsOwnerKind, METRICS_PORTFOLIO, schema } from "@factory/db";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
+import { METRIC_CATALOG } from "../metrics/catalog.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const OwnerKindEnum = z.enum([
@@ -539,6 +540,81 @@ export const metricsRouter = router({
           wallClockMs: Number(r.wallClockMs),
           runCount: Number(r.runCount),
         })),
+      };
+    }),
+
+  // ── Autonomy & ops metrics surface (ADR-013) ───────────────────────────────
+  /** The metric catalog (key + scope) so the PWA renders charts without hardcoding. */
+  catalog: protectedProcedure.query(() =>
+    METRIC_CATALOG.map((m) => ({ key: m.key, scope: m.scope })),
+  ),
+
+  /** Daily time-series for one metric at a scope (a project id, or omit/"*" for portfolio). */
+  series: protectedProcedure
+    .input(
+      z.object({
+        metric: z.string().min(1),
+        projectId: z.string().optional(),
+        /** Inclusive "YYYY-MM-DD" bounds. */
+        from: z.string().optional(),
+        to: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const scope =
+        input.projectId && input.projectId !== METRICS_PORTFOLIO
+          ? input.projectId
+          : METRICS_PORTFOLIO;
+      const conds = [
+        eq(schema.metricsDaily.metric, input.metric),
+        eq(schema.metricsDaily.projectId, scope),
+      ];
+      if (input.from) conds.push(gte(schema.metricsDaily.date, input.from));
+      if (input.to) conds.push(lte(schema.metricsDaily.date, input.to));
+      return ctx.db
+        .select({ date: schema.metricsDaily.date, value: schema.metricsDaily.value })
+        .from(schema.metricsDaily)
+        .where(and(...conds))
+        .orderBy(asc(schema.metricsDaily.date))
+        .all();
+    }),
+
+  /** Latest-day snapshot of every metric for a scope, plus derived ratios (north-star). */
+  snapshot: protectedProcedure
+    .input(z.object({ projectId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const scope =
+        input?.projectId && input.projectId !== METRICS_PORTFOLIO
+          ? input.projectId
+          : METRICS_PORTFOLIO;
+      const latest = await ctx.db
+        .select({ d: schema.metricsDaily.date })
+        .from(schema.metricsDaily)
+        .where(eq(schema.metricsDaily.projectId, scope))
+        .orderBy(desc(schema.metricsDaily.date))
+        .limit(1)
+        .get();
+      const metrics: Record<string, number> = {};
+      if (latest) {
+        const rows = await ctx.db
+          .select({ metric: schema.metricsDaily.metric, value: schema.metricsDaily.value })
+          .from(schema.metricsDaily)
+          .where(
+            and(eq(schema.metricsDaily.projectId, scope), eq(schema.metricsDaily.date, latest.d)),
+          )
+          .all();
+        for (const r of rows) metrics[r.metric] = r.value;
+      }
+      const runs = metrics.runs_total ?? 0;
+      const decisions = metrics.decisions_total ?? 0;
+      return {
+        date: latest?.d ?? null,
+        metrics,
+        // Derived north-star + Trust-Ladder health (ratios computed from raw counts).
+        derived: {
+          decisions_per_run: runs ? decisions / runs : 0,
+          auto_ratify_rate: decisions ? (metrics.auto_ratified_total ?? 0) / decisions : 0,
+        },
       };
     }),
 });
