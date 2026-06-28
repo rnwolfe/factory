@@ -40,7 +40,7 @@ import type { WorkerPool } from "./pool.ts";
 import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
-import { computeVerifierReport } from "./verifier.ts";
+import { classifyBlastRadius, computeVerifierReport, decideAutoLand } from "./verifier.ts";
 
 export interface RunnerDeps {
   config: FactoryConfig;
@@ -492,7 +492,12 @@ export async function executeRun(
     // and its session is resumable. It outranks `defer`/parsed status, but
     // not an operator abort — explicit intent wins.
     const capped = !aborted && usageLimit != null;
-    const finalStatus: RunStatus = capped
+    // `let`, not `const`: the verifier gate (ADR-014) may downgrade an autonomous
+    // `completed` run to `needs_review` after quality + cross-model run below. The
+    // merge / surface / auto-advance blocks all read this variable downstream, so the
+    // single reassignment routes the whole tail correctly — same trick as the
+    // acceptance downgrade, just later in the pipeline.
+    let finalStatus: RunStatus = capped
       ? "usage_capped"
       : defer
         ? "deferred"
@@ -756,8 +761,9 @@ export async function executeRun(
       // where the auto-merge actually needs the extra verifier; collaborative runs
       // keep the 2-signal score. `undefined` here = "not run" (excluded from score).
       let crossModel: CrossModelVerdict | null | undefined;
+      let diff = "";
       if (autonomyMode === "autonomous") {
-        const diff = await getRunDiff(result.worktreePath, row.baseRef);
+        diff = await getRunDiff(result.worktreePath, row.baseRef);
         crossModel = await crossModelValidate(
           {
             builderAgent: row.agentName as AgentName,
@@ -778,6 +784,26 @@ export async function executeRun(
         .update(schema.runs)
         .set({ verifierReport: JSON.stringify(verifierReport) })
         .where(eq(schema.runs.id, runId));
+
+      // The gate (ADR-014 slice 2). For AUTONOMOUS runs only: auto-land silently
+      // when verified + contained; otherwise downgrade to `needs_review` so the
+      // tail (merge / surface / auto-advance) holds it for the operator instead of
+      // merging. Collaborative runs are unchanged — they merge on `completed` as in
+      // v0.1 (the operator is already in the loop).
+      if (autonomyMode === "autonomous") {
+        const blast = classifyBlastRadius(diff);
+        const gate = decideAutoLand(verifierReport, blast);
+        if (!gate.land) {
+          finalStatus = "needs_review";
+          await db
+            .update(schema.runs)
+            .set({
+              status: "needs_review",
+              summary: `${summary}\n\n_Verifier gate held this run for review — ${gate.reason}._`,
+            })
+            .where(eq(schema.runs.id, runId));
+        }
+      }
     }
 
     // Merge the run's branch back into the project's main so subsequent

@@ -61,7 +61,10 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       weighted score + level (none/low/medium/high). `absent` = 0 → a "completed" run that nothing
       checked scores `none`. Computed at completion, persisted on `runs.verifier_report` (migration
       0035). Changes NO routing yet (mirrors quality v0.2→v0.3). Cross-model joins as a signal (WS D).
-  - [ ] **Slice 2 — the gate**: `level` + diff reversibility/blast-radius → auto-land vs `review`.
+  - [x] **Slice 2 — the gate (landed)**: `classifyBlastRadius` (churn/files/risk-sensitive paths) +
+        `decideAutoLand` (land only on **high** coverage + **contained** diff). Wired for
+        AUTONOMOUS runs only: a completed run that fails the gate is downgraded to `needs_review`
+        (reuses the existing not-merged/surface-for-review path; collaborative = unchanged v0.1).
   - [ ] **Slice 3 — freeze precondition**: frozen testable acceptance criteria required for
         autonomy-eligible plans (no checkable criteria = ineligible — closes the `absent` case).
   - [x] **PWA** (landed): `verifier-report.tsx` — level chip + three-state per-signal coverage

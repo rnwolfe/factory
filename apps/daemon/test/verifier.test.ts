@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { AcceptanceResult } from "../src/workers/factory-status.ts";
 import type { QualityReport } from "../src/workers/quality.ts";
-import { computeVerifierReport } from "../src/workers/verifier.ts";
+import {
+  classifyBlastRadius,
+  computeVerifierReport,
+  decideAutoLand,
+} from "../src/workers/verifier.ts";
 
 const met = (n: number): AcceptanceResult[] =>
   Array.from({ length: n }, (_, i) => ({ criterion: `c${i}`, met: true }));
@@ -112,5 +116,66 @@ describe("computeVerifierReport", () => {
     });
     expect(sig(r, "cross-model")?.state).toBe("fail");
     expect(r.score).toBe(0.7);
+  });
+});
+
+const SMALL_DIFF = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -1 +1,2 @@
+-old
++new
++more`;
+
+describe("classifyBlastRadius", () => {
+  test("a small, non-sensitive diff is contained", () => {
+    const b = classifyBlastRadius(SMALL_DIFF);
+    expect(b.radius).toBe("contained");
+    expect(b.files).toBe(1);
+    expect(b.churn).toBe(3);
+  });
+
+  test("a migration / risk-sensitive path is broad", () => {
+    const diff = `diff --git a/packages/db/src/migrations/0036_x.sql b/packages/db/src/migrations/0036_x.sql
++ALTER TABLE runs ADD col text;`;
+    const b = classifyBlastRadius(diff);
+    expect(b.radius).toBe("broad");
+    expect(b.reasons.join(" ")).toContain("risk-sensitive");
+  });
+
+  test("a large diff is broad", () => {
+    const big = [
+      "diff --git a/src/big.ts b/src/big.ts",
+      ...Array.from({ length: 500 }, (_, i) => `+line ${i}`),
+    ].join("\n");
+    expect(classifyBlastRadius(big).radius).toBe("broad");
+  });
+});
+
+describe("decideAutoLand", () => {
+  const high = computeVerifierReport({ acceptance: met(2), qualityReport: quality("pass") }); // 1.0
+  const medium = computeVerifierReport({
+    acceptance: met(2),
+    qualityReport: quality("skipped", 0),
+  }); // 0.6
+
+  test("high coverage + contained diff → land", () => {
+    const d = decideAutoLand(high, classifyBlastRadius(SMALL_DIFF));
+    expect(d.land).toBe(true);
+  });
+
+  test("medium coverage → hold (need high)", () => {
+    const d = decideAutoLand(medium, classifyBlastRadius(SMALL_DIFF));
+    expect(d.land).toBe(false);
+    expect(d.reason).toContain("medium");
+  });
+
+  test("high coverage but broad diff → hold", () => {
+    const broad = classifyBlastRadius(
+      `diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n+x`,
+    );
+    const d = decideAutoLand(high, broad);
+    expect(d.land).toBe(false);
+    expect(d.reason).toContain("blast radius");
   });
 });

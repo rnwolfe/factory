@@ -152,3 +152,64 @@ function levelFor(score: number): VerifierLevel {
   if (score > 0) return "low";
   return "none";
 }
+
+// ── The gate (ADR-014 slice 2): score + blast-radius → auto-land vs review ──
+
+export type BlastRadius = "contained" | "broad";
+
+export interface BlastClassification {
+  radius: BlastRadius;
+  churn: number;
+  files: number;
+  reasons: string[];
+}
+
+/** Paths where a change is high-consequence / hard to reverse. */
+const RISKY_PATH =
+  /(^|\/)(migrations?\/|.*schema|.*auth|secrets?|Dockerfile|\.env|package(-lock)?\.json|bun\.lock|\.github\/workflows\/)/i;
+const CHURN_LIMIT = 400;
+const FILE_LIMIT = 15;
+
+/** Classify a unified diff's reversibility/blast-radius from cheap structural signals. */
+export function classifyBlastRadius(diff: string): BlastClassification {
+  let added = 0;
+  let removed = 0;
+  const files = new Set<string>();
+  for (const l of diff.split("\n")) {
+    if (l.startsWith("+++ ") || l.startsWith("--- ")) continue;
+    if (l.startsWith("diff --git")) {
+      const m = l.match(/ b\/(.+)$/);
+      if (m?.[1]) files.add(m[1]);
+      continue;
+    }
+    if (l.startsWith("+")) added++;
+    else if (l.startsWith("-")) removed++;
+  }
+  const churn = added + removed;
+  const reasons: string[] = [];
+  if (churn > CHURN_LIMIT) reasons.push(`large diff (${churn} lines)`);
+  if (files.size > FILE_LIMIT) reasons.push(`many files (${files.size})`);
+  const risky = [...files].filter((f) => RISKY_PATH.test(f));
+  if (risky.length) reasons.push(`risk-sensitive paths (${risky.slice(0, 3).join(", ")})`);
+  return { radius: reasons.length ? "broad" : "contained", churn, files: files.size, reasons };
+}
+
+export interface GateDecision {
+  land: boolean;
+  reason: string;
+}
+
+/**
+ * The auto-land decision: a run lands unattended only with HIGH verifier coverage
+ * AND a contained diff. Anything less routes to `review`. Conservative on purpose —
+ * auto-landing unverified or broad changes is the most dangerous surface in the system.
+ */
+export function decideAutoLand(report: VerifierReport, blast: BlastClassification): GateDecision {
+  if (report.level !== "high") {
+    return { land: false, reason: `verifier coverage ${report.level} (need high)` };
+  }
+  if (blast.radius === "broad") {
+    return { land: false, reason: `broad blast radius — ${blast.reasons.join("; ")}` };
+  }
+  return { land: true, reason: "high verifier coverage + contained diff" };
+}
