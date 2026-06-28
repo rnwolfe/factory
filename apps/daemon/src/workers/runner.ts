@@ -18,6 +18,7 @@ import { getAgentDescriptor } from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { resolveBotGitAuthor } from "../github/app-auth.ts";
+import { defaultOperatorMemoryPath, operatorMemoryPointer } from "../memory/operator-memory.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { parseStoredDraft } from "../plans/iterate.ts";
 import { fetchIssueDiscussion, postIssueComment } from "../projects/github-task-store.ts";
@@ -321,16 +322,27 @@ export async function executeRun(
 
   const autonomyMode: AutonomyMode = project.autonomyMode ?? "collaborative";
 
+  // A reading-list pointer to the operator-memory repo (ADR-010 §4). Empty until
+  // the operator has recorded conventions, so it's a no-op for fresh installs —
+  // and a pointer, not a doctrine prepend (the agent decides whether to read it).
+  const memoryRefs = await operatorMemoryPointer(defaultOperatorMemoryPath(config.workdir));
+
   let prompt: string;
   if (resuming) {
     prompt =
       frozenTaskPlan && frozenTaskPlan.kind === "task_plan"
-        ? wrapResumePromptWithPlan(baseTaskBody, frozenTaskPlan, autonomyMode)
-        : wrapResumePrompt(baseTaskBody, autonomyMode);
+        ? wrapResumePromptWithPlan(baseTaskBody, frozenTaskPlan, autonomyMode, memoryRefs)
+        : wrapResumePrompt(baseTaskBody, autonomyMode, memoryRefs);
   } else if (frozenTaskPlan && frozenTaskPlan.kind === "task_plan") {
-    prompt = wrapPromptWithPlan(row.taskId ?? "ad-hoc", baseTaskBody, frozenTaskPlan, autonomyMode);
+    prompt = wrapPromptWithPlan(
+      row.taskId ?? "ad-hoc",
+      baseTaskBody,
+      frozenTaskPlan,
+      autonomyMode,
+      memoryRefs,
+    );
   } else {
-    prompt = wrapPrompt(baseTaskBody, autonomyMode);
+    prompt = wrapPrompt(baseTaskBody, autonomyMode, memoryRefs);
   }
 
   // If this run was submitted with operator context (the blocked-run retry

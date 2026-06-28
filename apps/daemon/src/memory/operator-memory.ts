@@ -132,6 +132,22 @@ export async function listMemoryFacts(repoPath: string): Promise<MemoryFact[]> {
   return facts;
 }
 
+/**
+ * A reading-list POINTER to the operator-memory repo, for run prompts (ADR-010
+ * §4). Returns "" when the repo has no facts — a run only learns about the memory
+ * once there's something worth reading. This is deliberately a *pointer*, not a
+ * doctrine prepend: it tells the agent where the operator's recorded conventions
+ * live (a machine-local path it can read directly) and lets it decide to consult
+ * them, consistent with the "AGENTS.md is a reading list, not a magic prepend"
+ * contract. The task body and any frozen plan still win on scope.
+ */
+export async function operatorMemoryPointer(repoPath: string): Promise<string> {
+  const facts = await listMemoryFacts(repoPath);
+  if (facts.length === 0) return "";
+  const indexPath = path.join(repoPath, "MEMORY.md");
+  return `\n\n---\n\n## Operator memory (reading list)\n\nThis operator has ${facts.length} recorded convention(s)/preference(s) — a Factory-earned memory of how they work — indexed at \`${indexPath}\` (machine-local; read it directly if relevant). Treat entries as observed preferences that inform judgment calls, **not** hard rules: the task body and any frozen plan still govern scope.\n`;
+}
+
 /** The MEMORY.md index text (for the viewer header / direct display). */
 export async function readMemoryIndex(repoPath: string): Promise<string> {
   try {

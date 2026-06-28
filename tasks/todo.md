@@ -85,8 +85,11 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       into the repo (operator-gated, best-effort, with provenance).
 - [ ] **First synthesis run ingests all harness memories** (deferred — needs a design call:
       synthesize-from vs copy, given fresh-not-a-mirror). Synthesis already *reads* them as input.
-- [ ] **Injectable as run context** (deferred) — a run reads operator-memory like AGENTS.md to
-      ground autonomous work (the payoff; a prompt-wrapping slice).
+- [x] **Injectable as run context** (landed) — code-changing runs get a reading-list *pointer* to
+      the operator-memory `MEMORY.md` (empty until conventions exist; a pointer, not a doctrine
+      prepend, so it respects the AGENTS.md contract). Threaded through all four wrapPrompt variants.
+      NB: chose a run-time pointer over an AGENTS.md reference because AGENTS.md is committed +
+      portable and the memory path is machine-local — worth an operator gut-check.
 - [ ] **Project-level record-as-convention → AGENTS.md** (deferred) — slug-scoped conventions write
       to the project repo's AGENTS.md instead of the operator-level memory repo.
 

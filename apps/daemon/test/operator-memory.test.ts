@@ -5,10 +5,12 @@ import path from "node:path";
 import {
   ensureMemoryRepo,
   listMemoryFacts,
+  operatorMemoryPointer,
   readMemoryIndex,
   slugify,
   writeMemoryFact,
 } from "../src/memory/operator-memory.ts";
+import { wrapPrompt } from "../src/workers/factory-status.ts";
 
 function tmp(): { repo: string; cleanup: () => void } {
   const root = mkdtempSync(path.join(tmpdir(), "operator-memory-"));
@@ -81,5 +83,44 @@ describe("operator-memory store", () => {
     } finally {
       cleanup();
     }
+  });
+});
+
+describe("operatorMemoryPointer (run-context injection)", () => {
+  test("is empty for a fresh/absent repo, populated once facts exist", async () => {
+    const { repo, cleanup } = tmp();
+    try {
+      // absent repo → no pointer (a no-op for fresh installs)
+      expect(await operatorMemoryPointer(repo)).toBe("");
+
+      await writeMemoryFact(repo, {
+        name: "prefers-go-kong",
+        description: "Prefers Go + kong for agent CLIs",
+        type: "user",
+        body: "Fast cold-start, single binary.",
+      });
+
+      const pointer = await operatorMemoryPointer(repo);
+      expect(pointer).toContain("Operator memory");
+      expect(pointer).toContain("MEMORY.md"); // points at the index, not inlined
+      expect(pointer).toContain("1 recorded"); // the count
+      // It's a pointer, not a doctrine prepend — the fact body is NOT inlined.
+      expect(pointer).not.toContain("single binary");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("wrapPrompt threads the pointer in without disturbing the footer", () => {
+    const refs = "\n\n---\n\n## Operator memory (reading list)\n\nsee MEMORY.md\n";
+    const wrapped = wrapPrompt("do the thing", "collaborative", refs);
+    expect(wrapped).toContain("do the thing");
+    expect(wrapped).toContain("## Operator memory (reading list)");
+    // still carries the completion-protocol footer
+    expect(wrapped.toLowerCase()).toContain("factory-status");
+    // empty refs (the default) leaves the prompt unchanged from no-arg form
+    expect(wrapPrompt("do the thing", "collaborative")).toBe(
+      wrapPrompt("do the thing", "collaborative", ""),
+    );
   });
 });

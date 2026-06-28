@@ -432,8 +432,12 @@ function decisionFooterFor(_autonomyMode: "collaborative" | "autonomous"): strin
 export type AutonomyMode = "collaborative" | "autonomous";
 
 /** Append the completion + decision protocols to the operator's task body. */
-export function wrapPrompt(taskBody: string, autonomyMode: AutonomyMode = "collaborative"): string {
-  return `${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
+export function wrapPrompt(
+  taskBody: string,
+  autonomyMode: AutonomyMode = "collaborative",
+  contextRefs = "",
+): string {
+  return `${taskBody.trimEnd()}${contextRefs}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 interface FrozenTaskPlanForPrompt {
@@ -513,9 +517,10 @@ export function wrapPromptWithPlan(
   taskBody: string,
   plan: FrozenTaskPlanForPrompt,
   autonomyMode: AutonomyMode = "collaborative",
+  contextRefs = "",
 ): string {
   const taskHeader = `You are working on task ${taskId}.\n\n## Task body\n\n`;
-  return `${taskHeader}${taskBody.trim()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
+  return `${taskHeader}${taskBody.trim()}${renderPlanBlock(plan)}${contextRefs}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 const RESUME_PREFIX = `The factory daemon was restarted while you were working on this task. The previous Claude session has been resumed; you have full context of what you were doing. Pick up where you left off.
@@ -539,8 +544,9 @@ For reference, the original task was:
 export function wrapResumePrompt(
   taskBody: string,
   autonomyMode: AutonomyMode = "collaborative",
+  contextRefs = "",
 ): string {
-  return `${RESUME_PREFIX}${taskBody.trimEnd()}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${contextRefs}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 /**
@@ -553,8 +559,9 @@ export function wrapResumePromptWithPlan(
   taskBody: string,
   plan: FrozenTaskPlanForPrompt,
   autonomyMode: AutonomyMode = "collaborative",
+  contextRefs = "",
 ): string {
-  return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
+  return `${RESUME_PREFIX}${taskBody.trimEnd()}${renderPlanBlock(plan)}${contextRefs}${COMPLETION_FOOTER_BASE}${decisionFooterFor(autonomyMode)}${DEFER_PROTOCOL}`;
 }
 
 /**
