@@ -105,18 +105,34 @@ spawned tmux — verified directly. The isolation lever must be a **CLI arg comp
       history (adopt-as-task|acknowledge + dismiss buttons, dispatcher's-console aesthetic). 8 new tests
       (surfacing, action approve/dismiss, PWA components). Full repo green: daemon 388, pwa 20, all
       typecheck. **First operator-visible payoff — insights now appear in the inbox.**
-- [ ] **Slice 3d — operator-memory repo** (`operator-memory.ts`: fresh Factory-owned git repo,
-      Claude-format; first run ingests all harness memories; injectable as run context) + **PWA viewer**.
-- [ ] **Cadence:** backlog grooming; decompose-next-milestone on queue-drain (replace bare
-      `queue_empty` at `inbox/queue-empty.ts:53`); scheduled health audits (exercise empty `audits`
-      table); doc-drift at release; dependency sweeps → inbox.
-- [ ] **Ambient self-generated intake** (Jules Suggestions): read-only repo/issue/error/audit scan →
-      proposes own tasks to inbox.
-- [ ] **★ Out-of-band-work watcher (operator's enhancement):** periodic read-only pass over the local
-      host's `~/.claude/projects/*` + `~/.codex/` history → synthesize work done *outside* Factory
-      into memory (patterns, corrections, new conventions/skills); surface "you keep doing X by hand
-      — want me to own it?" to inbox. Respect `.env*` deny rules; write ONLY to memory + inbox, never
-      a repo. Memory becomes Factory-earned, not operator-curated.
+### Reframe → ADR-011: The Watch as a proactive **work generator** (2026-06-27)
+
+Strategic pivot (operator-raised): surfacing reflective insight is the *learning
+substrate*, not the autonomy lever. Autonomy moves when The Watch emits **typed work**
+mapped to Factory's primitives, fed by out-of-band AND in-band signal, with a gated path
+to auto-execution. Substrate (3a–3c, merged) carries forward; remaining work re-sequenced
+into ADR-011 phases (these now precede the operator-memory polish):
+
+- [ ] **Phase A — typed proposals + promotion paths.** Extend the proposal taxonomy
+      (bug→task ✓ via 3c; + feature→drafting plan, arch→`audits.submit`/promote-finding,
+      project→triage `project_spec`, backlog-groom→task close/reprioritize). Promote ONLY
+      through each primitive's existing single-source-of-truth seam — never reimplement.
+- [ ] **Phase B — in-band sources + cadence/groom jobs.** Generalize the source registry
+      to **signal sources** (runs/decisions/audits/task-backlog/repo state) alongside
+      harness sources. Fill the scheduler with ADR-010 §1 cadence jobs: backlog grooming,
+      decompose-next-milestone on queue-drain (replace bare `queue_empty` at
+      `inbox/queue-empty.ts:53`), scheduled health audits, doc-drift/dependency sweeps.
+- [ ] **Phase C — generation → gating (the actual autonomy).** Route generated work
+      through WS C (Verifier-Coverage gate) + WS A (Trust Ladder): high-confidence /
+      low-blast-radius / verifiable → auto-run; ambiguous / judgment-heavy / irreversible →
+      inbox. Surface-first always; auto-run graduates per earned trust. **Depends on WS A + C.**
+- [ ] **Fast-follow — operator-memory repo** (`operator-memory.ts`: fresh Factory-owned git
+      repo, Claude-format; first run ingests all harness memories; injectable as run context)
+      + **PWA viewer**. The learning half (ADR-010 §4); makes `record-as-convention` fully
+      functional. No longer blocks the generator.
+
+Open questions in ADR-011 §"Open questions" (generation aggressiveness / per-project opt-in;
+feature_plan promotion = seed-vs-draft; backlog-aware dedup; in-band scan cost).
 
 ## Cross-cutting guardrails (every WS honors)
 
