@@ -23,6 +23,7 @@ import { protectedProcedure, router } from "../trpc.ts";
 import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
+import { autoContract } from "../workers/trust-ladder.ts";
 
 interface ReleaseProposalPayload {
   templateSlug: string;
@@ -710,6 +711,10 @@ export const decisionsRouter = router({
         throw new Error(`decision already ${decision.status}`);
       }
 
+      // Overriding an AUTO-RATIFIED fork is the precise "trust was misplaced"
+      // signal that contracts the Trust Ladder (ADR-012 Slice 2). Capture it
+      // before the override is persisted below.
+      const wasAutoRatified = decision.status === "auto_ratified";
       const payload = (decision.payload ?? {}) as AgentDecisionPayloadShape;
       const projectId = decision.projectId;
       const taskId = payload.taskId ?? null;
@@ -769,6 +774,10 @@ export const decisionsRouter = router({
                 err instanceof Error ? err.message : String(err)
               }`,
             );
+          }
+          // The override contracts the ladder when the fork was auto-ratified.
+          if (wasAutoRatified) {
+            autoContract(ctx.db, project, "operator overrode an auto-ratified decision");
           }
         }
       }

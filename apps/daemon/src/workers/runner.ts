@@ -39,6 +39,7 @@ import type { WorkerPool } from "./pool.ts";
 import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
+import { evaluateTrustOnOutcome } from "./trust-ladder.ts";
 import { classifyBlastRadius, computeVerifierReport, decideAutoLand } from "./verifier.ts";
 
 export interface RunnerDeps {
@@ -900,6 +901,16 @@ export async function executeRun(
         });
       }
     }
+
+    // Trust Ladder auto-movement (ADR-012 Slice 2): the project's level moves
+    // itself on this outcome — contract autonomous→collaborative on a failure or
+    // merge conflict, ratchet collaborative→autonomous on a clean verifier-green
+    // completion. (A held `needs_review` run is the gate working, so it's neutral.)
+    evaluateTrustOnOutcome(
+      db,
+      { id: project.id, name: project.name, autonomyMode },
+      { finalStatus, mergeConflict: mergeFailureNote !== null },
+    );
 
     // Surface stalled runs (blocked or failed) to the decisions inbox.
     // Without this the operator has to navigate into the project to discover

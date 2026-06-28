@@ -64,10 +64,14 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
 
 ## Trust Ladder (WS A) — remaining
 
-- [ ] **Slice 2 — auto-movement** (turns the switch into a ladder). Track-record ratchet (N consecutive
-      clean verifier-green outcomes → step up) + **auto-contract** on a run failure / merge conflict /
-      **override of an auto-ratified fork**. Surface level + trend in the project header. *(Step-up's
-      "verifier-green" signal depends on WS C.)*
+- [~] **Slice 2 — auto-movement (core landed)** — `workers/trust-ladder.ts`: `evaluateTrustOnOutcome`
+      contracts autonomous→collaborative on a run **failure / merge conflict** (wired in the runner)
+      and on an **operator override of an auto-ratified fork** (wired in `overrideAgentDecision`);
+      `maybeAutoPromote` ratchets collaborative→autonomous after **N=5** consecutive clean
+      (completed + verifier-`high`) runs. `needs_review` (gate-held) is neutral. 11 tests.
+  - [ ] **Surfacing follow-up**: push notification on a move ("project X paused/earned …") + a
+        level/trend chip in the project header (today the move is logged + reflected in the mode
+        picker, but the operator isn't actively notified).
 - [ ] **Slice 3 — L3 bounded auto-retry** of *transient* `blocked_run` / `merge_failure` with an
       operator-visible retry budget that escalates on exhaustion (never the structural human blocks).
 - [ ] **L4** = Watch-generated work auto-runs (= ADR-011 Phase C), gated by WS C.
