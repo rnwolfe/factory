@@ -273,11 +273,20 @@ When a human comments on a tracked issue, the App can reply on the thread as
 - **Decision threads.** If the comment maps to a pending `issue_intake` /
   `blocked_run` / `agent_decision` decision, it's appended to that thread and the
   existing reply agent answers (and echoes to GitHub).
-- **Free-form.** If there's no pending decision, the App answers statelessly —
-  it reads the live issue (title/body + full comment thread via
-  `fetchIssueConversation`), asks the project's agent for a reply, and posts it
-  back. Nothing lands in the inbox; the GitHub thread is the record. See
+- **Free-form.** If there's no pending decision, the App answers from the live
+  issue (title/body + full comment thread via `fetchIssueConversation`) and posts
+  the reply back. Nothing lands in the inbox; the GitHub thread is the record. See
   `runIssueConversationReply` in `apps/daemon/src/github/issue-triage.ts`.
+
+**Replies investigate the codebase.** Both the intake reply and the free-form
+conversational reply run the project's agent with a throwaway git worktree as
+its cwd (`invokeReplyAgent` → `ensureWorktree`, mirroring exec audits), so the
+agent's Read/Grep/Bash tools see the project's real source and can confirm what
+the code actually does before answering — it is no longer limited to the inlined
+AGENTS.md/README/VISION excerpts. The worktree is read-only by convention (the
+prompt forbids writes/commits/PRs) and is torn down after the reply. When the
+project has no on-disk git workdir or the worktree can't be created, the reply
+degrades to a stateless invocation (inlined excerpts only) rather than failing.
 
 **Deep links.** Every bot reply ends with a small footer linking back into
 Factory — the conversational reply links the **task** + **project**; intake and

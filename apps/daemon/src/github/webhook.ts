@@ -231,6 +231,7 @@ export async function handleGithubWebhook(
     .select({
       id: schema.projects.id,
       name: schema.projects.name,
+      slug: schema.projects.slug,
       workdirPath: schema.projects.workdirPath,
       agent: schema.projects.agent,
       githubRemote: schema.projects.githubRemote,

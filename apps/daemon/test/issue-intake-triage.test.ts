@@ -200,7 +200,10 @@ describe("runIssueConversationReply — free-form issue reply", () => {
       expect(seenPrompt).toContain("Phone-first dispatcher console");
       // Guardrail: must not claim to have made code changes; UNTRUSTED framing.
       expect(seenPrompt).toContain("UNTRUSTED INPUT");
-      expect(seenPrompt.toLowerCase()).toContain("does not run code");
+      // The reply agent is told to investigate the checked-out repo first, but
+      // must not mutate it (read-only).
+      expect(seenPrompt).toContain("INVESTIGATE it");
+      expect(seenPrompt.toLowerCase()).toContain("you must not change it");
     } finally {
       h.cleanup();
     }
@@ -317,6 +320,26 @@ describe("runIssueIntakeReply — auto-triage parity", () => {
         .where(eq(schema.decisions.id, h.decisionId))
         .get();
       expect((decision?.payload as { draft?: { kind: string } }).draft?.kind).toBe("task");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("prompt tells the agent to investigate the checked-out repo first", async () => {
+    const h = setup();
+    try {
+      let seenPrompt = "";
+      const agentInvoker = async (prompt: string) => {
+        seenPrompt = prompt;
+        return { text: 'ack\n\n```json\n{"kind":"dismiss"}\n```', sessionId: null, metrics: null };
+      };
+      await runIssueIntakeReply(
+        { db: h.db, events: h.events, config: h.config, project: h.project },
+        h.decisionId,
+        { agentInvoker, skipGithubEcho: true },
+      );
+      expect(seenPrompt).toContain("Investigate first");
+      expect(seenPrompt.toLowerCase()).toContain("repository is checked out");
     } finally {
       h.cleanup();
     }
