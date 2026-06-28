@@ -65,9 +65,14 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
 
 ## The Watch as work generator (ADR-011) — remaining
 
-- [ ] **Phase A — typed proposals + promotion paths.** bug→task ✓ (3c adopt-as-task); + feature→drafting
-      plan, arch→`audits.submit`/promote-finding, project→triage `project_spec`, backlog-groom→task
-      close/reprioritize. Promote ONLY through each primitive's existing single-source-of-truth seam.
+- [~] **Phase A — typed proposals + promotion paths.** bug→task ✓ (3c adopt-as-task);
+      **feature→drafting plan ✓** (`draft-feature-plan` → `seedFeaturePlanDraft` + plan insert, PWA
+      card; synthesizer reframed as work-generator w/ precision bias, note-only = residual). Promote
+      ONLY through each primitive's single-source-of-truth seam (held). Remaining Phase A slices:
+  - [ ] **arch→audit** (`propose-audit`) — needs audit-skill selection (which skill to run).
+  - [ ] **project→triage** (`propose-project` → `runTriage` → `project_spec` draft).
+  - [ ] **backlog-groom** (`groom-backlog` → task close/reprioritize via `updateTaskStatus`).
+  - [ ] **backlog-aware dedup** before surfacing (precision contract: never propose existing work).
 - [ ] **Phase B — in-band sources + cadence/groom jobs.** Generalize the source registry to **signal
       sources** (runs/decisions/audits/task-backlog/repo state). Fill the scheduler with ADR-010 §1
       cadence jobs: backlog grooming, decompose-next-milestone on queue-drain, scheduled health audits,

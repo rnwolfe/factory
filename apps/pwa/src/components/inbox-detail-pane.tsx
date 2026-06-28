@@ -208,7 +208,11 @@ function DecisionDetail({
     const proposal = typeof row.payload?.proposal === "string" ? row.payload.proposal : null;
     const evidenceCount = Array.isArray(row.payload?.evidence) ? row.payload.evidence.length : 0;
     const adoptLabel =
-      proposal === "adopt-as-task" && row.projectId ? "adopt as task" : "acknowledge";
+      row.projectId && proposal === "adopt-as-task"
+        ? "adopt as task"
+        : row.projectId && proposal === "draft-feature-plan"
+          ? "draft feature plan"
+          : "acknowledge";
     return (
       <DetailShell
         chips={

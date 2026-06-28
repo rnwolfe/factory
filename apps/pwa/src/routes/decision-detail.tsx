@@ -97,7 +97,7 @@ interface DecisionPayload {
     | "candidate-task"
     | "tooling-gap";
   detail?: string;
-  proposal?: "adopt-as-task" | "record-as-convention" | "note-only";
+  proposal?: "adopt-as-task" | "record-as-convention" | "note-only" | "draft-feature-plan";
   evidence?: Array<{ sourceId: string; sessionId: string }>;
   targetProjectSlug?: string | null;
   override?:
@@ -332,10 +332,13 @@ export function DecisionDetail() {
             : (payload.title_suggestion ??
               (idea.data ? idea.data.rawText.slice(0, 80) : d.outcome));
   // The Watch's adopt verb depends on the proposal + whether there's a project.
-  const watchAdoptLabel =
-    isWatchInsight && payload.proposal === "adopt-as-task" && d.projectId
+  const watchAdoptLabel = !isWatchInsight
+    ? "acknowledge"
+    : d.projectId && payload.proposal === "adopt-as-task"
       ? "adopt as task"
-      : "acknowledge";
+      : d.projectId && payload.proposal === "draft-feature-plan"
+        ? "draft feature plan"
+        : "acknowledge";
   const watchEvidenceCount = Array.isArray(payload.evidence) ? payload.evidence.length : 0;
 
   return (

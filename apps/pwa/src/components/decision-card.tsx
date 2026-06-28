@@ -88,7 +88,7 @@ export interface DecisionRow {
       | "candidate-task"
       | "tooling-gap";
     detail?: string;
-    proposal?: "adopt-as-task" | "record-as-convention" | "note-only";
+    proposal?: "adopt-as-task" | "record-as-convention" | "note-only" | "draft-feature-plan";
     evidence?: Array<{ sourceId: string; sessionId: string }>;
     targetProjectSlug?: string | null;
     [k: string]: unknown;
@@ -287,12 +287,16 @@ export function DecisionCard({
     ? (decision.payload.title ?? "Insight from The Watch")
     : null;
 
-  // The Watch's adopt verb is "adopt as task" only when the insight proposes a
-  // task AND has a project to file it under; everything else is "acknowledge".
-  const watchAdoptLabel =
-    isWatchInsight && decision.payload.proposal === "adopt-as-task" && decision.projectId
+  // The Watch's adopt verb depends on the proposal — "adopt as task" / "draft
+  // feature plan" only when the insight proposes that work AND has a project to
+  // file it under; everything else is "acknowledge".
+  const watchAdoptLabel = !isWatchInsight
+    ? "acknowledge"
+    : decision.projectId && decision.payload.proposal === "adopt-as-task"
       ? "adopt as task"
-      : "acknowledge";
+      : decision.projectId && decision.payload.proposal === "draft-feature-plan"
+        ? "draft feature plan"
+        : "acknowledge";
 
   const headline =
     blockedHeadline ??
@@ -536,7 +540,7 @@ export function DecisionCard({
               label={watchAdoptLabel}
               tone="primary"
               onClick={() => onAction("approve")}
-              showArrow={watchAdoptLabel === "adopt as task"}
+              showArrow={watchAdoptLabel !== "acknowledge"}
             />
             <ActionBtn label="dismiss" onClick={() => onAction("dismiss")} />
           </div>
