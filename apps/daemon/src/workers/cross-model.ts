@@ -1,4 +1,4 @@
-import type { AgentName } from "../agents/registry.ts";
+import { type AgentName, getAgentDescriptor } from "../agents/registry.ts";
 import { invokeClaudeJson } from "../plans/invoke-claude.ts";
 import { extractJsonObject } from "../plans/json-extract.ts";
 import type { AcceptanceResult } from "./factory-status.ts";
@@ -26,10 +26,10 @@ export interface CrossModelVerdict {
   reasoning: string;
 }
 
-const OTHER_FAMILY: Record<AgentName, AgentName> = {
-  "claude-code": "codex",
-  codex: "claude-code",
-};
+/** The validator family for runs `builder` produced — registry-derived (ADR-015). */
+export function getValidatorAgent(builder: AgentName): AgentName | null {
+  return getAgentDescriptor(builder)?.validatorAgentId ?? null;
+}
 
 export type CrossModelInvoke = (prompt: string, agent: AgentName) => Promise<string>;
 
@@ -53,7 +53,8 @@ export async function crossModelValidate(
   input: CrossModelInput,
   deps: CrossModelDeps = {},
 ): Promise<CrossModelVerdict | null> {
-  const validator = OTHER_FAMILY[input.builderAgent];
+  const validator = getValidatorAgent(input.builderAgent);
+  if (!validator) return null; // family declares no cross-model validator
   const invoke =
     deps.invoke ??
     (async (prompt, agent) => {
@@ -92,7 +93,7 @@ export function buildCrossModelPrompt(input: CrossModelInput, validator: AgentNa
     input.diff.length > 24_000 ? `${input.diff.slice(0, 24_000)}\n…(diff truncated)` : input.diff;
 
   return `You are an adversarial code reviewer from a DIFFERENT model family than the one that
-wrote this change (${validator} reviewing ${OTHER_FAMILY[validator]}'s work). Your job is
+wrote this change (${validator} reviewing ${input.builderAgent}'s work). Your job is
 to independently verify the change is correct and complete — your blind spots differ from
 the author's, which is the point.
 

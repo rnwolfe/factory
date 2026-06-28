@@ -6,6 +6,7 @@ import { tmuxSocketArgs } from "@factory/runtime";
 import { spawn as bunSpawn } from "bun";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
+import { AGENT_NAME_ENUM } from "../agents/registry.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import { tmuxSessionNameFor } from "../workers/recover.ts";
 import { submitRun } from "../workers/submit.ts";
@@ -69,7 +70,7 @@ export const runsRouter = router({
          * different provider — see the AgentModelPicker on the project
          * header.
          */
-        agent: z.enum(["claude-code", "codex"]).optional(),
+        agent: AGENT_NAME_ENUM.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

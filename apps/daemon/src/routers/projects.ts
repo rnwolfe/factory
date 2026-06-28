@@ -6,6 +6,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { AGENT_NAME_ENUM } from "../agents/registry.ts";
 import { enableGithubIssuesBackend } from "../projects/enable-github-backend.ts";
 import { createRepo, GithubError, pushToNewRemote } from "../projects/github.ts";
 import { replyAsOperator, taskThread } from "../projects/github-task-store.ts";
@@ -287,7 +288,7 @@ const tasksRouter = router({
         // Empty string clears the per-task override (falls back to project
         // default at submit time). Non-empty values are constrained to the
         // supported harnesses because submit ignores unknown task agents.
-        agent: z.enum(["claude-code", "codex"]).or(z.literal("")),
+        agent: AGENT_NAME_ENUM.or(z.literal("")),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -323,7 +324,7 @@ const tasksRouter = router({
         estimate: TaskEstimateEnum.optional(),
         priority: TaskPriorityEnum.optional(),
         model: z.string().max(120).optional(),
-        agent: z.enum(["claude-code", "codex"]).optional(),
+        agent: AGENT_NAME_ENUM.optional(),
         acceptance: z.array(z.string().max(500)).max(50).optional(),
       }),
     )
@@ -575,7 +576,7 @@ export const projectsRouter = router({
     .input(
       z.object({
         id: z.string(),
-        agent: z.enum(["claude-code", "codex"]).nullable(),
+        agent: AGENT_NAME_ENUM.nullable(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

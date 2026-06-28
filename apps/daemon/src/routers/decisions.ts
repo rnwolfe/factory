@@ -4,6 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
+import { AGENT_NAME_ENUM } from "../agents/registry.ts";
 import { echoOperatorCommentToIssue, runDecisionReply } from "../decisions/dialog.ts";
 import {
   type AgentDecisionOverride,
@@ -231,7 +232,7 @@ export const decisionsRouter = router({
          * to the retry run only. On triage approve, persists onto the bootstrapped
          * project. Ignored otherwise.
          */
-        agent: z.enum(["claude-code", "codex"]).optional(),
+        agent: AGENT_NAME_ENUM.optional(),
         /** Ceremony level carried into the project_spec plan and on into bootstrap. */
         ceremony: z.enum(["tinker", "personal", "shared", "production"]).optional(),
         /** Owner vs contributor — determines whether bootstrap creates a vision plan. */

@@ -1,4 +1,5 @@
 import { type AgentSpec, claudeCodeAgent, codexAgent } from "@factory/runtime";
+import { z } from "zod";
 import { probeCodexAuth } from "./codex-auth.ts";
 
 /**
@@ -42,6 +43,13 @@ export type AgentName = (typeof AGENT_NAMES)[number];
 
 /** Tuple form for `z.enum`. Cast asserts the at-least-one-element constraint. */
 export const AGENT_ID_TUPLE = AGENT_NAMES as readonly string[] as [AgentName, ...AgentName[]];
+
+/**
+ * The single agent-id zod enum. Routers/inputs MUST use this rather than re-typing
+ * `z.enum(["claude-code","codex"])` — adding a family is then one edit to AGENT_NAMES,
+ * not a hunt across every router (ADR-015).
+ */
+export const AGENT_NAME_ENUM = z.enum(AGENT_ID_TUPLE);
 
 export interface AgentModel {
   /** `null` = "let the agent's CLI pick its own default". */
@@ -88,6 +96,13 @@ export interface AgentDescriptor {
    * still wraps with `sleep 0.15;` and `exec` to defeat pty races.
    */
   buildInteractiveCommand?: () => string;
+  /**
+   * The family to use as the cross-model validator for runs this family built
+   * (ADR-014/015). Each family declares its own validator, so the pairing is
+   * registry-derived, not a hardcoded map that breaks at a third family.
+   * `null`/omitted = no cross-model validation for this family.
+   */
+  validatorAgentId?: AgentName | null;
 }
 
 const claudeCodeDescriptor: AgentDescriptor = {
@@ -102,6 +117,7 @@ const claudeCodeDescriptor: AgentDescriptor = {
     { id: "claude-haiku-4-5-20251001", label: "haiku 4.5", hint: "fast / cheap" },
   ],
   supports: { resume: true, interactiveSession: true },
+  validatorAgentId: "codex",
   runtimeSpec: claudeCodeAgent,
   // No probeAuth: claude-code's auth is operator-managed (ANTHROPIC_API_KEY
   // or claude login). We assume the daemon's host has it set up; mid-run
@@ -127,6 +143,7 @@ const codexDescriptor: AgentDescriptor = {
   // Codex has no `--resume <session>` equivalent yet — follow-up flows must
   // rebuild the full prompt. See docs/internal/codex-parity.md.
   supports: { resume: false, interactiveSession: true },
+  validatorAgentId: "claude-code",
   runtimeSpec: codexAgent,
   probeAuth: () => {
     const status = probeCodexAuth();
