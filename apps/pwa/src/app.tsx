@@ -18,6 +18,7 @@ import { ImportProject } from "./routes/import-project.tsx";
 import { ImportSpec } from "./routes/import-spec.tsx";
 import { Inbox } from "./routes/inbox.tsx";
 import { LivePane } from "./routes/live-pane.tsx";
+import { Memory } from "./routes/memory.tsx";
 import { Metrics } from "./routes/metrics.tsx";
 import { MilestonePlan } from "./routes/milestone-plan.tsx";
 import { NewIdea } from "./routes/new-idea.tsx";
@@ -309,6 +310,14 @@ export function App() {
             element={
               <RouteBoundary label="metrics">
                 <Metrics />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/memory"
+            element={
+              <RouteBoundary label="memory">
+                <Memory />
               </RouteBoundary>
             }
           />

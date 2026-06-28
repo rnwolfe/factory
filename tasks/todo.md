@@ -74,12 +74,21 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       doc-drift/dependency sweeps.
 - [ ] **Phase C — generation → gating.** Route generated work through WS C + the Trust Ladder (depends on A + C).
 
-## ★ Operator-memory repo + viewer (ADR-010 §4) — fast-follow *(don't lose track)*
+## ★ Operator-memory repo + viewer (ADR-010 §4)
 
-- [ ] `operator-memory.ts`: **fresh, Factory-owned** git repo, Claude-format (`MEMORY.md` index +
-      per-fact files); **first synthesis run ingests all harness memories** as input; injectable as run context.
-- [ ] **First-class PWA viewer** of the memory repo (browse `MEMORY.md` + each fact w/ provenance) — read-only.
-- [ ] Wire `record-as-convention` promotion (from a `watch_insight`) to write into it (operator-gated).
+- [x] `operator-memory.ts` (landed): **fresh, Factory-owned** git repo (default
+      `<FACTORY_HOME>/operator-memory`), Claude-format (`MEMORY.md` index + per-fact frontmatter
+      files); ensure/write/list/read-index (one commit per write, index rebuilt from disk).
+- [x] **First-class PWA viewer** (landed): its own `/memory` route + sidebar nav, facts grouped by
+      type, expandable body + provenance chips, empty state. Read-only.
+- [x] **`record-as-convention` write** (landed): approving a `watch_insight` writes the convention
+      into the repo (operator-gated, best-effort, with provenance).
+- [ ] **First synthesis run ingests all harness memories** (deferred — needs a design call:
+      synthesize-from vs copy, given fresh-not-a-mirror). Synthesis already *reads* them as input.
+- [ ] **Injectable as run context** (deferred) — a run reads operator-memory like AGENTS.md to
+      ground autonomous work (the payoff; a prompt-wrapping slice).
+- [ ] **Project-level record-as-convention → AGENTS.md** (deferred) — slug-scoped conventions write
+      to the project repo's AGENTS.md instead of the operator-level memory repo.
 
 ## Backlog from the report (not yet scheduled)
 

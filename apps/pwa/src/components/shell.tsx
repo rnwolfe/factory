@@ -26,6 +26,7 @@ export function Shell({ children }: { children: ReactNode }) {
     "/projects": "projects",
     "/tasks": "open tasks",
     "/metrics": "metrics",
+    "/memory": "operator memory",
     "/settings": "settings",
   };
   const title = titleByRoute[loc.pathname] ?? "Heimdall";

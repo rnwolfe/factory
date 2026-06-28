@@ -1,6 +1,7 @@
 import {
   Activity,
   Archive,
+  BookMarked,
   Cog,
   Inbox as InboxIcon,
   Layers,
@@ -26,6 +27,7 @@ const PRIMARY: NavItem[] = [
   { to: "/tasks", label: "open tasks", icon: ListChecks },
   { to: "/history", label: "history", icon: Archive },
   { to: "/metrics", label: "metrics", icon: LineChart },
+  { to: "/memory", label: "memory", icon: BookMarked },
 ];
 
 export function Sidebar({ inboxCount }: { inboxCount: number }) {
