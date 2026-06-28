@@ -83,8 +83,10 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
         `decideAutoLand` (land only on **high** coverage + **contained** diff). Wired for
         AUTONOMOUS runs only: a completed run that fails the gate is downgraded to `needs_review`
         (reuses the existing not-merged/surface-for-review path; collaborative = unchanged v0.1).
-  - [ ] **Slice 3 — freeze precondition**: frozen testable acceptance criteria required for
-        autonomy-eligible plans (no checkable criteria = ineligible — closes the `absent` case).
+  - [x] **Slice 3 — freeze precondition (landed)**: freezing a `task_plan` on an AUTONOMOUS
+        project now requires ≥1 testable acceptance criterion (PRECONDITION_FAILED otherwise,
+        like the vision filter). Closes the `absent` case at its source — autonomy-eligible work
+        can't freeze without something for the verifier to check. **WS C complete.**
   - [x] **PWA** (landed): `verifier-report.tsx` — level chip + three-state per-signal coverage
         (pass ✓ / fail ✗ / absent "— not covered"), mounted by the live pane next to quality.
 - [x] **WS D — cross-model validation** (landed): `cross-model.ts` routes verification to the

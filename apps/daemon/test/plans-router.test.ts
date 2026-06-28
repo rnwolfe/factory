@@ -207,4 +207,79 @@ describe("plans router", () => {
       h.cleanup();
     }
   });
+
+  // WS C slice 3 (ADR-014): autonomy-eligible task plans need testable acceptance.
+  async function seedProjectPlan(
+    h: Harness,
+    autonomyMode: "collaborative" | "autonomous",
+    acceptance: string[],
+  ): Promise<string> {
+    const now = Date.now();
+    const projectId = createId();
+    await h.db.insert(schema.projects).values({
+      id: projectId,
+      slug: `p-${projectId.slice(0, 6)}`,
+      name: "P",
+      ceremony: "personal",
+      autonomyMode,
+      workdirPath: path.join(tmpdir(), projectId),
+      createdAt: now,
+      lastActivityAt: now,
+    });
+    const planId = createId();
+    await h.db.insert(schema.plans).values({
+      id: planId,
+      kind: "task_plan",
+      status: "drafting",
+      projectId,
+      goal: "g",
+      draft: JSON.stringify({
+        kind: "task_plan",
+        goal: "",
+        steps: [],
+        acceptance,
+        touches: [],
+        risks: [],
+      }),
+      createdAt: now,
+      updatedAt: now,
+    });
+    return planId;
+  }
+
+  test("autonomous task_plan freeze is blocked without acceptance criteria", async () => {
+    const h = setupHarness();
+    try {
+      const planId = await seedProjectPlan(h, "autonomous", []);
+      await expect(h.caller.freeze({ planId })).rejects.toThrow(/acceptance criterion/);
+      const plan = h.db.select().from(schema.plans).where(eq(schema.plans.id, planId)).get();
+      expect(plan?.status).toBe("drafting"); // not frozen
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("autonomous task_plan freeze succeeds with acceptance criteria", async () => {
+    const h = setupHarness();
+    try {
+      const planId = await seedProjectPlan(h, "autonomous", ["compiles", "tests pass"]);
+      await h.caller.freeze({ planId });
+      const plan = h.db.select().from(schema.plans).where(eq(schema.plans.id, planId)).get();
+      expect(plan?.status).toBe("frozen");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("collaborative task_plan freeze is unaffected by the acceptance gate", async () => {
+    const h = setupHarness();
+    try {
+      const planId = await seedProjectPlan(h, "collaborative", []);
+      await h.caller.freeze({ planId });
+      const plan = h.db.select().from(schema.plans).where(eq(schema.plans.id, planId)).get();
+      expect(plan?.status).toBe("frozen");
+    } finally {
+      h.cleanup();
+    }
+  });
 });

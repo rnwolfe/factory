@@ -1,4 +1,4 @@
-import type { FeaturePlanDraft } from "@factory/db";
+import type { FeaturePlanDraft, TaskPlanDraft } from "@factory/db";
 import { schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
@@ -466,6 +466,39 @@ export const plansRouter = router({
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
               message: `vision filter failing: ${failing.join(", ")} — iterate the plan until all four tests pass before freezing on a ${ceremony} project`,
+            });
+          }
+        }
+      }
+
+      // Acceptance-criteria precondition for task_plan freezes on AUTONOMOUS
+      // projects (ADR-014 slice 3 / WS C). Autonomy-eligible work MUST carry
+      // testable acceptance criteria — without them the verifier gate can never
+      // reach `high` coverage, so the run would be perpetually held for review.
+      // Catch it at the source: no checkable criteria = not autonomy-eligible.
+      if (plan.kind === "task_plan" && plan.projectId) {
+        const project = await ctx.db
+          .select({ autonomyMode: schema.projects.autonomyMode })
+          .from(schema.projects)
+          .where(eq(schema.projects.id, plan.projectId))
+          .get();
+        if (project?.autonomyMode === "autonomous") {
+          let acceptance: string[] = [];
+          try {
+            const obj = JSON.parse(plan.draft) as TaskPlanDraft;
+            if (obj.kind === "task_plan" && Array.isArray(obj.acceptance)) {
+              acceptance = obj.acceptance.filter(
+                (a): a is string => typeof a === "string" && a.trim().length > 0,
+              );
+            }
+          } catch {
+            // null parse → no criteria → fails the gate
+          }
+          if (acceptance.length === 0) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "autonomous projects require at least one testable acceptance criterion to freeze a task plan — add criteria so the run is verifiable (otherwise it can never auto-land and is always held for review)",
             });
           }
         }
