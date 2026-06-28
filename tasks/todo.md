@@ -71,7 +71,9 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       ONLY through each primitive's single-source-of-truth seam (held). Remaining Phase A slices:
   - [ ] **arch→audit** (`propose-audit`) — needs audit-skill selection (which skill to run).
   - [ ] **project→triage** (`propose-project` → `runTriage` → `project_spec` draft).
-  - [ ] **backlog-groom** (`groom-backlog` → task close/reprioritize via `updateTaskStatus`).
+  - [x] **backlog-groom** (landed) — `groom-backlog` proposal carries `targetTaskId`; approve closes
+        the task via `updateTaskStatus(... "dropped")`. Produced by the stale-backlog detector below.
+        (Re-prioritize variant still open — needs a task-priority seam.)
   - [x] **backlog-aware dedup** before surfacing (landed) — `watch/inband/backlog.ts`
         (`filterAlreadyTracked`) drops project-scoped work proposals already in the target project's
         open tasks / active plans; wired into the synthesis job before persist/surface. Precision
@@ -79,10 +81,11 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
 - [~] **Phase B — in-band sources + cadence/groom jobs.** Landed: the backlog reader (consumed by
       dedup); an **in-band detector registry** (`watch/inband/detectors.ts`, registry discipline) +
       the **in-band groom job** (`createInBandGroomJob`, own scheduler entry, shares dedup+surface,
-      no LLM); first detector **run-failures** (3 consecutive failed runs → candidate-task). Remaining
-      detectors: stale-backlog groom (close obsolete tasks), stale-audit → propose-audit, repeated
-      error-signature across runs, repo git-drift. Plus cadence jobs: decompose-next-milestone on
-      queue-drain, scheduled health audits, doc-drift sweeps. (Own cadence setting still one knob.)
+      no LLM); detectors **run-failures** (3 consecutive failed runs → candidate-task) and
+      **stale-backlog** (ready task idle >30d → groom-backlog → close). Remaining detectors:
+      stale-audit → propose-audit, repeated error-signature across runs, repo git-drift. Plus cadence
+      jobs: decompose-next-milestone on queue-drain, scheduled health audits, doc-drift sweeps. (Own
+      cadence setting still one knob.)
 - [ ] **Phase C — generation → gating.** Route generated work through WS C + the Trust Ladder (depends on A + C).
 
 ## ★ Operator-memory repo + viewer (ADR-010 §4)

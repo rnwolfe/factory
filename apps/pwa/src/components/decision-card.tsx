@@ -88,7 +88,12 @@ export interface DecisionRow {
       | "candidate-task"
       | "tooling-gap";
     detail?: string;
-    proposal?: "adopt-as-task" | "record-as-convention" | "note-only" | "draft-feature-plan";
+    proposal?:
+      | "adopt-as-task"
+      | "record-as-convention"
+      | "note-only"
+      | "draft-feature-plan"
+      | "groom-backlog";
     evidence?: Array<{ sourceId: string; sessionId: string }>;
     targetProjectSlug?: string | null;
     [k: string]: unknown;
@@ -296,7 +301,9 @@ export function DecisionCard({
       ? "adopt as task"
       : decision.projectId && decision.payload.proposal === "draft-feature-plan"
         ? "draft feature plan"
-        : "acknowledge";
+        : decision.projectId && decision.payload.proposal === "groom-backlog"
+          ? "close task"
+          : "acknowledge";
 
   const headline =
     blockedHeadline ??

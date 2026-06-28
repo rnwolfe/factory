@@ -97,7 +97,12 @@ interface DecisionPayload {
     | "candidate-task"
     | "tooling-gap";
   detail?: string;
-  proposal?: "adopt-as-task" | "record-as-convention" | "note-only" | "draft-feature-plan";
+  proposal?:
+    | "adopt-as-task"
+    | "record-as-convention"
+    | "note-only"
+    | "draft-feature-plan"
+    | "groom-backlog";
   evidence?: Array<{ sourceId: string; sessionId: string }>;
   targetProjectSlug?: string | null;
   override?:
@@ -338,7 +343,9 @@ export function DecisionDetail() {
       ? "adopt as task"
       : d.projectId && payload.proposal === "draft-feature-plan"
         ? "draft feature plan"
-        : "acknowledge";
+        : d.projectId && payload.proposal === "groom-backlog"
+          ? "close task"
+          : "acknowledge";
   const watchEvidenceCount = Array.isArray(payload.evidence) ? payload.evidence.length : 0;
 
   return (

@@ -212,7 +212,9 @@ function DecisionDetail({
         ? "adopt as task"
         : row.projectId && proposal === "draft-feature-plan"
           ? "draft feature plan"
-          : "acknowledge";
+          : row.projectId && proposal === "groom-backlog"
+            ? "close task"
+            : "acknowledge";
     return (
       <DetailShell
         chips={
