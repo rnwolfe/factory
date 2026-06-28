@@ -16,6 +16,7 @@ import {
   recoverOrphanedInterventions,
   tmuxNameForIntervention,
 } from "./interventions/orchestrate.ts";
+import { backfillMetrics, createMetricsRollupJob } from "./metrics/rollup.ts";
 import { migrateQualityConfigs } from "./projects/quality-config.ts";
 import { configureGithubTaskBackend } from "./projects/tasks.ts";
 import { startPushDispatcher } from "./push/dispatcher.ts";
@@ -201,11 +202,21 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // the snooze and publishing the same event path as a newly-landed item.
   const stopInboxSnoozeResurfacer = startInboxSnoozeResurfacer({ db, events });
 
+  // Seed the metrics rollups so the ops surface has history on day one and
+  // stays fresh across restarts (ADR-013). Fire-and-forget + bounded (last 14
+  // UTC days) so it never blocks boot; the daily scheduler job maintains it
+  // going forward. Idempotent (upsert).
+  void backfillMetrics(db, Date.now() - 14 * 24 * 60 * 60_000, Date.now() + 24 * 60 * 60_000).catch(
+    (err) =>
+      console.warn(`[metrics] boot backfill failed: ${err instanceof Error ? err.message : err}`),
+  );
+
   // The Watch (ADR-010): proactive scheduler tick. It scans the operator's
   // out-of-band harness work on the operator-tunable `watch-synthesis-cadence`
   // (read live each tick), synthesizes observations via `claude --print`, and
   // persists them deduped to `watch_observations`. Scan positions persist in
-  // `watch_cursors` so a restart resumes rather than re-reading.
+  // `watch_cursors` so a restart resumes rather than re-reading. It also drives
+  // the daily metrics rollup (ADR-013).
   const scheduler = startScheduler({
     events,
     jobs: [
@@ -221,6 +232,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
           return { inserted: inserted.length, skipped };
         },
       }),
+      createMetricsRollupJob(db),
     ],
   });
 

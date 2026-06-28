@@ -1189,3 +1189,36 @@ export const watchObservations = sqliteTable(
 
 export type WatchObservation = typeof watchObservations.$inferSelect;
 export type NewWatchObservation = typeof watchObservations.$inferInsert;
+
+// ── Autonomy & ops metrics (ADR-013) ─────────────────────────────────────────
+/**
+ * Daily metric rollups in LONG format: one row per (date, scope, metric). A new
+ * metric is a new computation in the catalog — never a migration. `projectId`
+ * uses the sentinel `"*"` for the portfolio total (not NULL — SQLite treats NULLs
+ * as distinct in a unique index, which would defeat the upsert). Derived and
+ * rebuildable (backfill recomputes from `runs`/`decisions` + git), so it's an
+ * index, not a source of truth.
+ */
+export const metricsDaily = sqliteTable(
+  "metrics_daily",
+  {
+    /** UTC day, `YYYY-MM-DD`. */
+    date: text("date").notNull(),
+    /** A project id, or `"*"` for the portfolio total. */
+    projectId: text("project_id").notNull(),
+    /** Catalog metric key (see `metrics/catalog.ts`). */
+    metric: text("metric").notNull(),
+    value: real("value").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("metrics_daily_uniq").on(t.date, t.projectId, t.metric),
+    index("metrics_daily_metric_idx").on(t.metric),
+  ],
+);
+
+export type MetricDailyRow = typeof metricsDaily.$inferSelect;
+export type NewMetricDailyRow = typeof metricsDaily.$inferInsert;
+
+/** Sentinel `projectId` for portfolio-wide (cross-project) metric rows. */
+export const METRICS_PORTFOLIO = "*";
