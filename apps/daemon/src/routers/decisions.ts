@@ -16,7 +16,7 @@ import { defaultOperatorMemoryPath, slugify, writeMemoryFact } from "../memory/o
 import { seedFeaturePlanDraft, seedProjectSpecDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
-import { createTask } from "../projects/tasks.ts";
+import { createTask, updateTaskStatus } from "../projects/tasks.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
@@ -609,6 +609,28 @@ export const decisionsRouter = router({
             }
             schedulePlanIteration(ctx, { planId });
             projectId = decision.projectId;
+          } else if (
+            payload.proposal === "groom-backlog" &&
+            decision.projectId &&
+            payload.targetTaskId
+          ) {
+            // Close a stale backlog task the operator confirms is obsolete —
+            // through the task seam (status → dropped). Best-effort: a file/IO
+            // hiccup must not fail the action.
+            const project = await ctx.db
+              .select()
+              .from(schema.projects)
+              .where(eq(schema.projects.id, decision.projectId))
+              .get();
+            if (project) {
+              try {
+                await updateTaskStatus(project, payload.targetTaskId, "dropped");
+                projectId = project.id;
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[watch] groom-backlog close failed: ${msg}`);
+              }
+            }
           }
           await ctx.db
             .update(schema.watchObservations)

@@ -9,7 +9,7 @@ import type { FactoryConfig } from "../src/config.ts";
 import type { DaemonContext } from "../src/context.ts";
 import { type DaemonEvent, EventBus } from "../src/events.ts";
 import { defaultOperatorMemoryPath, listMemoryFacts } from "../src/memory/operator-memory.ts";
-import { listTasks, pickNextReadyTask } from "../src/projects/tasks.ts";
+import { createTask, listTasks, pickNextReadyTask, readTaskFile } from "../src/projects/tasks.ts";
 import { decisionsRouter } from "../src/routers/decisions.ts";
 import { ScriptRegistry } from "../src/scripts/registry.ts";
 import { createCallerFactory } from "../src/trpc.ts";
@@ -139,7 +139,7 @@ describe("decisionsRouter", () => {
 
   function seedWatchInsight(
     h: ReturnType<typeof setupHarness>,
-    over: { proposal?: string; projectId?: string | null } = {},
+    over: { proposal?: string; projectId?: string | null; targetTaskId?: string } = {},
   ) {
     const now = Date.now();
     const obsId = createId();
@@ -176,6 +176,7 @@ describe("decisionsRouter", () => {
           proposal,
           evidence: [],
           targetProjectSlug: null,
+          targetTaskId: over.targetTaskId ?? null,
         },
         status: "pending",
         createdAt: now,
@@ -333,6 +334,43 @@ describe("decisionsRouter", () => {
         .where(eq(schema.watchObservations.id, obsId))
         .get();
       expect(obs?.status).toBe("adopted");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("watch_insight groom-backlog closes the target task via the task seam", async () => {
+    const h = setupHarness();
+    try {
+      const projectId = createId();
+      const workdirPath = path.join(h.root, "groomproj");
+      mkdirSync(path.join(workdirPath, ".factory", "work"), { recursive: true });
+      const now = Date.now();
+      await h.db.insert(schema.projects).values({
+        id: projectId,
+        slug: "groomproj",
+        name: "Groom",
+        ceremony: "personal",
+        workdirPath,
+        createdAt: now,
+        lastActivityAt: now,
+      });
+      const task = await createTask(
+        { workdirPath },
+        { title: "Obsolete thing", body: "x", priority: "med", estimate: "small" },
+      );
+      expect(task.frontmatter.status).toBe("ready");
+
+      const { decisionId } = seedWatchInsight(h, {
+        proposal: "groom-backlog",
+        projectId,
+        targetTaskId: task.id,
+      });
+      await h.caller.action({ decisionId, action: "approve" });
+
+      // the stale task was closed (dropped) through updateTaskStatus, not reimplemented
+      const after = await readTaskFile({ workdirPath }, task.id);
+      expect(after?.frontmatter.status).toBe("dropped");
     } finally {
       h.cleanup();
     }

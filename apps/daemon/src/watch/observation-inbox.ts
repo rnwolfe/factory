@@ -22,6 +22,8 @@ export interface WatchInsightPayload {
   evidence: ObservationEvidence[];
   /** Slug the insight maps to, or null for an operator-level (cross-project) one. */
   targetProjectSlug: string | null;
+  /** The specific task to act on (groom-backlog promotion), or null. */
+  targetTaskId?: string | null;
 }
 
 export function surfaceObservations(
@@ -51,6 +53,7 @@ export function surfaceObservations(
       proposal: o.proposal,
       evidence: o.evidence,
       targetProjectSlug: o.targetProjectSlug,
+      targetTaskId: o.targetTaskId ?? null,
     };
     db.insert(schema.decisions)
       .values({

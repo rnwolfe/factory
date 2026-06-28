@@ -12,7 +12,7 @@ import type { RawObservation } from "../synthesize.ts";
 export interface InBandGroomJobDeps {
   cadence: () => Cadence;
   /** Run the in-band detectors → observations (defaults wired in index.ts). */
-  detect: () => RawObservation[];
+  detect: () => RawObservation[] | Promise<RawObservation[]>;
   dedupeAgainstBacklog: DedupeBacklogFn;
   saveObservations: SaveObservationsFn;
 }
@@ -22,7 +22,7 @@ export function createInBandGroomJob(deps: InBandGroomJobDeps): ScheduledJob {
     id: "watch-inband-groom",
     cadence: deps.cadence,
     async run() {
-      const observations = deps.detect();
+      const observations = await deps.detect();
       if (observations.length === 0) return;
       const { kept, dropped } = await deps.dedupeAgainstBacklog(observations);
       const { inserted, skipped } = deps.saveObservations(kept);

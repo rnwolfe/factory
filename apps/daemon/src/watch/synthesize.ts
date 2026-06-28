@@ -26,6 +26,12 @@ export interface RawObservation {
   proposal: (typeof watchObservationProposalEnum)[number];
   /** Factory project slug, or null for an operator-level (cross-project) insight. */
   targetProjectSlug: string | null;
+  /**
+   * The specific task this observation acts on — set by in-band groom detectors
+   * (e.g. `groom-backlog` closing a stale task). Carried on the decision payload
+   * so promotion knows which task to act on; null for everything else.
+   */
+  targetTaskId?: string | null;
 }
 
 export type InvokeFn = (prompt: string) => Promise<string>;

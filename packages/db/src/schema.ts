@@ -1142,6 +1142,8 @@ export const watchObservationKindEnum = [
   "tooling-gap",
   // ADR-011 Phase A: a feature gestured at repeatedly → feature_plan.
   "candidate-feature",
+  // ADR-011 Phase B: an in-band groom signal (e.g. a stale backlog item).
+  "stale-backlog",
 ] as const;
 
 /**
@@ -1153,6 +1155,7 @@ export const watchObservationKindEnum = [
 export const watchObservationProposalEnum = [
   "adopt-as-task", // → createTask
   "draft-feature-plan", // → a drafting feature_plan seeded in the inbox
+  "groom-backlog", // → close/groom a specific existing task (in-band detector)
   "record-as-convention", // → operator-memory / AGENTS.md
   "note-only", // residual: stays a watch_observation
 ] as const;
