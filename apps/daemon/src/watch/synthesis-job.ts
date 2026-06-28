@@ -25,6 +25,11 @@ export type SynthesizeFn = (
 
 export type SaveObservationsFn = (obs: RawObservation[]) => { inserted: number; skipped: number };
 
+/** Drop proposals already tracked in the target project's backlog (ADR-011 precision). */
+export type DedupeBacklogFn = (
+  obs: RawObservation[],
+) => Promise<{ kept: RawObservation[]; dropped: number }>;
+
 const DEFAULT_CADENCE: Cadence = "daily";
 
 /**
@@ -43,6 +48,12 @@ export interface SynthesisJobDeps {
   synthesize: SynthesizeFn;
   /** Persist observations (deduped); returns insert/skip counts. */
   saveObservations: SaveObservationsFn;
+  /**
+   * Optional in-band precision pass: drop work proposals already tracked in the
+   * target project's backlog before they're persisted/surfaced (ADR-011 §2/"precision
+   * over recall"). Defaults to a no-op when absent.
+   */
+  dedupeAgainstBacklog?: DedupeBacklogFn;
   /** Injectable for tests; defaults to the registry's available sources. */
   listSources?: () => Promise<HarnessSource[]>;
   /**
@@ -94,11 +105,16 @@ export function createSynthesisJob(deps: SynthesisJobDeps): ScheduledJob {
       }
 
       const observations = await deps.synthesize(records, memories);
-      const { inserted, skipped } = deps.saveObservations(observations);
+      // In-band precision pass: never surface work the project already tracks.
+      const { kept, dropped } = deps.dedupeAgainstBacklog
+        ? await deps.dedupeAgainstBacklog(observations)
+        : { kept: observations, dropped: 0 };
+      const { inserted, skipped } = deps.saveObservations(kept);
       // Only now is the work safely synthesized + persisted — advance cursors.
       for (const c of pending) cursors.set(c);
       console.log(
-        `[watch] ${records.length} record(s) → ${observations.length} observation(s) (${inserted} new, ${skipped} dup)`,
+        `[watch] ${records.length} record(s) → ${observations.length} observation(s) ` +
+          `(${inserted} new, ${skipped} dup, ${dropped} already-tracked)`,
       );
     },
   };

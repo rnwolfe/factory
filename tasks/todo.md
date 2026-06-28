@@ -72,11 +72,15 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
   - [ ] **arch→audit** (`propose-audit`) — needs audit-skill selection (which skill to run).
   - [ ] **project→triage** (`propose-project` → `runTriage` → `project_spec` draft).
   - [ ] **backlog-groom** (`groom-backlog` → task close/reprioritize via `updateTaskStatus`).
-  - [ ] **backlog-aware dedup** before surfacing (precision contract: never propose existing work).
-- [ ] **Phase B — in-band sources + cadence/groom jobs.** Generalize the source registry to **signal
-      sources** (runs/decisions/audits/task-backlog/repo state). Fill the scheduler with ADR-010 §1
-      cadence jobs: backlog grooming, decompose-next-milestone on queue-drain, scheduled health audits,
-      doc-drift/dependency sweeps.
+  - [x] **backlog-aware dedup** before surfacing (landed) — `watch/inband/backlog.ts`
+        (`filterAlreadyTracked`) drops project-scoped work proposals already in the target project's
+        open tasks / active plans; wired into the synthesis job before persist/surface. Precision
+        contract honored (operator-level / notes / unknown-project all pass through).
+- [~] **Phase B — in-band sources + cadence/groom jobs.** First in-band reader landed (the backlog
+      source above, consumed by dedup). Remaining: generalize the source registry to **signal
+      sources** (runs/decisions/audits/repo git-state), and fill the scheduler with ADR-010 §1 cadence
+      jobs — backlog grooming, decompose-next-milestone on queue-drain, scheduled health audits,
+      doc-drift/dependency sweeps. (Groom needs these in-band producers.)
 - [ ] **Phase C — generation → gating.** Route generated work through WS C + the Trust Ladder (depends on A + C).
 
 ## ★ Operator-memory repo + viewer (ADR-010 §4)
