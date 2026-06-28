@@ -62,7 +62,7 @@ WorkingDirectory=${vars.checkout}
 Environment=FACTORY_HOME=${vars.factoryHome}
 Environment=PATH=${path}
 ExecStart=${vars.bunBin} run --cwd ${vars.checkout} start
-Restart=on-failure
+Restart=always
 RestartSec=2
 TimeoutStartSec=60
 

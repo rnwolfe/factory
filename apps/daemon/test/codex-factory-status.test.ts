@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { codexAgent } from "@factory/runtime";
-import { parseFactoryStatus } from "../src/workers/factory-status.ts";
+import { parseFactoryStatus, wrapPrompt } from "../src/workers/factory-status.ts";
 
 /**
  * Wire-level contract: the codex provider's `text` events must carry the
@@ -25,6 +25,14 @@ function accumulateAgentText(stream: object[]): string {
 }
 
 describe("codex agent → factory-status contract", () => {
+  test("run prompts forbid broad process-name cleanup that can kill the daemon", () => {
+    const prompt = wrapPrompt("Smoke test the local server.");
+
+    expect(prompt).toContain("Do NOT use broad process-name cleanup");
+    expect(prompt).toContain("pkill -f");
+    expect(prompt).toContain("server_pid=$!");
+  });
+
   test("agent_message carrying a fenced factory-status block parses to done", () => {
     const footer = '```factory-status\n{"status": "done", "summary": "Landed the change."}\n```';
     const stream = [
