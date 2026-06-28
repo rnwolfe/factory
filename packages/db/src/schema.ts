@@ -1140,13 +1140,21 @@ export const watchObservationKindEnum = [
   "correction-pattern",
   "candidate-task",
   "tooling-gap",
+  // ADR-011 Phase A: a feature gestured at repeatedly → feature_plan.
+  "candidate-feature",
 ] as const;
 
-/** What the operator can do with an observation from the inbox. */
+/**
+ * What the operator can do with an observation from the inbox. ADR-011 Phase A:
+ * these are *typed work proposals* that promote into existing primitives through
+ * their single-source-of-truth seam — `note-only` is the residual, not the
+ * default. (Promotion is always operator-gated; auto-run is Phase C, behind WS A/C.)
+ */
 export const watchObservationProposalEnum = [
-  "adopt-as-task",
-  "record-as-convention",
-  "note-only",
+  "adopt-as-task", // → createTask
+  "draft-feature-plan", // → a drafting feature_plan seeded in the inbox
+  "record-as-convention", // → operator-memory / AGENTS.md
+  "note-only", // residual: stays a watch_observation
 ] as const;
 
 export const watchObservationStatusEnum = [

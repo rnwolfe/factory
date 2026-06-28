@@ -13,7 +13,7 @@ import {
 } from "../decisions/resurface.ts";
 import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { defaultOperatorMemoryPath, slugify, writeMemoryFact } from "../memory/operator-memory.ts";
-import { seedProjectSpecDraft } from "../plans/iterate.ts";
+import { seedFeaturePlanDraft, seedProjectSpecDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
 import { createTask } from "../projects/tasks.ts";
@@ -570,6 +570,45 @@ export const decisionsRouter = router({
               const msg = err instanceof Error ? err.message : String(err);
               console.warn(`[memory] record-as-convention write failed: ${msg}`);
             }
+          } else if (payload.proposal === "draft-feature-plan" && decision.projectId) {
+            // Seed a drafting feature_plan the operator iterates to freeze — the
+            // same seam as triage→project_spec, but scoped to an existing project.
+            // Idempotent on the decision; the freeze gate + vision filter stay intact.
+            const existing = await ctx.db
+              .select({ id: schema.plans.id })
+              .from(schema.plans)
+              .where(
+                and(
+                  eq(schema.plans.decisionId, decision.id),
+                  eq(schema.plans.kind, "feature_plan"),
+                ),
+              )
+              .get();
+            let planId = existing?.id ?? null;
+            if (!planId) {
+              const id = createId();
+              const tnow = Date.now();
+              await ctx.db.insert(schema.plans).values({
+                id,
+                kind: "feature_plan",
+                status: "drafting",
+                decisionId: decision.id,
+                projectId: decision.projectId,
+                goal: payload.title,
+                draft: JSON.stringify(seedFeaturePlanDraft(payload.title)),
+                createdAt: tnow,
+                updatedAt: tnow,
+              });
+              planId = id;
+              ctx.events.publish({
+                channel: "inbox",
+                kind: "plan_created",
+                planId: id,
+                planKind: "feature_plan",
+              });
+            }
+            schedulePlanIteration(ctx, { planId });
+            projectId = decision.projectId;
           }
           await ctx.db
             .update(schema.watchObservations)

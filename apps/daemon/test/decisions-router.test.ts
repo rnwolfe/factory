@@ -295,6 +295,49 @@ describe("decisionsRouter", () => {
     }
   });
 
+  test("watch_insight draft-feature-plan seeds a drafting feature_plan for the project", async () => {
+    const h = setupHarness();
+    try {
+      const projectId = createId();
+      const now = Date.now();
+      await h.db.insert(schema.projects).values({
+        id: projectId,
+        slug: "alpha",
+        name: "Alpha Console",
+        ceremony: "personal",
+        workdirPath: path.join(h.root, "alpha"),
+        createdAt: now,
+        lastActivityAt: now,
+      });
+
+      const { obsId, decisionId } = seedWatchInsight(h, {
+        proposal: "draft-feature-plan",
+        projectId,
+      });
+      await h.caller.action({ decisionId, action: "approve" });
+
+      // promoted into a drafting feature_plan via the existing plan seam (not reimplemented)
+      const plan = h.db
+        .select()
+        .from(schema.plans)
+        .where(eq(schema.plans.decisionId, decisionId))
+        .get();
+      expect(plan?.kind).toBe("feature_plan");
+      expect(plan?.status).toBe("drafting");
+      expect(plan?.projectId).toBe(projectId);
+      expect(plan?.goal).toBe("Insight title");
+
+      const obs = h.db
+        .select()
+        .from(schema.watchObservations)
+        .where(eq(schema.watchObservations.id, obsId))
+        .get();
+      expect(obs?.status).toBe("adopted");
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("snooze view filters the default inbox and exposes snoozed items", async () => {
     const h = setupHarness();
     try {

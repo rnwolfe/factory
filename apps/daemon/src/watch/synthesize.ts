@@ -102,19 +102,27 @@ Respond with ONE fenced \`\`\`json block, no prose, matching exactly:
 {
   "observations": [
     {
-      "kind": "repeated-ritual" | "new-convention" | "correction-pattern" | "candidate-task" | "tooling-gap",
+      "kind": "repeated-ritual" | "new-convention" | "correction-pattern" | "candidate-task" | "candidate-feature" | "tooling-gap",
       "title": "<≤80 char summary>",
       "detail": "<1-3 sentences: what you saw and why it matters>",
       "evidence": [ { "sourceId": "<source>", "sessionId": "<id from the list>" } ],
-      "proposal": "adopt-as-task" | "record-as-convention" | "note-only",
+      "proposal": "adopt-as-task" | "draft-feature-plan" | "record-as-convention" | "note-only",
       "targetProjectSlug": "<repo slug if it clearly maps to one project, else null>"
     }
   ]
 }
 
-Guidance: use "adopt-as-task" only when there is a concrete, ownable unit of work;
-"record-as-convention" when it's a durable preference/pattern worth remembering;
-otherwise "note-only". Default to "note-only" when unsure.`;
+You are a WORK GENERATOR, not just a mirror: prefer typed candidate work over notes.
+Map to the proposal that promotes into the right Factory primitive:
+- "adopt-as-task": a concrete, ownable unit of work (a bug to fix, a chore) → becomes a task.
+- "draft-feature-plan": a feature repeatedly gestured at, scoped to one project → seeds a
+  drafting plan the operator iterates to freeze. Set targetProjectSlug.
+- "record-as-convention": a durable preference/pattern worth remembering.
+- "note-only": the RESIDUAL — only genuinely-FYI items. Not the default.
+
+Precision over recall: a chatty generator is worse than none. Propose FEW strong items;
+never propose work that obviously already exists; default to "note-only" only when an item
+is real but not yet actionable.`;
 }
 
 function validateObservations(raw: unknown): RawObservation[] {
