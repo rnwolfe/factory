@@ -1,155 +1,94 @@
-# Autonomous & Proactive Factory — build plan
+# Factory autonomy — workstream tracker
 
-Derived from `docs/research/2026-06-27-autonomous-proactive-factory.md`. Operator approved all four
-threads (2026-06-27). Build order respects dependencies: **bug fix unblocks chains → A cuts the
-inbox → C makes A defensible → B adds the proactive layer.** Each substantial feature gets its own
-ADR + spec delta per repo convention before code.
+North-star: **decisions-per-run → 0** while auto-merge stays ~99% and failures stay flat.
+Reference: `docs/research/2026-06-27-autonomous-proactive-factory.md`.
+ADRs: 010 (The Watch), 011 (Watch work-generator), 012 (Trust Ladder).
 
-North-star metric: **decisions-per-run → 0** while auto-merge stays ~99% and failures stay flat.
-(Prior `tasks/todo.md` — completed task-064, inbox resurfacing — is in git history.)
+## Shipped (2026-06-27 → 28)
+
+- ✅ **WS0 — `bun test` self-kill fix** → released **v0.30.1**. Root cause: no private tmux socket
+  (+ Bun env-snapshot gotcha); fix = `-L` socket via `FACTORY_TMUX_SOCKET`.
+- ✅ **The Watch substrate (ADR-010, on `main`)** — pluggable `HarnessSource` (claude-code/codex),
+  scheduler tick + operator-tunable `watch-synthesis-cadence`, `claude --print` synthesis → deduped
+  `watch_observations` → `watch_insight` inbox cards (adopt-as-task/acknowledge/dismiss). Live smoke
+  produced 3 high-signal observations.
+- ✅ **Trust Ladder Slice 1 — L2 auto-ratify (ADR-012)** — new `auto_ratified` status; uniform fork
+  emission (retired the lossy "don't emit" footer); L1 pending / L2 auto-ratified; **override
+  preserved** (the safety valve); PWA chip + override-from-history.
+
+> Branch `feat/watch-generator` holds ADR-011 + ADR-012 + Trust Ladder Slice 1 (unmerged). The Watch
+> substrate is on `main`. Pending release decision: batch as **v0.31.0** ("The Watch + Trust Ladder L2").
 
 ---
 
-## WS0 — Fix the `bun test` self-kill bug  ✅ DONE (2026-06-27)
+## ★ WS-METRICS — Autonomy & ops observability  *(operator directive 2026-06-28; first-class, historical)*
 
-Caused ~85% of all failures and severed ~half of all autonomous chains.
+Cross-cutting principle: **every autonomy feature emits its effectiveness metric as it lands.**
+EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage windows), `routers/metrics.ts`
+(agent cost/tokens), PWA `ops.tsx`/`metrics.tsx` — don't reinvent. Keep it **read-only** (VISION:
+"a complementary operational-awareness layer that doesn't become a second inbox").
 
-**ROOT CAUSE (confirmed empirically — twice reproduced live, even killing this dev session):**
-Factory never isolated its tmux onto a private socket, so the parent `claude --print` pane, the
-daemon's sessions, and the daemon test suite's **real** tmux sessions all shared the one default
-tmux server. Two wide-only test files (`sessions-orchestrate` / `interventions-orchestrate`) churn
-real create/`kill-session` on that shared server, destabilizing it and killing the co-tenant parent
-pane → no factory-status footer → `failed`. The CLAUDE.md session-name-collision guess was wrong;
-it's server/socket-level. **Critical gotcha discovered during the fix:** Bun snapshots a child's
-env at spawn, so an env-only fix (unset `$TMUX` / set `TMUX_TMPDIR` in-process) does NOT reach the
-spawned tmux — verified directly. The isolation lever must be a **CLI arg computed in-JS**.
+- [ ] **ADR-013 — metrics & ops surface** (design first, per the dashboard-in-flux caution): time-series
+      storage (daily rollups vs compute-on-read), chart components, historical range, per-project +
+      portfolio rollups.
+- [ ] **Autonomy-effectiveness metrics:** decisions-per-run (north-star, over time); auto-ratify rate &
+      override rate (Trust Ladder health); self-proposed (Watch) tasks created → completed → merged;
+      projects at each autonomy level; autonomous chain depth (avg/max).
+- [ ] **Operational metrics (standing gap, not autonomy-adjacent):** throughput (runs/day, completed/day);
+      active projects under management; commit rate per-project + total; **LOC shipped** (added/removed)
+      per-project + total; auto-merge rate; failure rate.
+- [ ] **First-class historical charting** in the PWA ops surface — per-project + portfolio, time-series,
+      not just current snapshots.
 
-- [x] **Fix:** `tmuxSocketArgs()` in `packages/runtime/src/tmux.ts` returns `["-L", FACTORY_TMUX_SOCKET]`
-      when the env var is set (else `[]`). Wired into the `tmux()` helper + the 3 raw `bunSpawn(["tmux"…])`
-      kill-session sites (`workers/recover.ts`, `interventions/orchestrate.ts`, `routers/runs.ts`).
-      Production-identical (env unset → no flag).
-- [x] **Test isolation:** both integration suites set `FACTORY_TMUX_SOCKET=factory-test-<pid>-<n>` in
-      setup (restored in cleanup) and tear down their private server via `tmux -L <socket> kill-server`.
-- [x] **Verified safely** (staged stand-in parent on a private socket, `$TMUX` faked to it = the
-      agent-pane scenario): broken env-version killed the parent; `-L` version → parent survives.
-      Full daemon suite **363 pass / 0 fail** (59 files) with the parent pane intact. typecheck +
-      biome clean (2 pre-existing warnings only).
-- [x] Updated AGENTS.md "wide `bun test`" contract note to reflect the fix.
-- [ ] **Follow-up (operator):** confirm on the live host under a real self-hosting run, then this
-      note can drop entirely. Optional hygiene: set `FACTORY_TMUX_SOCKET` for the daemon too so
-      live/dev instances also get isolated tmux servers (not needed for the bug; nice-to-have).
+## Trust Ladder (WS A) — remaining
 
-## WS A — The Trust Ladder  *(ADR-012; reframed by the operator's ratification correction)*
-
-Key correction (in `tasks/lessons.md`): `agent_decision` is **non-blocking ratification**, not a
-gate — the agent already proceeded; the card costs *attention*, and override is a post-hoc redirect.
-So the lever is ratification attention, and the safe move is **auto-ratify but keep the override**.
-
-- [x] **ADR-012 written** (`docs/adr/012-trust-ladder.md`): graduated L1–L4, auto-contracting; the
-      fork-emission prompt is uniform across levels; L2 = auto-ratify (out of pending inbox, kept in
-      history, still overridable).
-- [x] **Slice 1 — L2 auto-ratification (landed).** New `auto_ratified` decision status (no SQL
-      migration — text column). Retired the lossy "autonomous = don't emit" footer; the agent now
-      always emits forks (`factory-status.ts` `decisionFooterFor` uniform). Runner ungated: all levels
-      run the parser; `autoRatifyDecisions = autonomyMode !== "collaborative"` → L1 pending, L2
-      `auto_ratified` (`runner.ts`, `agent-decisions.ts` `autoRatify` arg). **Override preserved**:
-      `overrideAgentDecision` accepts `auto_ratified` (the safety valve). PWA: `auto-decided` chip in
-      history/detail + override-from-history via the existing `AgentDecisionOverrideForm`
-      (`ratifiable={false}`). 4 new tests; full repo green (daemon 390, pwa 20, all typecheck). Operator
-      sets the level manually (existing collaborative/autonomous toggle = L1/L2).
-- [ ] **Slice 2 — auto-movement.** The track-record ratchet (N consecutive clean verifier-green
-      outcomes → step up) + **auto-contract on a run failure / merge conflict / override of an
-      auto-ratified fork**. Turns the switch into a ladder. Surface level + trend in the project header.
+- [ ] **Slice 2 — auto-movement** (turns the switch into a ladder). Track-record ratchet (N consecutive
+      clean verifier-green outcomes → step up) + **auto-contract** on a run failure / merge conflict /
+      **override of an auto-ratified fork**. Surface level + trend in the project header. *(Step-up's
+      "verifier-green" signal depends on WS C.)*
 - [ ] **Slice 3 — L3 bounded auto-retry** of *transient* `blocked_run` / `merge_failure` with an
       operator-visible retry budget that escalates on exhaustion (never the structural human blocks).
-- [ ] **L4** = ADR-011 Phase C (Watch-generated work auto-runs), gated by WS C.
+- [ ] **L4** = Watch-generated work auto-runs (= ADR-011 Phase C), gated by WS C.
 
-## WS C — The Verifier-Coverage Gate  *(makes widening the ladder defensible)*
+## WS C — Verifier-Coverage Gate  *(prereq for Trust Ladder step-up + L4)*
 
-- [ ] ADR: verifier-confidence score as autonomy-eligibility signal.
-- [ ] Compose from existing signals: factory-status `done` + all acceptance criteria met
-      (`runner.ts:530`) + quality green (`quality.ts`) + cross-model validation (WS D).
-- [ ] Frozen testable acceptance criteria = **freeze precondition** (no criteria → not eligible).
-- [ ] Diff reversibility/blast-radius → routing: high+contained → auto-land; low → `review`.
-- [ ] **WS D (fast-follow, near-free):** cross-model adversarial validation — route verification to
-      the *other* family (claude↔codex) via existing AgentModelPicker resolution.
+- [ ] ADR + verifier-confidence score: factory-status `done` + all acceptance criteria met
+      (`runner.ts:530`) + quality green (`quality.ts`) + cross-model validation. Frozen testable
+      acceptance criteria = **freeze precondition**. Diff reversibility/blast-radius → routing
+      (auto-land vs review).
+- [ ] **WS D — cross-model validation** (near-free): route verification to the *other* family
+      (claude↔codex) via the existing AgentModelPicker resolution — strongest input to the score.
 
-## WS B — The Watch  *(reactive→proactive flip; the Heimdall thesis)*
+## The Watch as work generator (ADR-011) — remaining
 
-- [x] **ADR-010 drafted** (`docs/adr/010-the-watch.md`). Findings baked in: the v0.4
-      `scheduler.ts` **never shipped** (build it fresh as a 3rd tick alongside
-      `usage-cap.ts`/`inbox-resurface.ts`); harnesses sit behind a pluggable `HarnessSource`
-      registry mirroring `agents/registry.ts` (no consumer branches on source id); Factory has
-      **no memory primitive** today, so observations index in the DB and promote into
-      repo-canonical artifacts (tasks / AGENTS.md), operator-gated. Decisions folded in:
-      operator-memory repo is **fresh + Factory-owned by default** (synthesizes new knowledge,
-      not a mirror), **first run ingests all harness memories** as input, and the repo is
-      **first-class viewable in the PWA**.
-- [x] **Slice 1 — pluggable `HarnessSource` (landed).** `apps/daemon/src/watch/sources/`:
-      `types.ts` (interface + `WorkRecord`/`WatchCursor`/`MemoryDoc`), `registry.ts`
-      (`HARNESS_SOURCE_REGISTRY`, mirrors `agents/registry.ts`), `claude-code.ts` + `codex.ts`
-      (read-only incremental `scan(cursor)` + `readMemories()`, skip `.env*`), `fs-util.ts`.
-      6 tests pass; validated against real `~/.claude` (32 recent sessions, 83 memory docs) and
-      `~/.codex` (ts=epoch-seconds confirmed). No LLM/scheduler/DB yet — pure pluggable foundation.
-- [x] **Slice 2 — scheduler tick (landed).** `workers/scheduler.ts`: generic 3rd 60s tick +
-      EventBus, time-cadence + event jobs, **skip-if-inflight**, injectable clock + `runDue(at)` for
-      deterministic tests. `watch/synthesis-job.ts`: the out-of-band job (scan-only; synthesis is
-      slice 3), bounded cold-start lookback, per-source in-memory cursors. **Cadence is an
-      operator-tunable setting** `watch-synthesis-cadence` (`off|hourly|daily|weekly`, default daily,
-      read live each tick — no restart), validated in the settings router. Wired in `index.ts` +
-      shutdown. 7 tests; full daemon suite 376 pass.
-- [x] **Slice 3a — schema + durable cursors (landed).** `watch_cursors` + `watch_observations`
-      tables (migration `0033`), enums (`watchObservationKind/Proposal/Status`). `watch/cursor-store.ts`
-      (DB-backed + in-memory), wired into the synthesis job + daemon boot so scans resume across
-      restarts. 2 tests incl. fresh-instance-resumes-from-store. Full suite 378 pass. (`watch_insight`
-      decision kind deferred to 3c so the enum + its PWA card handler move together.)
-- [x] **Slice 3b — the synthesizer (landed).** `watch/synthesize.ts` (`claude --print` over
-      `WorkRecord[]` + first-seen `readMemories()` → `RawObservation[]`; injectable invoke; fenced
-      JSON + null-parse-fail; validation drops bad kind/proposal/evidence). `watch/observation-store.ts`
-      (dedupeKey + insert-once into `watch_observations`). Job rewired: scan→synthesize→save, cursors
-      committed only after success (failed turn re-scans, dedup-idempotent). Wired real synth+save at
-      boot. 6 tests; full suite 384 pass. NOT yet surfaced to the operator (that's 3c).
-- [x] **Slice 3c — inbox surfacing (landed).** `watch_insight` decision kind; `watch/observation-inbox.ts`
-      surfaces new observations as notify-grade inbox decisions (resolves slug→project, flips obs to
-      `surfaced`); boot edge composes persist→surface. `decisions.action` handles approve (adopt-as-task
-      → `createTask` when proposal+project, else acknowledge → obs `adopted`) and dismiss (obs
-      `dismissed`). PWA `watch_insight` card across decision-card / inbox-detail-pane / decision-detail /
-      history (adopt-as-task|acknowledge + dismiss buttons, dispatcher's-console aesthetic). 8 new tests
-      (surfacing, action approve/dismiss, PWA components). Full repo green: daemon 388, pwa 20, all
-      typecheck. **First operator-visible payoff — insights now appear in the inbox.**
-### Reframe → ADR-011: The Watch as a proactive **work generator** (2026-06-27)
+- [ ] **Phase A — typed proposals + promotion paths.** bug→task ✓ (3c adopt-as-task); + feature→drafting
+      plan, arch→`audits.submit`/promote-finding, project→triage `project_spec`, backlog-groom→task
+      close/reprioritize. Promote ONLY through each primitive's existing single-source-of-truth seam.
+- [ ] **Phase B — in-band sources + cadence/groom jobs.** Generalize the source registry to **signal
+      sources** (runs/decisions/audits/task-backlog/repo state). Fill the scheduler with ADR-010 §1
+      cadence jobs: backlog grooming, decompose-next-milestone on queue-drain, scheduled health audits,
+      doc-drift/dependency sweeps.
+- [ ] **Phase C — generation → gating.** Route generated work through WS C + the Trust Ladder (depends on A + C).
 
-Strategic pivot (operator-raised): surfacing reflective insight is the *learning
-substrate*, not the autonomy lever. Autonomy moves when The Watch emits **typed work**
-mapped to Factory's primitives, fed by out-of-band AND in-band signal, with a gated path
-to auto-execution. Substrate (3a–3c, merged) carries forward; remaining work re-sequenced
-into ADR-011 phases (these now precede the operator-memory polish):
+## ★ Operator-memory repo + viewer (ADR-010 §4) — fast-follow *(don't lose track)*
 
-- [ ] **Phase A — typed proposals + promotion paths.** Extend the proposal taxonomy
-      (bug→task ✓ via 3c; + feature→drafting plan, arch→`audits.submit`/promote-finding,
-      project→triage `project_spec`, backlog-groom→task close/reprioritize). Promote ONLY
-      through each primitive's existing single-source-of-truth seam — never reimplement.
-- [ ] **Phase B — in-band sources + cadence/groom jobs.** Generalize the source registry
-      to **signal sources** (runs/decisions/audits/task-backlog/repo state) alongside
-      harness sources. Fill the scheduler with ADR-010 §1 cadence jobs: backlog grooming,
-      decompose-next-milestone on queue-drain (replace bare `queue_empty` at
-      `inbox/queue-empty.ts:53`), scheduled health audits, doc-drift/dependency sweeps.
-- [ ] **Phase C — generation → gating (the actual autonomy).** Route generated work
-      through WS C (Verifier-Coverage gate) + WS A (Trust Ladder): high-confidence /
-      low-blast-radius / verifiable → auto-run; ambiguous / judgment-heavy / irreversible →
-      inbox. Surface-first always; auto-run graduates per earned trust. **Depends on WS A + C.**
-- [ ] **Fast-follow — operator-memory repo** (`operator-memory.ts`: fresh Factory-owned git
-      repo, Claude-format; first run ingests all harness memories; injectable as run context)
-      + **PWA viewer**. The learning half (ADR-010 §4); makes `record-as-convention` fully
-      functional. No longer blocks the generator.
+- [ ] `operator-memory.ts`: **fresh, Factory-owned** git repo, Claude-format (`MEMORY.md` index +
+      per-fact files); **first synthesis run ingests all harness memories** as input; injectable as run context.
+- [ ] **First-class PWA viewer** of the memory repo (browse `MEMORY.md` + each fact w/ provenance) — read-only.
+- [ ] Wire `record-as-convention` promotion (from a `watch_insight`) to write into it (operator-gated).
 
-Open questions in ADR-011 §"Open questions" (generation aggressiveness / per-project opt-in;
-feature_plan promotion = seed-vs-draft; backlog-aware dedup; in-band scan cost).
+## Backlog from the report (not yet scheduled)
 
-## Cross-cutting guardrails (every WS honors)
+- [ ] **Provisioning manifest** — anticipate `blocked_run` (secrets/hardware/verdicts) at plan-freeze,
+      batched into one pre-flight decision instead of N mid-run stalls.
+- [ ] **Overnight mode as a first-class run contract** (no force-push, main-via-PR, no prod restarts, no
+      scope invention, morning report) — promote the `overnight-run` skill.
+- [ ] **Backlog-pull fleet** — widen `pool.ts` FIFO-of-4 → prioritized cross-project pull + fairness/locks.
+- [ ] **Execution-evidence on merge** + lessons-as-context loop + credential hardening (microsandbox-style).
+
+## Guardrails (every workstream)
 
 - Operator is the only path to a repo write (VISION/ADR-004 §9) — autonomy expands via read-mostly +
-  low-risk-write auto-approval gated on verifier confidence, never by removing merge/approve gates.
-- Unattended-run guardrails: no force-push, `main` via PR only, no prod restarts, no long-lived
-  processes, no scope invention, auditable trail.
-- Suggest a release after each coherent operator-visible WS lands.
+  low-risk-write auto-approval gated on verifier confidence; never remove merge/approve gates wholesale.
+- Inbox stays the only attention sink; the ops/metrics surface is **read-only**.
+- Suggest a release after each coherent operator-visible batch.
