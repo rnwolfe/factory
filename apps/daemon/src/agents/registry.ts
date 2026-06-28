@@ -1,4 +1,9 @@
-import { type AgentSpec, claudeCodeAgent, codexAgent } from "@factory/runtime";
+import {
+  type AgentSpec,
+  claudeCodeAgent,
+  codexAgent,
+  createClaudeCodeAgent,
+} from "@factory/runtime";
 import { z } from "zod";
 import { probeCodexAuth } from "./codex-auth.ts";
 
@@ -83,6 +88,12 @@ export interface AgentDescriptor {
   /** Runtime spec used by `runtime.spawn` for code-changing runs. */
   runtimeSpec: AgentSpec;
   /**
+   * Build the runtime spec optionally bound to the run's worktree — claude-code
+   * uses it for tool-summary path context. Falls back to `runtimeSpec` when
+   * omitted, so the runner never special-cases a family (ADR-015).
+   */
+  runtimeSpecFor?: (worktreePath?: string) => AgentSpec;
+  /**
    * Optional auth probe — returns `null` when no probe is meaningful (agent
    * is always usable, e.g. claude-code where auth is operator-managed and
    * the daemon assumes it's set up). Returns `{ok: false, …}` when the
@@ -103,6 +114,8 @@ export interface AgentDescriptor {
    * `null`/omitted = no cross-model validation for this family.
    */
   validatorAgentId?: AgentName | null;
+  /** One-line guidance shown when `probeAuth` fails — how to authenticate this family. */
+  authGuideText?: string;
 }
 
 const claudeCodeDescriptor: AgentDescriptor = {
@@ -119,6 +132,7 @@ const claudeCodeDescriptor: AgentDescriptor = {
   supports: { resume: true, interactiveSession: true },
   validatorAgentId: "codex",
   runtimeSpec: claudeCodeAgent,
+  runtimeSpecFor: (worktreePath) => createClaudeCodeAgent(worktreePath),
   // No probeAuth: claude-code's auth is operator-managed (ANTHROPIC_API_KEY
   // or claude login). We assume the daemon's host has it set up; mid-run
   // auth failures surface in the pane output.
@@ -144,6 +158,7 @@ const codexDescriptor: AgentDescriptor = {
   // rebuild the full prompt. See docs/internal/codex-parity.md.
   supports: { resume: false, interactiveSession: true },
   validatorAgentId: "claude-code",
+  authGuideText: 'See README.md "Using codex (ChatGPT subscription)" for the one-time login flow.',
   runtimeSpec: codexAgent,
   probeAuth: () => {
     const status = probeCodexAuth();

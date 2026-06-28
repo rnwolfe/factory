@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { schema } from "@factory/db";
-import { tmuxSocketArgs } from "@factory/runtime";
+import { claudeCodeAgent, tmuxSocketArgs } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { eq, inArray } from "drizzle-orm";
+import { getAgentDescriptor } from "../agents/registry.ts";
 import { type FactoryStatus, parseFactoryStatus } from "./factory-status.ts";
 import { resumeOrphanedRun, type SubmitRunDeps } from "./submit.ts";
 
@@ -51,29 +52,6 @@ interface RecoveredFactoryStatus {
  * keeps the dispatch local. Tolerant of unknown line shapes — recover
  * caller filters out non-JSON lines before calling.
  */
-function extractTextFromLogLine(parsed: unknown, agentName: string): string {
-  if (typeof parsed !== "object" || parsed === null) return "";
-  const p = parsed as Record<string, unknown>;
-  if (agentName === "codex") {
-    if (p.type !== "item.completed") return "";
-    const item = p.item as Record<string, unknown> | undefined;
-    if (!item || item.type !== "agent_message") return "";
-    return typeof item.text === "string" ? item.text : "";
-  }
-  // Default: claude-code stream-json shape.
-  if (p.type === "assistant") {
-    const msg = p.message as { content?: Array<{ type?: string; text?: string }> } | undefined;
-    if (!msg?.content) return "";
-    let out = "";
-    for (const c of msg.content) {
-      if (c.type === "text" && typeof c.text === "string") out += c.text;
-    }
-    return out;
-  }
-  if (p.type === "result" && typeof p.result === "string") return p.result;
-  return "";
-}
-
 /**
  * Read the agent's persisted log for an orphaned run and try to extract its
  * `factory-status` declaration. The log lives at
@@ -102,18 +80,15 @@ async function recoverFactoryStatusFromLog(
   }
   if (raw.length === 0) return null;
 
-  // Walk newline-delimited stream-json. Pull text out per the agent's
-  // envelope shape. Tolerate non-JSON lines (the log is shared with raw
-  // pane bytes via pipe-pane).
+  // Walk newline-delimited stream-json through the AGENT'S OWN parseLine — the
+  // single source of truth for its envelope shape (ADR-015) — and collect text
+  // events. parseLine tolerates non-JSON lines (the log is shared with raw pane
+  // bytes via pipe-pane), so no manual JSON guard is needed.
+  const spec = getAgentDescriptor(agentName)?.runtimeSpec ?? claudeCodeAgent;
   let text = "";
   for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
-    try {
-      const parsed = JSON.parse(trimmed);
-      text += extractTextFromLogLine(parsed, agentName);
-    } catch {
-      // skip
+    for (const ev of spec.parseLine(line)) {
+      if (ev.kind === "text") text += ev.text;
     }
   }
   if (text.length === 0) return null;

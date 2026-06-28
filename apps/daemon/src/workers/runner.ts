@@ -5,7 +5,6 @@ import {
   type AgentSpec,
   claudeCodeAgent,
   commitAllChanges,
-  createClaudeCodeAgent,
   hostSandbox,
   mergeIntoMain,
   type RuntimeEvent,
@@ -204,13 +203,17 @@ export async function pushReleaseRefs(
  * never strands a queued run; the daemon logs the fallback for visibility.
  */
 function agentForRow(agentName: string, worktreePath?: string | null): AgentSpec {
-  if (agentName === "claude-code") return createClaudeCodeAgent(worktreePath ?? undefined);
   const descriptor = getAgentDescriptor(agentName);
-  if (descriptor) return descriptor.runtimeSpec;
-  console.warn(
-    `[runner] unknown agentName "${agentName}" on run row — falling back to claude-code`,
-  );
-  return worktreePath ? createClaudeCodeAgent(worktreePath) : claudeCodeAgent;
+  if (!descriptor) {
+    console.warn(
+      `[runner] unknown agentName "${agentName}" on run row — falling back to claude-code`,
+    );
+  }
+  // The worktree binding lives on the descriptor (runtimeSpecFor), so the runner
+  // doesn't special-case any family — ADR-015.
+  const resolved = descriptor ?? getAgentDescriptor("claude-code");
+  const wt = worktreePath ?? undefined;
+  return resolved?.runtimeSpecFor?.(wt) ?? resolved?.runtimeSpec ?? claudeCodeAgent;
 }
 
 export interface ExecuteRunOpts {

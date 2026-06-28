@@ -303,9 +303,7 @@ export async function submitRun(
     if (auth && !auth.ok) {
       throw new Error(
         `${effectiveAgent} agent selected but not authenticated: ${auth.detail}. ` +
-          (effectiveAgent === "codex"
-            ? `See README.md "Using codex (ChatGPT subscription)" for the one-time login flow.`
-            : `See the harness's docs to authenticate.`),
+          (descriptor.authGuideText ?? "See the harness's docs to authenticate."),
       );
     }
   }
