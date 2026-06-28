@@ -4,6 +4,27 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.34.0 — 2026-06-28
+
+### Added
+- **Operator memory (ADR-010 §4).** A Factory-owned git repo of the operator's
+  conventions/preferences — Claude-Code memory format — browsable at a new
+  first-class **`/memory`** route. Approving a Watch insight's *record-as-convention*
+  proposal writes a fact into it (with provenance), and a settings action **seeds it
+  by synthesizing your existing Claude Code / Codex memories** (token-heavy, runs in
+  the background — "synthesis, not a mirror").
+- **The Watch is now a work generator (ADR-011 Phase A/B).** Beyond reflective
+  insight, it proposes *typed candidate work* that promotes through Factory's
+  existing primitives, operator-gated:
+  - **feature → drafting plan** (`draft-feature-plan` seeds a `feature_plan` to
+    iterate), alongside the existing bug → task.
+  - **In-band signal sources** — The Watch now reads Factory's own state on a
+    cadence, not only out-of-band harness logs: **repeated run failures** (a
+    project whose last 3 runs all failed → a task to investigate) and **stale
+    backlog** (a `ready` task idle >30 days → close it). It grooms, not just adds.
+  - **Backlog-aware dedup** — it never proposes work a project already tracks.
+  - `note-only` is now the residual, not the default.
+
 ## v0.33.0 — 2026-06-28
 
 ### Added
