@@ -4,6 +4,25 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.36.0 — 2026-06-28
+
+### Added
+- **The Trust Ladder moves itself (ADR-012 Slice 2).** A project's autonomy level is no
+  longer a manual switch — it's driven by track record. It **contracts**
+  autonomous → collaborative the moment a run fails, hits a merge conflict, or you
+  **override an auto-ratified decision** (the precise "trust was misplaced" signal), and
+  **ratchets up** collaborative → autonomous after 5 consecutive clean runs (completed +
+  verifier-`high`). Contraction is automatic (safety wins); promotion is earned. A
+  gate-held `needs_review` run is neutral. (Move surfacing — push + a header chip — is a
+  fast-follow; for now it's logged + reflected in the project's mode.)
+- **Verifier-gate freeze precondition (ADR-014 slice 3 — WS C complete).** Freezing a task
+  plan on an autonomous-mode project now requires at least one testable acceptance
+  criterion, so autonomy-eligible work always has something for the verifier to check.
+
+### Fixed
+- **GitHub reply agent:** investigates the codebase before replying to issue/task comments,
+  and tears down its worktree + branch robustly.
+
 ## v0.35.0 — 2026-06-28
 
 ### Added
