@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { AGENT_NAME_ENUM } from "../agents/registry.ts";
+import { resolveAutonomyConfig } from "../autonomy/config.ts";
 import { echoOperatorCommentToIssue, runDecisionReply } from "../decisions/dialog.ts";
 import {
   type AgentDecisionOverride,
@@ -777,7 +778,12 @@ export const decisionsRouter = router({
           }
           // The override contracts the ladder when the fork was auto-ratified.
           if (wasAutoRatified) {
-            autoContract(ctx.db, project, "operator overrode an auto-ratified decision");
+            autoContract(
+              ctx.db,
+              project,
+              "operator overrode an auto-ratified decision",
+              resolveAutonomyConfig(ctx.db, project.id),
+            );
           }
         }
       }

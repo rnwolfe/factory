@@ -14,6 +14,7 @@ import {
 import { createId } from "@paralleldrive/cuid2";
 import { and, eq, gt } from "drizzle-orm";
 import { type AgentName, getAgentDescriptor } from "../agents/registry.ts";
+import { resolveAutonomyConfig } from "../autonomy/config.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { resolveBotGitAuthor } from "../github/app-auth.ts";
@@ -910,6 +911,7 @@ export async function executeRun(
       db,
       { id: project.id, name: project.name, autonomyMode },
       { finalStatus, mergeConflict: mergeFailureNote !== null },
+      resolveAutonomyConfig(db, project.id),
     );
 
     // Surface stalled runs (blocked or failed) to the decisions inbox.

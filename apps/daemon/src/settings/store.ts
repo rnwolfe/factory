@@ -70,6 +70,10 @@ export const SETTING_KEYS = [
   // by the scheduler — operator-tunable without a restart. Token-intensive once
   // slice 3 wires synthesis, so it is a first-class knob from the start.
   "watch-synthesis-cadence",
+  // System-level autonomy policy overrides (ADR-016) — a partial AutonomyConfig
+  // JSON blob, deep-merged over the built-in defaults. Per-project overrides live
+  // on `projects.autonomyConfig`; resolution is built-in ⊕ system ⊕ project.
+  "autonomy-config",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];

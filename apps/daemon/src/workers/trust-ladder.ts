@@ -1,5 +1,6 @@
 import { type Db, schema } from "@factory/db";
 import { desc, eq } from "drizzle-orm";
+import { type AutonomyConfig, BUILTIN_AUTONOMY } from "../autonomy/config.ts";
 import type { VerifierReport } from "./verifier.ts";
 
 /**
@@ -17,9 +18,6 @@ import type { VerifierReport } from "./verifier.ts";
  * agent_decision forks are handled (pending vs auto-ratified). Promotion only ever
  * widens to verifier-gated auto-merge, never an ungated one.
  */
-
-/** Consecutive clean runs that earn a step up. Tunable (ADR-012 open-q 2: N=5). */
-export const PROMOTE_STREAK = 5;
 
 interface TrustProject {
   id: string;
@@ -42,13 +40,13 @@ function isCleanRun(r: { status: string; verifierReport: string | null }): boole
 }
 
 /** Leading run of consecutive clean outcomes for a project (most-recent first). */
-export function cleanStreak(db: Db, projectId: string): number {
+export function cleanStreak(db: Db, projectId: string, lookback = 10): number {
   const rows = db
     .select({ status: schema.runs.status, verifierReport: schema.runs.verifierReport })
     .from(schema.runs)
     .where(eq(schema.runs.projectId, projectId))
     .orderBy(desc(schema.runs.startedAt))
-    .limit(PROMOTE_STREAK + 5)
+    .limit(lookback)
     .all();
   let n = 0;
   for (const r of rows) {
@@ -69,7 +67,13 @@ function setMode(db: Db, projectId: string, mode: TrustProject["autonomyMode"]):
  * Drop autonomous → collaborative (the safety ratchet). No-op if already
  * collaborative. Returns true if it moved.
  */
-export function autoContract(db: Db, project: TrustProject, reason: string): boolean {
+export function autoContract(
+  db: Db,
+  project: TrustProject,
+  reason: string,
+  cfg: AutonomyConfig = BUILTIN_AUTONOMY,
+): boolean {
+  if (!cfg.trust.autoContract) return false;
   if (project.autonomyMode !== "autonomous") return false;
   setMode(db, project.id, "collaborative");
   console.warn(`[trust] ${project.name} auto-contracted autonomous → collaborative — ${reason}`);
@@ -80,11 +84,17 @@ export function autoContract(db: Db, project: TrustProject, reason: string): boo
  * Ratchet collaborative → autonomous once the project has a clean streak. No-op
  * otherwise. Returns true if it moved.
  */
-export function maybeAutoPromote(db: Db, project: TrustProject): boolean {
+export function maybeAutoPromote(
+  db: Db,
+  project: TrustProject,
+  cfg: AutonomyConfig = BUILTIN_AUTONOMY,
+): boolean {
+  if (!cfg.trust.autoPromote) return false;
   if (project.autonomyMode !== "collaborative") return false;
-  if (cleanStreak(db, project.id) < PROMOTE_STREAK) return false;
+  const target = cfg.trust.promoteStreak;
+  if (cleanStreak(db, project.id, target + 5) < target) return false;
   setMode(db, project.id, "autonomous");
-  console.log(`[trust] ${project.name} earned autonomous after ${PROMOTE_STREAK} clean runs`);
+  console.log(`[trust] ${project.name} earned autonomous after ${target} clean runs`);
   return true;
 }
 
@@ -96,12 +106,13 @@ export function evaluateTrustOnOutcome(
   db: Db,
   project: TrustProject,
   outcome: { finalStatus: string; mergeConflict: boolean },
+  cfg: AutonomyConfig = BUILTIN_AUTONOMY,
 ): void {
   if (outcome.finalStatus === "failed" || outcome.mergeConflict) {
-    autoContract(db, project, outcome.mergeConflict ? "merge conflict" : "run failed");
+    autoContract(db, project, outcome.mergeConflict ? "merge conflict" : "run failed", cfg);
     return;
   }
   if (outcome.finalStatus === "completed") {
-    maybeAutoPromote(db, project);
+    maybeAutoPromote(db, project, cfg);
   }
 }

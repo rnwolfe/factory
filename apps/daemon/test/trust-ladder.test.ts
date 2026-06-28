@@ -5,13 +5,15 @@ import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { eq } from "drizzle-orm";
+import { BUILTIN_AUTONOMY } from "../src/autonomy/config.ts";
 import {
   autoContract,
   cleanStreak,
   evaluateTrustOnOutcome,
   maybeAutoPromote,
-  PROMOTE_STREAK,
 } from "../src/workers/trust-ladder.ts";
+
+const PROMOTE_STREAK = BUILTIN_AUTONOMY.trust.promoteStreak;
 
 type Mode = "collaborative" | "autonomous";
 

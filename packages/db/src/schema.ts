@@ -376,6 +376,12 @@ export const projects = sqliteTable("projects", {
     .notNull()
     .default("collaborative"),
   /**
+   * Per-project autonomy POLICY overrides (ADR-016) — a partial AutonomyConfig
+   * JSON blob, deep-merged over the system defaults. Null = inherit everything.
+   * Distinct from `autonomyMode`, which is the earned ladder STATE, not policy.
+   */
+  autonomyConfig: text("autonomy_config"),
+  /**
    * Model id used for runs in this project. Interpreted by whichever provider
    * `agent` names — `claude-code` reads claude model ids; `codex` reads codex
    * model ids. Null = let the provider's CLI pick its own default.
