@@ -335,3 +335,14 @@ export async function removeWorktree(opts: RemoveWorktreeOpts): Promise<void> {
     await git(["worktree", "prune"], opts.projectPath);
   }
 }
+
+/**
+ * Delete a local branch ref (`git branch -D`). Used to clean up the ephemeral
+ * branches that short-lived read-only worktrees (e.g. issue replies) leave
+ * behind, so they don't accumulate. The branch must not be checked out in a
+ * live worktree — remove the worktree first. Throws on git failure; callers
+ * that treat cleanup as best-effort should catch.
+ */
+export async function deleteBranch(projectPath: string, branch: string): Promise<void> {
+  await git(["branch", "-D", branch], projectPath, { check: true });
+}
