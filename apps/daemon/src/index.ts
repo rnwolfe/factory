@@ -28,10 +28,12 @@ import { applySettingsFromDb } from "./settings/store.ts";
 import { makeStaticHandler } from "./static.ts";
 import { createDbCursorStore } from "./watch/cursor-store.ts";
 import { filterAlreadyTracked } from "./watch/inband/backlog.ts";
+import { runInBandDetectors } from "./watch/inband/detectors.ts";
+import { createInBandGroomJob } from "./watch/inband/groom-job.ts";
 import { surfaceObservations } from "./watch/observation-inbox.ts";
 import { persistObservations } from "./watch/observation-store.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
-import { synthesizeObservations } from "./watch/synthesize.ts";
+import { type RawObservation, synthesizeObservations } from "./watch/synthesize.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
 import { RunRegistry } from "./workers/registry.ts";
@@ -218,6 +220,15 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // persists them deduped to `watch_observations`. Scan positions persist in
   // `watch_cursors` so a restart resumes rather than re-reading. It also drives
   // the daily metrics rollup (ADR-013).
+  // Shared by both Watch jobs (out-of-band synthesis + in-band groom): the
+  // precision dedup against project backlogs, and persist-then-surface.
+  const dedupeAgainstBacklog = (obs: RawObservation[]) => filterAlreadyTracked(db, obs);
+  const saveObservations = (obs: RawObservation[]) => {
+    const { inserted, skipped } = persistObservations(db, obs);
+    surfaceObservations(db, events, inserted);
+    return { inserted: inserted.length, skipped };
+  };
+
   const scheduler = startScheduler({
     events,
     jobs: [
@@ -226,13 +237,16 @@ export async function startDaemon(): Promise<DaemonHandle> {
         cursors: createDbCursorStore(db),
         synthesize: (records, memories) =>
           synthesizeObservations(records, memories, { budgetSeconds: getAgentBudgetSeconds() }),
-        dedupeAgainstBacklog: (obs) => filterAlreadyTracked(db, obs),
-        saveObservations: (obs) => {
-          // Persist (deduped), then surface the genuinely-new ones to the inbox.
-          const { inserted, skipped } = persistObservations(db, obs);
-          surfaceObservations(db, events, inserted);
-          return { inserted: inserted.length, skipped };
-        },
+        dedupeAgainstBacklog,
+        saveObservations,
+      }),
+      // In-band groom (ADR-011 §2): deterministic detectors over Factory's own
+      // state → typed proposals, same cadence knob, no LLM.
+      createInBandGroomJob({
+        cadence: () => readWatchSynthesisCadence(db),
+        detect: () => runInBandDetectors(db),
+        dedupeAgainstBacklog,
+        saveObservations,
       }),
       createMetricsRollupJob(db),
     ],

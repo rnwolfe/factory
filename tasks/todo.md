@@ -76,11 +76,13 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
         (`filterAlreadyTracked`) drops project-scoped work proposals already in the target project's
         open tasks / active plans; wired into the synthesis job before persist/surface. Precision
         contract honored (operator-level / notes / unknown-project all pass through).
-- [~] **Phase B — in-band sources + cadence/groom jobs.** First in-band reader landed (the backlog
-      source above, consumed by dedup). Remaining: generalize the source registry to **signal
-      sources** (runs/decisions/audits/repo git-state), and fill the scheduler with ADR-010 §1 cadence
-      jobs — backlog grooming, decompose-next-milestone on queue-drain, scheduled health audits,
-      doc-drift/dependency sweeps. (Groom needs these in-band producers.)
+- [~] **Phase B — in-band sources + cadence/groom jobs.** Landed: the backlog reader (consumed by
+      dedup); an **in-band detector registry** (`watch/inband/detectors.ts`, registry discipline) +
+      the **in-band groom job** (`createInBandGroomJob`, own scheduler entry, shares dedup+surface,
+      no LLM); first detector **run-failures** (3 consecutive failed runs → candidate-task). Remaining
+      detectors: stale-backlog groom (close obsolete tasks), stale-audit → propose-audit, repeated
+      error-signature across runs, repo git-drift. Plus cadence jobs: decompose-next-milestone on
+      queue-drain, scheduled health audits, doc-drift sweeps. (Own cadence setting still one knob.)
 - [ ] **Phase C — generation → gating.** Route generated work through WS C + the Trust Ladder (depends on A + C).
 
 ## ★ Operator-memory repo + viewer (ADR-010 §4)
