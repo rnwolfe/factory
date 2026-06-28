@@ -83,9 +83,9 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       type, expandable body + provenance chips, empty state. Read-only.
 - [x] **`record-as-convention` write** (landed): approving a `watch_insight` writes the convention
       into the repo (operator-gated, best-effort, with provenance).
-- [ ] **Seed: synthesize-from harness memories, settings-triggered** (operator-chosen route). NOT
-      auto-on-boot — token-heavy, so behind a settings "first seed" action/event. Read all
-      HarnessSource memories → synthesize → write operator-memory facts (fresh-not-a-mirror).
+- [x] **Seed: synthesize-from harness memories, settings-triggered** (landed). `memory/seed.ts` +
+      `memory.seed` mutation (background, re-runnable) + a settings "Seed from harness memories"
+      button. Synthesis-not-copy; not auto-on-boot. (Synthesis cadence-as-setting still open.)
 - [~] **Blanket run injection — REMOVED (over-corrects cross-project).** The `contextRefs` wrapPrompt
       seam + `operatorMemoryPointer` helper are kept, but runner no longer points every run at all
       operator memory (operator flagged: cross-project insight bleeds projects the wrong way). Memory

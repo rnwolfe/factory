@@ -161,6 +161,8 @@ export function Settings() {
         )}
       </Section>
 
+      <OperatorMemorySection />
+
       <Section title="agent">
         <Link
           to="/settings/prompts"
@@ -245,6 +247,78 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       </div>
       <div>{children}</div>
     </div>
+  );
+}
+
+/**
+ * Operator-memory seed (ADR-010 §4). One click kicks off a background synthesis
+ * of the operator's existing harness memories (Claude Code / Codex) into
+ * operator-memory facts. It's token-heavy and slow, so the daemon runs it in the
+ * background and the click returns only the harness sources it will read — the
+ * operator watches /memory fill. Empty `sources` means no harness memories were
+ * found on this host.
+ */
+function OperatorMemorySection() {
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+  const seed = useMutation({
+    mutationFn: () => trpc.memory.seed.mutate(),
+    onSuccess: (res) => {
+      setConfirmation(
+        res.sources.length > 0
+          ? `seeding from ${res.sources.join(", ")}… watch /memory fill.`
+          : "no harness memories found on this host.",
+      );
+    },
+  });
+
+  return (
+    <Section title="operator memory">
+      <div className="px-3 py-2.5 border-b border-[var(--color-line)]">
+        <button
+          type="button"
+          onClick={() => {
+            setConfirmation(null);
+            seed.mutate();
+          }}
+          disabled={seed.isPending}
+          className="btn w-full"
+        >
+          {seed.isPending ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <Loader2 size={12} className="animate-spin" />
+              seeding…
+            </span>
+          ) : (
+            "seed from harness memories"
+          )}
+        </button>
+        <p className="mt-2 text-[10.5px] mono text-[var(--color-fg-3)] leading-relaxed">
+          synthesizes your Claude Code / Codex memories into operator-memory facts. token-heavy;
+          runs in the background — watch{" "}
+          <Link to="/memory" className="text-[var(--color-accent)] underline">
+            /memory
+          </Link>{" "}
+          fill.
+        </p>
+        {seed.isError ? (
+          <div className="mt-1.5 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+            {(seed.error as Error).message}
+          </div>
+        ) : null}
+        {confirmation ? (
+          <p className="mt-1.5 mono text-[10.5px] text-[var(--color-fg-2)] leading-relaxed">
+            {confirmation}
+          </p>
+        ) : null}
+      </div>
+      <Link
+        to="/memory"
+        className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
+      >
+        <span className="text-[13px] text-[var(--color-fg-1)]">view operator memory</span>
+        <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
+      </Link>
+    </Section>
   );
 }
 
