@@ -64,9 +64,13 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
   - [ ] **Slice 2 — the gate**: `level` + diff reversibility/blast-radius → auto-land vs `review`.
   - [ ] **Slice 3 — freeze precondition**: frozen testable acceptance criteria required for
         autonomy-eligible plans (no checkable criteria = ineligible — closes the `absent` case).
-  - [ ] **PWA**: surface the verifier report (level chip + per-signal coverage) on the run card.
-- [ ] **WS D — cross-model validation** (near-free): route verification to the *other* family
-      (claude↔codex) via the existing AgentModelPicker resolution — strongest input to the score.
+  - [x] **PWA** (landed): `verifier-report.tsx` — level chip + three-state per-signal coverage
+        (pass ✓ / fail ✗ / absent "— not covered"), mounted by the live pane next to quality.
+- [x] **WS D — cross-model validation** (landed): `cross-model.ts` routes verification to the
+      OTHER family (claude↔codex) one-shot via `invokeClaudeJson` (family-agnostic, no new auth);
+      verdict (pass/concerns/fail + confidence) becomes the `cross-model` signal, conditionally
+      re-weighting the score. Gated to autonomous-mode runs (full second-model call). Renders in
+      the verifier panel automatically. (Per-project/global opt-out toggle = a refinement.)
 
 ## The Watch as work generator (ADR-011) — remaining
 

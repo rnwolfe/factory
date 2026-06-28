@@ -71,4 +71,46 @@ describe("computeVerifierReport", () => {
     expect(sig(r, "quality")?.state).toBe("fail");
     expect(r.score).toBe(0.6); // only acceptance contributes
   });
+
+  test("cross-model undefined → excluded (2-signal weighting, no cap)", () => {
+    const r = computeVerifierReport({ acceptance: met(1), qualityReport: quality("pass") });
+    expect(r.signals.find((s) => s.key === "cross-model")).toBeUndefined();
+    expect(r.score).toBe(1); // not capped by a missing 3rd signal
+  });
+
+  test("cross-model pass → 3-signal weighting, full coverage", () => {
+    const r = computeVerifierReport({
+      acceptance: met(1),
+      qualityReport: quality("pass"),
+      crossModel: { validator: "codex", state: "pass", confidence: 0.9, reasoning: "clean" },
+    });
+    expect(sig(r, "cross-model")?.state).toBe("pass");
+    expect(r.score).toBe(1); // 0.4 + 0.3 + 0.3
+    expect(r.level).toBe("high");
+  });
+
+  test("cross-model ran but no verdict (null) → absent, lowers the score", () => {
+    const r = computeVerifierReport({
+      acceptance: met(1),
+      qualityReport: quality("pass"),
+      crossModel: null,
+    });
+    expect(sig(r, "cross-model")?.state).toBe("absent");
+    expect(r.score).toBe(0.7); // 0.4 + 0.3 + 0 (cross-model absent)
+  });
+
+  test("cross-model concerns/fail → fail signal, no positive coverage", () => {
+    const r = computeVerifierReport({
+      acceptance: met(1),
+      qualityReport: quality("pass"),
+      crossModel: {
+        validator: "claude-code",
+        state: "concerns",
+        confidence: 0.4,
+        reasoning: "risky",
+      },
+    });
+    expect(sig(r, "cross-model")?.state).toBe("fail");
+    expect(r.score).toBe(0.7);
+  });
 });

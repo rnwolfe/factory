@@ -14,7 +14,7 @@ import {
 } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { and, eq, gt } from "drizzle-orm";
-import { getAgentDescriptor } from "../agents/registry.ts";
+import { type AgentName, getAgentDescriptor } from "../agents/registry.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { resolveBotGitAuthor } from "../github/app-auth.ts";
@@ -23,6 +23,7 @@ import { parseStoredDraft } from "../plans/iterate.ts";
 import { fetchIssueDiscussion, postIssueComment } from "../projects/github-task-store.ts";
 import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
+import { type CrossModelVerdict, crossModelValidate, getRunDiff } from "./cross-model.ts";
 import {
   type AutonomyMode,
   type FactoryStatus,
@@ -749,9 +750,29 @@ export async function executeRun(
     // now: it is persisted (and will feed the future auto-land gate) but does
     // NOT hold back the merge below. `absent` signals score zero on purpose.
     if (finalStatus === "completed") {
+      // WS D — cross-model adversarial validation: route verification to the OTHER
+      // model family (claude↔codex), the strongest input to the score. Gated to
+      // autonomous-mode projects, since it's a full second-model call and that's
+      // where the auto-merge actually needs the extra verifier; collaborative runs
+      // keep the 2-signal score. `undefined` here = "not run" (excluded from score).
+      let crossModel: CrossModelVerdict | null | undefined;
+      if (autonomyMode === "autonomous") {
+        const diff = await getRunDiff(result.worktreePath, row.baseRef);
+        crossModel = await crossModelValidate(
+          {
+            builderAgent: row.agentName as AgentName,
+            diff,
+            acceptance: parsed?.acceptance ?? [],
+            taskTitle: taskTitle ?? row.taskId ?? "task",
+            summary,
+          },
+          { cwd: result.worktreePath, budgetSeconds: 180 },
+        );
+      }
       const verifierReport = computeVerifierReport({
         acceptance: parsed?.acceptance ?? [],
         qualityReport,
+        crossModel,
       });
       await db
         .update(schema.runs)
