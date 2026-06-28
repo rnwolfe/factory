@@ -390,3 +390,22 @@ channels, never a blanket run pointer:
   conventions), so only project-relevant direction reaches that project.
 Scope before you inject. Corollary: a synthesize-from seed of existing harness memories is
 token-heavy → put it behind a settings-triggered "first seed", not auto-on-boot.
+
+## "Prod unreachable" with a healthy daemon → suspect the ingress/proxy, not the app (2026-06-28)
+
+Operator reported Factory prod "continuously crashing / PWA won't load." The daemon was
+completely healthy (NRestarts=0, continuous uptime, sub-ms /health, ~0 CPU/IO pressure,
+serving fresh bundles; the PWA service worker is push-only with no fetch/Cache so it can't
+serve stale assets). The real cause was the **Caddy reverse proxy** (in a Docker container,
+`network_mode: host`, config bind-mounted from `~/dev/expose/`): a shared `filter_scanners`
+snippet's Tier-2 @discovery rule `abort`ed any path matching `metrics|debug|graphql|…` — which
+collaterally killed Factory's own **`/metrics`** SPA route. `abort` closes the TCP connection
+with **no reverse_proxy error log**, so Caddy's logs showed zero Factory errors — the only way
+to find it was probing each route end-to-end through the proxy (`/` 200 but `/metrics` reset).
+Fix: in `~/dev/expose/sites/factory.caddy`, `handle @factory_app path /metrics /metrics/*` →
+reverse_proxy first (bypassing the filter), wrap the rest in `handle { import filter_scanners … }`;
+`docker exec <caddy> caddy validate` then `caddy reload` (graceful). Lessons: (1) when prod is
+unreachable but the process is healthy, check the proxy/ingress layer before the app; (2) generic
+app route names (`/metrics`, `/debug`, `/graphql`) collide with anti-scanner proxy filters —
+exempt them per-site at the proxy, don't rename the app route; (3) a TCP `abort` leaves no proxy
+error log, so probe routes end-to-end rather than trusting "no errors."
