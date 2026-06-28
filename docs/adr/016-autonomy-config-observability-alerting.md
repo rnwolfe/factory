@@ -1,6 +1,6 @@
 # ADR-016 · Autonomy: configuration, observability, and alerting
 
-**Status:** proposed (2026-06-28) — **draft for operator review**
+**Status:** accepted (2026-06-28) — operator-reviewed; resolutions recorded below.
 **Scope:** the connective tissue for the autonomy initiative. Frames the remaining
 build (ADR-011 Phase C auto-run, ADR-012 Slice 2 surfacing + Slice 3 auto-retry) and
 makes every autonomy behavior **configurable (system + per-project), observable, and
@@ -132,14 +132,20 @@ Do **not** scatter ~10 knobs × 2 scopes across the flat settings list and the p
 4. **Slice 3 (auto-retry)** then **Phase C (auto-run)** — both behind the config + emitting events.
    Phase C gets its own ADR.
 
-## Open questions (for the operator)
+## Resolutions (operator, 2026-06-28)
 
-1. **Preset definitions.** What exactly do `Conservative / Balanced / Hands-off` set? (Draft
-   above; needs your tuning.)
-2. **Default alert routing.** Confirm which events push by default vs digest (§3 proposal).
-3. **Digest channel.** Is there a "daily autonomy digest" (one push/notification summarizing
-   the log) or only per-event pushes? (Lean: per-event for loud ones + an optional digest.)
-4. **Auto-run gating.** Top-rung-only + `enabled` + per-class — is per-*task-class* level
-   (ADR-012 open-q1) in scope here, or still per-project only to start?
-5. **Where does the Autonomy history live** — a tab on the existing ops/metrics surface, or its
-   own route? (Lean: a section on `/ops`, since it's awareness not analysis.)
+- **Alert routing → "loud on risk, digest the rest."** Push immediately: `trust_contracted`,
+  `auto_merged`, `auto_ran` (start), high-value `proposal_surfaced`. Digest: `trust_promoted`,
+  `gate_held`, `gate_passed`. (As drafted in §3.)
+- **Auto-run gating → per-project, top-rung, opt-in.** `autorun.enabled` off by default; when
+  on, only top-trust-rung projects auto-run the smallest-blast-radius class. **Per-task-class
+  levels are out of scope for now** (revisit post-Phase-C).
+- **Autonomy history → a section on `/ops`** (awareness, beside live runs + the Watch panel),
+  not its own route or `/metrics`.
+
+## Still-open (tune during build, not blockers)
+
+1. **Preset definitions.** Exact knob bundles for `Conservative / Balanced / Hands-off` (draft
+   in §4; refine when wiring the UI).
+2. **Digest channel.** Per-event pushes for the loud set + an *optional* daily digest push
+   summarizing the rest (lean yes; build the per-event path first, digest as a fast-follow).
