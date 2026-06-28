@@ -360,3 +360,18 @@ Implications for the Trust Ladder / autonomy work:
   with status `actioned` (auto-ratified, flagged) instead of `pending`. The agent's
   behavior (emit forks) is unchanged; override stays available. Zero throughput risk
   because these never blocked.
+
+## /ops vs /metrics are distinct surfaces — place with IA discernment (2026-06-28, operator correction)
+
+When adding a surface to the PWA, do NOT dump the same component on both `/ops` and
+`/metrics`. They have different identities:
+- `/ops` = real-time **operational awareness** ("what's happening now"): live runs,
+  active sessions, current state, the Watch loop's *current* status, headline tiles.
+- `/metrics` = **historical analytics** ("how are things trending over time"):
+  time-series charts, aggregates, spend trends.
+
+I mounted `AutonomyMetrics` (historical charts) AND `WatchPanel` on BOTH surfaces
+without discernment — the operator called it "merged ops into metrics without
+discernment." Right placement: historical time-series → `/metrics`; current
+operational state (Watch cadence/last-scan/funnel, live tiles) → `/ops`. Decide by
+the surface's identity; don't duplicate the same component across both.

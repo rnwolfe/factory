@@ -37,8 +37,12 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
 - [ ] **Operational metrics (standing gap, not autonomy-adjacent):** throughput (runs/day, completed/day);
       active projects under management; commit rate per-project + total; **LOC shipped** (added/removed)
       per-project + total; auto-merge rate; failure rate.
-- [ ] **First-class historical charting** in the PWA ops surface — per-project + portfolio, time-series,
-      not just current snapshots.
+- [x] **First-class historical charting** (v0.32.0/v0.33.0) — Recharts time-series + the Watch
+      observability panel, on both /ops and /metrics.
+- [ ] **★ IA cleanup — ops vs metrics discernment** (deferred, operator-flagged 2026-06-28). The
+      autonomy charts + Watch panel were mounted on BOTH /ops and /metrics without discernment.
+      Differentiate by surface identity: historical time-series → /metrics; current operational state
+      (Watch loop status, live tiles) → /ops. Remove the duplication. See tasks/lessons.md.
 
 ## Trust Ladder (WS A) — remaining
 
