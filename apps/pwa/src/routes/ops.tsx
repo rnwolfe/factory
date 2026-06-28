@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Clock, GitBranch, Terminal } from "lucide-react";
 import { Link } from "react-router-dom";
+import { AutonomyMetrics } from "../components/autonomy-metrics.tsx";
 import { trpc } from "../lib/trpc.ts";
 import { useScopedChannel } from "../lib/use-channel.ts";
 
@@ -106,24 +107,6 @@ export function Ops() {
 
   useScopedChannel({ kind: "ops", id: "" }, { invalidate: [["ops.snapshot"]] });
 
-  if (snap.isLoading) {
-    return (
-      <div className="space-y-3">
-        <div className="skel h-6 w-40 mb-3" />
-        <div className="skel h-32 w-full" />
-      </div>
-    );
-  }
-  if (!snap.data) {
-    return (
-      <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
-        couldn't load ops snapshot.
-      </div>
-    );
-  }
-
-  const { running, queued, recent, sessions, usage } = snap.data;
-
   return (
     <div className="space-y-4 pb-4">
       <header className="surface p-4">
@@ -136,6 +119,30 @@ export function Ops() {
         </p>
       </header>
 
+      {/* Historical autonomy / throughput charts (read-only, ADR-013). */}
+      <AutonomyMetrics />
+
+      {/* Live snapshot block — loads independently of the charts above. */}
+      {snap.isLoading ? (
+        <div className="surface p-4">
+          <div className="skel h-6 w-40 mb-3" />
+          <div className="skel h-32 w-full" />
+        </div>
+      ) : !snap.data ? (
+        <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
+          couldn't load ops snapshot.
+        </div>
+      ) : (
+        <OpsLive data={snap.data} />
+      )}
+    </div>
+  );
+}
+
+function OpsLive({ data }: { data: OpsSnapshot }) {
+  const { running, queued, recent, sessions, usage } = data;
+  return (
+    <>
       {/* Usage windows: today / this week / this month, calendar-aligned. */}
       <section>
         <SectionHeader title="usage" />
@@ -277,7 +284,7 @@ export function Ops() {
           </div>
         )}
       </section>
-    </div>
+    </>
   );
 }
 
