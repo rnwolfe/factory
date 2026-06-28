@@ -335,3 +335,28 @@ Rules for next time:
 - When isolating a shared external server (tmux, a DB, a daemon), prefer an explicit
   per-instance handle (socket/namespace) computed in-process over env-var precedence
   games — env precedence + runtime env snapshots are full of sharp edges.
+
+## `agent_decision` is non-blocking ratification, not a gate (2026-06-27, operator correction)
+
+When reasoning about autonomy and the inbox, do NOT frame `agent_decision` decisions
+(42% of inbox landings) as "blocking work that auto-resolving would unblock." They do
+not block: the agent already picked the most defensible path and **proceeded / shipped**.
+The inbox card exists for **after-the-fact ratification** — the operator ratifies (accept
+verbatim) or **overrides**, and an override is a *post-hoc redirect* (`resurface.ts`
+re-queues the work as a new `"resurfaced"` task), never a gate on the original run. The
+run already continued (architecture brief: agent_decision = "No (run continues)").
+
+Implications for the Trust Ladder / autonomy work:
+- The lever for `agent_decision` is **attention / ratification load, not throughput**.
+  "Auto-resolve" means *stop demanding mandatory ratification*, not *stop blocking*.
+- **The override is what makes auto-ratification safe.** You lose nothing by not ratifying
+  upfront, because you can still override after (reviewing the merged work / a digest).
+  This is the human-IN-the-loop → human-ON-the-loop move.
+- Today's `autonomyMode` is a lossy binary: collaborative = ratify-everything (high
+  attention); autonomous = agent doesn't even emit forks, just prose in the summary, and
+  the only recourse is "flip to collaborative + re-run" (NO structured override). The
+  missing middle — **auto-ratify but keep the structured override** — is the sweet spot.
+- Cleanest first lever: L1→L2 is purely daemon-side — create the `agent_decision` row
+  with status `actioned` (auto-ratified, flagged) instead of `pending`. The agent's
+  behavior (emit forks) is unchanged; override stays available. Zero throughput risk
+  because these never blocked.
