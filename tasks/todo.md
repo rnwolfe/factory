@@ -4,6 +4,24 @@ North-star: **decisions-per-run → 0** while auto-merge stays ~99% and failures
 Reference: `docs/research/2026-06-27-autonomous-proactive-factory.md`.
 ADRs: 010 (The Watch), 011 (Watch work-generator), 012 (Trust Ladder).
 
+## Interface-discipline pass (ADR-015) — registry as the single touch-point
+
+Goal: adding an agent family OR a task backend = one impl + one registration; no site
+branches on a literal id.
+- [x] **Agents — enum + cross-model + consumers** (landed): `AGENT_NAME_ENUM` (5 routers),
+      `validatorAgentId` (cross-model, kills `OTHER_FAMILY`), `runtimeSpecFor` (runner no longer
+      special-cases claude-code), `authGuideText` (submit), `recover.ts` uses the agent's own
+      `parseLine`.
+- [x] **Task backends — interface fold + registry** (landed): `TaskStore` now covers
+      discussion/adopt/reply; the 7 standalone `*Issue*` functions are thin dispatchers (no
+      `taskBackend` branch); `taskStoreFor` is a `registerBackend` registry.
+- [ ] **Shared `@factory/agent-config` package** so `apps/cli/doctor.ts` iterates the registry's
+      `probeAuth` instead of a hardcoded codex check (already a documented deferral in registry.ts).
+- [ ] **Task backend config-blob**: `githubRemote`/`githubInstallationId` → a generic
+      `backendConfig` JSON column (+ migration). Columns work today; this is elegance/decoupling.
+- [ ] **Cosmetic type-only**: PWA `AgentName` union + `sessionMode` derive from the registry
+      (no runtime impact; PWA already reads descriptors via tRPC).
+
 ## Shipped (2026-06-27 → 28)
 
 - ✅ **WS0 — `bun test` self-kill fix** → released **v0.30.1**. Root cause: no private tmux socket
