@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { AutonomyMetrics } from "../components/autonomy-metrics.tsx";
+import { WatchPanel } from "../components/watch-panel.tsx";
 import { chipLabel, fmtCost, fmtTokens, type MetricsAggregate } from "../lib/metrics-format.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -789,6 +791,15 @@ export function Metrics() {
           </ul>
         )}
       </section>
+
+      {/* Historical autonomy / throughput charts — the natural home for the
+          north-star (decisions-per-run → 0) and friends, shared with /ops. */}
+      <div className="pt-1">
+        <AutonomyMetrics />
+      </div>
+
+      {/* The Watch — observability for the out-of-band synthesis loop. */}
+      <WatchPanel />
     </div>
   );
 }
