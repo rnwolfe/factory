@@ -247,6 +247,12 @@ Rules:
 - This is a non-interactive run. Do NOT wait for stdin or ask the operator
   questions in prose; if you need input, set status to "blocked" and put your
   questions in the array.
+- Do NOT use broad process-name cleanup such as \`pkill -f\`, \`killall\`, or
+  grepping process lists. Factory itself and sibling services may share generic
+  command names like \`bun src/index.ts\`; broad cleanup can kill the daemon that
+  is running you. If you start a temporary server/process, capture its PID and
+  clean up only that PID, for example:
+  \`server_pid=$!; trap 'kill "$server_pid" 2>/dev/null || true' EXIT\`.
 - Use status="done" only if you actually completed every acceptance
   criterion. **Partial completion → status="blocked"**, not "done with
   caveats." A "done with one item missing" hides the gap from auto-merge

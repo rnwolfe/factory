@@ -76,6 +76,7 @@ describe("factory install", () => {
     expect(content).toContain(
       `ExecStart=${process.env.FACTORY_CLI_BUN} run --cwd ${checkout} start`,
     );
+    expect(content).toContain("Restart=always");
     const args = readFileSync(argLog, "utf8");
     expect(args).toContain("--user daemon-reload");
     expect(args).toContain("--user enable --now factory");
