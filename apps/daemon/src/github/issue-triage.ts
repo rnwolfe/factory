@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { type Db, schema } from "@factory/db";
-import { ensureWorktree, removeWorktree } from "@factory/runtime";
+import { deleteBranch, ensureWorktree, removeWorktree } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { asc, eq } from "drizzle-orm";
 import { getAgentBudgetSeconds } from "../agent-budget.ts";
@@ -81,11 +81,17 @@ export interface IssueIntakeProject {
  * doc excerpts. The worktree (`factory/issue-reply-<key>`) is torn down after
  * the reply; replies read the codebase, they never commit to it.
  *
- * Degrades to a stateless invocation (daemon cwd, no repo access) when the
- * project has no on-disk git workdir/slug, or when the worktree can't be
- * created (not a git repo, disk pressure, race) — a thinner reply still beats
- * no reply. A failure inside the agent itself (after the worktree is up) is
- * rethrown for the caller to record.
+ * Failure handling is split deliberately:
+ * - Worktree SETUP failure (no git workdir/slug, not a git repo, disk, race)
+ *   degrades to a stateless invocation (daemon cwd, no repo access) — a thinner
+ *   reply still beats no reply.
+ * - An AGENT failure once the worktree is up propagates to the caller to record;
+ *   it must not be swallowed by the stateless fallback.
+ *
+ * Once the worktree is obtained it is ALWAYS torn down (whether `ensureWorktree`
+ * created it or attached to an existing one), and the ephemeral branch ref is
+ * best-effort deleted when this call created it — so neither worktrees nor
+ * `factory/issue-reply-*` branches accumulate.
  */
 async function invokeReplyAgent(args: {
   config: FactoryConfig;
@@ -106,20 +112,25 @@ async function invokeReplyAgent(args: {
   const tag = `${args.key}-${createId().slice(0, 8)}`;
   const worktreePath = path.join(config.worktreesRoot, project.slug, `issue-reply-${tag}`);
   const branch = `factory/issue-reply-${tag}`;
-  let created = false;
+
+  // Set the worktree up first. If THIS fails, degrade to a stateless reply
+  // rather than failing the whole response. `branchCreated` tracks whether the
+  // ref is ours to delete; the worktree itself is torn down regardless.
+  let branchCreated: boolean;
   try {
     const wt = await ensureWorktree({ projectPath: wd, branch, worktreePath });
-    created = wt.created;
-    return await invokeClaudeJson(prompt, { budgetSeconds, agent, cwd: wt.worktreePath });
-  } catch (err) {
-    // Worktree creation failed → fall back to a stateless reply. If the worktree
-    // came up but the agent failed, rethrow so the caller records the failure.
-    if (!created) return invokeClaudeJson(prompt, { budgetSeconds, agent });
-    throw err;
+    branchCreated = wt.created;
+  } catch {
+    return invokeClaudeJson(prompt, { budgetSeconds, agent });
+  }
+
+  // Worktree is up: run against it. An agent failure propagates; the worktree is
+  // always cleaned up.
+  try {
+    return await invokeClaudeJson(prompt, { budgetSeconds, agent, cwd: worktreePath });
   } finally {
-    if (created) {
-      await removeWorktree({ projectPath: wd, worktreePath, force: true }).catch(() => {});
-    }
+    await removeWorktree({ projectPath: wd, worktreePath, force: true }).catch(() => {});
+    if (branchCreated) await deleteBranch(wd, branch).catch(() => {});
   }
 }
 

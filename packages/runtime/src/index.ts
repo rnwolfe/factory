@@ -15,6 +15,7 @@ export * from "./types.ts";
 export {
   attachExistingWorktree,
   commitAllChanges,
+  deleteBranch,
   type EnsureDepsResult,
   ensureWorktree,
   ensureWorktreeDeps,
