@@ -4,6 +4,27 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.35.0 — 2026-06-28
+
+### Added
+- **The Verifier-Coverage Gate (ADR-014).** "Is this safe to land unattended?" is now a
+  *measured* score, not an assumption that `completed` = verified. Each run gets a
+  verifier-confidence report — three-state coverage (pass / fail / **absent**) over
+  acceptance criteria + quality checks + cross-model review — surfaced on the run with a
+  level chip and per-signal breakdown. A run that "completed" with nothing checking it
+  scores `none`. For **autonomous-mode** projects this gates auto-merge: high coverage +
+  contained diff → auto-land; otherwise the run is **held for review** instead of blindly
+  merged. Collaborative mode is unchanged.
+- **Cross-model adversarial validation** (ADR-014 §D): an autonomous run's diff is reviewed
+  by the *other* model family (claude↔codex) one-shot; the verdict feeds the score.
+
+### Changed
+- **Extensibility-discipline pass (ADR-015), no behavior change.** The agent registry and the
+  task-backend interface are now the single touch-point for adding a variant: a shared agent
+  zod-enum, cross-model validator / runtime-spec / auth-guidance all on the agent descriptor,
+  and the `TaskStore` interface covering every backend op behind a `registerBackend` registry.
+  Adding an agent family or a task backend is one impl + one registration.
+
 ## v0.34.0 — 2026-06-28
 
 ### Added
