@@ -4,6 +4,19 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.33.0 — 2026-06-28
+
+### Added
+- **The Watch is now observable.** A "The Watch" panel on the metrics page shows
+  the synthesis loop itself: the cadence, each source's scan state (available +
+  last-scanned + cursor), the observation funnel (pending/surfaced/adopted/
+  dismissed/superseded), and the recent observations — **including the note-only
+  ones that never became inbox cards**. The loop's daily output
+  (`watch_observations_created`) is also chartable over time.
+- **Autonomy & ops charts on the /metrics page.** The historical charts
+  (decisions-per-run, throughput, commits, LOC, auto-ratify, autonomy mix) now
+  appear on the dedicated metrics page too, not just the ops page.
+
 ## v0.32.0 — 2026-06-28
 
 ### Added
