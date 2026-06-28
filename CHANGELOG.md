@@ -4,6 +4,19 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.32.0 — 2026-06-28
+
+### Added
+- **Autonomy & ops metrics surface — historical, charted, read-only.** The ops
+  page now shows first-class time-series of how Factory's autonomic functioning is
+  going: **decisions-per-run** (the autonomy north-star), throughput
+  (runs/completed per day), **commits** and **LOC shipped**, the **auto-ratify
+  rate**, and the **autonomy-level mix** — portfolio-wide or per-project, with a
+  scope toggle and a 7/30/90-day range. Powered by a daily metric rollup
+  (`metrics_daily`) over a pluggable metric catalog (a new metric is one catalog
+  entry, never a migration) and rendered with real charts (Recharts). Read-only —
+  awareness, not a second inbox. (ADR-013)
+
 ## v0.31.0 — 2026-06-28
 
 ### Added
