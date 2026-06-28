@@ -83,15 +83,17 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       type, expandable body + provenance chips, empty state. Read-only.
 - [x] **`record-as-convention` write** (landed): approving a `watch_insight` writes the convention
       into the repo (operator-gated, best-effort, with provenance).
-- [ ] **First synthesis run ingests all harness memories** (deferred — needs a design call:
-      synthesize-from vs copy, given fresh-not-a-mirror). Synthesis already *reads* them as input.
-- [x] **Injectable as run context** (landed) — code-changing runs get a reading-list *pointer* to
-      the operator-memory `MEMORY.md` (empty until conventions exist; a pointer, not a doctrine
-      prepend, so it respects the AGENTS.md contract). Threaded through all four wrapPrompt variants.
-      NB: chose a run-time pointer over an AGENTS.md reference because AGENTS.md is committed +
-      portable and the memory path is machine-local — worth an operator gut-check.
-- [ ] **Project-level record-as-convention → AGENTS.md** (deferred) — slug-scoped conventions write
-      to the project repo's AGENTS.md instead of the operator-level memory repo.
+- [ ] **Seed: synthesize-from harness memories, settings-triggered** (operator-chosen route). NOT
+      auto-on-boot — token-heavy, so behind a settings "first seed" action/event. Read all
+      HarnessSource memories → synthesize → write operator-memory facts (fresh-not-a-mirror).
+- [~] **Blanket run injection — REMOVED (over-corrects cross-project).** The `contextRefs` wrapPrompt
+      seam + `operatorMemoryPointer` helper are kept, but runner no longer points every run at all
+      operator memory (operator flagged: cross-project insight bleeds projects the wrong way). Memory
+      reaches work via the two scoped channels below instead. See tasks/lessons.md.
+- [ ] **(a) Memory → gated proposals.** Synthesized insight derives proposed tasks / bugs / process &
+      routine improvements (operator-gated — the Watch generator, ADR-011). Propose, don't steer.
+- [ ] **(b) Hone a given project.** Project-scoped direction (project-level `record-as-convention` →
+      that project's AGENTS.md / scoped conventions), so only project-relevant direction reaches it.
 
 ## Backlog from the report (not yet scheduled)
 

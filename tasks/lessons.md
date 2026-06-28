@@ -375,3 +375,18 @@ without discernment — the operator called it "merged ops into metrics without
 discernment." Right placement: historical time-series → `/metrics`; current
 operational state (Watch cadence/last-scan/funnel, live tiles) → `/ops`. Decide by
 the surface's identity; don't duplicate the same component across both.
+
+## Don't blindly inject cross-project memory into runs — it over-corrects (2026-06-28, operator)
+
+Operator-memory / synthesized insight is **cross-project**. Pointing every run at all of
+it pushes some projects the wrong way — e.g. the operator's "Go + kong for CLIs" preference
+bleeding into a TypeScript project. I shipped a blanket reading-list pointer into every run;
+the operator flagged the over-correction risk. Memory must create value through two **scoped**
+channels, never a blanket run pointer:
+- **(a) Propose, don't steer:** synthesize → derive insight → propose tasks / bugs / process &
+  routine improvements (operator-gated — the Watch generator). Cross-project insight becomes
+  *suggested work*, not silent in-run direction.
+- **(b) Hone a given project:** project-scoped direction (a project's own AGENTS.md / scoped
+  conventions), so only project-relevant direction reaches that project.
+Scope before you inject. Corollary: a synthesize-from seed of existing harness memories is
+token-heavy → put it behind a settings-triggered "first seed", not auto-on-boot.
