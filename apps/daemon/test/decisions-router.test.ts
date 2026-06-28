@@ -229,6 +229,49 @@ describe("decisionsRouter", () => {
     }
   });
 
+  test("overrideAgentDecision accepts an auto_ratified fork (Trust Ladder L2 safety valve)", async () => {
+    const h = setupHarness();
+    try {
+      const decisionId = createId();
+      h.db
+        .insert(schema.decisions)
+        .values({
+          id: decisionId,
+          kind: "agent_decision",
+          projectId: null, // operator-level → no resurface task, just the action
+          outcome: "decided: use AST evaluator",
+          payload: {
+            id: "d1",
+            question: "parser?",
+            decided: "use AST evaluator",
+            options: [],
+            summary: null,
+            runId: "run-1",
+            taskId: null,
+          },
+          status: "auto_ratified",
+          createdAt: Date.now(),
+        })
+        .run();
+
+      // Must NOT throw "decision already auto_ratified" — auto-ratified forks
+      // remain overridable post-hoc (the safety valve that makes auto-ratify safe).
+      await h.caller.overrideAgentDecision({
+        decisionId,
+        override: { kind: "single", choice: "use the full parser instead" },
+      });
+
+      const dec = h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, decisionId))
+        .get();
+      expect(dec?.status).toBe("actioned");
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("snooze view filters the default inbox and exposes snoozed items", async () => {
     const h = setupHarness();
     try {

@@ -258,6 +258,42 @@ describe("persistAgentDecisions", () => {
     }
   });
 
+  test("autoRatify records the fork as auto_ratified, not pending (Trust Ladder L2)", async () => {
+    const { dbPath, cleanup } = tempDb();
+    try {
+      runMigrations(dbPath);
+      const db = createDb(dbPath);
+      const projectId = createId();
+      await db.insert(schema.projects).values({
+        id: projectId,
+        slug: "p2",
+        name: "P2",
+        ceremony: "personal",
+        role: "owner",
+        tag: "active",
+        workdirPath: "/tmp/p2",
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+      });
+      const { events } = makeRecordingBus();
+      await persistAgentDecisions({
+        db,
+        events,
+        runId: "run-2",
+        taskId: "task-002",
+        projectId,
+        agentText: SINGLE_DECISION_BLOCK,
+        state: newAgentDecisionState(),
+        autoRatify: true,
+      });
+      const rows = await db.select().from(schema.decisions).all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.status).toBe("auto_ratified"); // out of the pending inbox, kept in history
+    } finally {
+      cleanup();
+    }
+  });
+
   test("dedupes by agent-supplied id across calls", async () => {
     const { dbPath, cleanup } = tempDb();
     try {

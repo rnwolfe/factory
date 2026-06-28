@@ -182,6 +182,12 @@ export interface PersistAgentDecisionsArgs {
    *  buffer each call but only acts on previously-unseen ids. */
   agentText: string;
   state: AgentDecisionState;
+  /**
+   * Trust Ladder L2+ (ADR-012): when true, the fork is recorded `auto_ratified`
+   * (decided by the agent, out of the pending inbox) instead of `pending`. It
+   * stays in history and overridable — the run never paused either way.
+   */
+  autoRatify?: boolean;
   /** Override `Date.now()` in tests. */
   now?: () => number;
 }
@@ -223,7 +229,7 @@ export async function persistAgentDecisions(
           runId: args.runId,
           taskId: args.taskId,
         },
-        status: "pending",
+        status: args.autoRatify ? "auto_ratified" : "pending",
         createdAt: now,
       });
     } catch (err) {

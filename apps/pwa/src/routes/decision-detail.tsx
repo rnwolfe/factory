@@ -309,6 +309,10 @@ export function DecisionDetail() {
   const isReleaseProposal = d.kind === "release_proposal";
   const isWatchInsight = d.kind === "watch_insight";
   const isPending = d.status === "pending";
+  // The Watch / Trust Ladder (ADR-012): an `agent_decision` fork the agent made
+  // on an autonomous-tier run, auto-ratified rather than surfaced. It's out of
+  // the pending inbox but still OVERRIDABLE post-hoc — the safety valve.
+  const isAutoRatified = d.status === "auto_ratified";
   const score = d.weightedScore != null ? d.weightedScore.toFixed(2) : "—";
   const uncertainty = d.uncertainty != null ? d.uncertainty.toFixed(2) : "—";
   const issueNumber = typeof payload.number === "number" ? payload.number : null;
@@ -367,7 +371,16 @@ export function DecisionDetail() {
                           ? "watch · insight"
                           : "tag change"}
           </span>
-          <span className="chip">{d.status}</span>
+          {isAutoRatified ? (
+            <span
+              className="chip chip-accent"
+              title="the agent decided this autonomously — you didn't need to"
+            >
+              auto-decided
+            </span>
+          ) : (
+            <span className="chip">{d.status}</span>
+          )}
           <span className="chip">{decisionProjectLabel(d)}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
             {fmtDate(d.createdAt)}
@@ -478,6 +491,30 @@ export function DecisionDetail() {
                     : null
                 }
               />
+            </Section>
+          ) : isAutoRatified && !payload.override ? (
+            <Section title="auto-decided — override if needed">
+              <div className="px-4 py-3 space-y-3">
+                <p className="text-[13px] leading-relaxed text-[var(--color-fg-2)]">
+                  The agent made this call autonomously and Factory auto-ratified it — you didn't
+                  need to weigh in. If you disagree, override below and the work resurfaces as a
+                  follow-up task carrying your direction.
+                </p>
+                <AgentDecisionOverrideForm
+                  responseType={payload.responseType ?? "single"}
+                  options={payload.options ?? []}
+                  agentDecided={payload.decided ?? ""}
+                  ratifiable={false}
+                  isSubmitting={overrideAgentDecision.isPending}
+                  onRatify={() => {}}
+                  onSubmit={(o) => overrideAgentDecision.mutate(o)}
+                  error={
+                    overrideAgentDecision.isError
+                      ? (overrideAgentDecision.error as Error).message
+                      : null
+                  }
+                />
+              </div>
             </Section>
           ) : payload.override ? (
             <Section title="resurfaced as open work">
@@ -1209,6 +1246,13 @@ export function DecisionDetail() {
           decision resolved · resurfaced as open work
           {payload.resurfacedTaskId ? " (see follow-up task above)" : ""}
         </div>
+      ) : isAutoRatified ? (
+        // Auto-ratified, not (yet) overridden: the override surface above is the
+        // live action — the footer is just a quiet status line.
+        <div className="surface p-3 text-[12px] mono text-[var(--color-fg-3)]">
+          auto-ratified by Factory{d.actionedAt ? ` · ${fmtDate(d.actionedAt)}` : ""} · override
+          above if needed
+        </div>
       ) : (
         <div className="surface p-3 text-[12px] mono text-[var(--color-fg-3)]">
           this decision is {d.status}
@@ -1269,6 +1313,11 @@ interface OverrideFormProps {
   onRatify: () => void;
   onSubmit: (override: OverrideSubmission) => void;
   error: string | null;
+  // When false (auto-ratified decisions), the "agent's choice" tab is hidden —
+  // the decision is already ratified, so ratifying again is meaningless. Only
+  // the override paths (pick different / custom) are offered. Defaults to true
+  // for the pending-inbox flow.
+  ratifiable?: boolean;
 }
 
 /**
@@ -1296,13 +1345,20 @@ function AgentDecisionOverrideForm({
   onRatify,
   onSubmit,
   error,
+  ratifiable = true,
 }: OverrideFormProps) {
   // Initial single choice: agent's pick (the option marked chosen, falling
   // back to the first option, then to the literal `decided` if no options).
   const initialSingle = options.find((o) => o.chosen)?.title ?? options[0]?.title ?? agentDecided;
   const initialMulti = options.filter((o) => o.chosen).map((o) => o.title);
 
-  const [mode, setMode] = useState<"agent" | "options" | "custom">("agent");
+  // Auto-ratified decisions can't be re-ratified — start on an override mode.
+  const initialMode: "agent" | "options" | "custom" = ratifiable
+    ? "agent"
+    : options.length > 0 && responseType !== "free"
+      ? "options"
+      : "custom";
+  const [mode, setMode] = useState<"agent" | "options" | "custom">(initialMode);
   const [singleChoice, setSingleChoice] = useState(initialSingle);
   const [multiChoices, setMultiChoices] = useState<string[]>(initialMulti);
   const [customText, setCustomText] = useState(responseType === "free" ? agentDecided : "");
@@ -1343,6 +1399,7 @@ function AgentDecisionOverrideForm({
         setMode={setMode}
         responseType={responseType}
         hasOptions={options.length > 0}
+        showAgentTab={ratifiable}
       />
 
       {mode === "agent" ? (
@@ -1465,15 +1522,23 @@ interface ModeTabsProps {
   setMode: (mode: "agent" | "options" | "custom") => void;
   responseType: "single" | "multi" | "free";
   hasOptions: boolean;
+  // Auto-ratified decisions hide the ratify tab — already ratified.
+  showAgentTab: boolean;
 }
 
-function ModeTabs({ mode, setMode, responseType, hasOptions }: ModeTabsProps) {
+function ModeTabs({ mode, setMode, responseType, hasOptions, showAgentTab }: ModeTabsProps) {
   // free-mode + no options ⇒ collapse to just "agent" / "custom"; the
   // "options" tab is meaningless without a closed set.
   const showOptionsTab = hasOptions && responseType !== "free";
   return (
     <div className="flex gap-1.5 flex-wrap">
-      <ModeChip active={mode === "agent"} onClick={() => setMode("agent")} label="agent's choice" />
+      {showAgentTab ? (
+        <ModeChip
+          active={mode === "agent"}
+          onClick={() => setMode("agent")}
+          label="agent's choice"
+        />
+      ) : null}
       {showOptionsTab ? (
         <ModeChip
           active={mode === "options"}

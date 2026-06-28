@@ -39,18 +39,30 @@ spawned tmux — verified directly. The isolation lever must be a **CLI arg comp
       note can drop entirely. Optional hygiene: set `FACTORY_TMUX_SOCKET` for the daemon too so
       live/dev instances also get isolated tmux servers (not needed for the bug; nice-to-have).
 
-## WS A — The Trust Ladder  *(biggest single inbox cut; plumbing exists)*
+## WS A — The Trust Ladder  *(ADR-012; reframed by the operator's ratification correction)*
 
-- [ ] ADR: `autonomyMode` enum → graduated L1–L4 (Operator/Collaborator/Approver/Observer).
-- [ ] **Fix latent bug first:** autonomous mode does NOT actually suppress `agent_decision`
-      (backbar/backlot went through collaborative flow in prod data). Make the footer-swap +
-      `decisionsEnabled` path (`runner.ts:351`, `factory-status.ts:415-434`) auto-resolve forks.
-- [ ] L2: agent auto-resolves `agent_decision` to "most defensible path," posts chosen fork +
-      reasoning as inbox `notify` (not `review`). Seam: `workers/agent-decisions.ts`.
-- [ ] Auto-movement: ratchet level up after N consecutive clean verifier-green auto-merges; contract
-      immediately on failure / merge conflict / operator override. Read track record from `runs`.
-- [ ] PWA: surface level + trend in project header beside TierPicker.
-- [ ] L3/L4 deferred behind WS C + WS B.
+Key correction (in `tasks/lessons.md`): `agent_decision` is **non-blocking ratification**, not a
+gate — the agent already proceeded; the card costs *attention*, and override is a post-hoc redirect.
+So the lever is ratification attention, and the safe move is **auto-ratify but keep the override**.
+
+- [x] **ADR-012 written** (`docs/adr/012-trust-ladder.md`): graduated L1–L4, auto-contracting; the
+      fork-emission prompt is uniform across levels; L2 = auto-ratify (out of pending inbox, kept in
+      history, still overridable).
+- [x] **Slice 1 — L2 auto-ratification (landed).** New `auto_ratified` decision status (no SQL
+      migration — text column). Retired the lossy "autonomous = don't emit" footer; the agent now
+      always emits forks (`factory-status.ts` `decisionFooterFor` uniform). Runner ungated: all levels
+      run the parser; `autoRatifyDecisions = autonomyMode !== "collaborative"` → L1 pending, L2
+      `auto_ratified` (`runner.ts`, `agent-decisions.ts` `autoRatify` arg). **Override preserved**:
+      `overrideAgentDecision` accepts `auto_ratified` (the safety valve). PWA: `auto-decided` chip in
+      history/detail + override-from-history via the existing `AgentDecisionOverrideForm`
+      (`ratifiable={false}`). 4 new tests; full repo green (daemon 390, pwa 20, all typecheck). Operator
+      sets the level manually (existing collaborative/autonomous toggle = L1/L2).
+- [ ] **Slice 2 — auto-movement.** The track-record ratchet (N consecutive clean verifier-green
+      outcomes → step up) + **auto-contract on a run failure / merge conflict / override of an
+      auto-ratified fork**. Turns the switch into a ladder. Surface level + trend in the project header.
+- [ ] **Slice 3 — L3 bounded auto-retry** of *transient* `blocked_run` / `merge_failure` with an
+      operator-visible retry budget that escalates on exhaustion (never the structural human blocks).
+- [ ] **L4** = ADR-011 Phase C (Watch-generated work auto-runs), gated by WS C.
 
 ## WS C — The Verifier-Coverage Gate  *(makes widening the ladder defensible)*
 

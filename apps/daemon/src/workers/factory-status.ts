@@ -418,25 +418,15 @@ emit a fenced block:
   indecisive. Be selective.
 `;
 
-const DECISION_PROTOCOL_AUTONOMOUS = `
-
----
-
-# Factory decision protocol — autonomous mode
-
-This project is configured for **autonomous** runs. Do NOT emit
-\`factory-decision\` blocks. When you face an architectural / library /
-naming choice that you would otherwise surface in collaborative mode,
-pick the most defensible path and note your choice (one line) in the
-factory-status \`summary\`. The operator reads the summary; if they
-disagree they'll flip the project to collaborative mode and re-run, or
-file a refinement task.
-`;
-
-function decisionFooterFor(autonomyMode: "collaborative" | "autonomous"): string {
-  return autonomyMode === "autonomous"
-    ? DECISION_PROTOCOL_AUTONOMOUS
-    : DECISION_PROTOCOL_COLLABORATIVE;
+function decisionFooterFor(_autonomyMode: "collaborative" | "autonomous"): string {
+  // Trust Ladder (ADR-012): fork emission is uniform across levels — the agent
+  // always emits `factory-decision` blocks. Whether a fork surfaces as pending
+  // ratification (L1 collaborative) or is auto-ratified into history, still
+  // overridable (L2+ autonomous), is decided daemon-side (runner.ts
+  // `autoRatifyDecisions`). The old "autonomous = don't emit" footer was lossy:
+  // it discarded the structured fork record and with it the post-hoc override.
+  // Param kept for future level-specific prompt guidance.
+  return DECISION_PROTOCOL_COLLABORATIVE;
 }
 
 export type AutonomyMode = "collaborative" | "autonomous";

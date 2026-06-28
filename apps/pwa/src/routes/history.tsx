@@ -7,7 +7,10 @@ import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
 
 interface HistoryRow extends DecisionRow {
-  status: "pending" | "actioned" | "dismissed";
+  // `auto_ratified` (ADR-012): an agent_decision the agent made autonomously on
+  // an autonomous-tier run, auto-ratified rather than surfaced. It's out of the
+  // pending inbox but lives here in history, still overridable post-hoc.
+  status: "pending" | "actioned" | "dismissed" | "auto_ratified";
   actionedAt: number | null;
 }
 
@@ -133,12 +136,15 @@ function HistoryListItem({
 }) {
   const ts = row.actionedAt ?? row.createdAt;
   const resurfaced = isResurfaced(row);
+  // Auto-ratified, not (yet) overridden: the agent decided autonomously. Reads
+  // as an "auto-decided" item the operator can still open to override.
+  const autoRatified = row.status === "auto_ratified" && !resurfaced;
   const title =
     typeof row.payload?.title_suggestion === "string"
       ? row.payload.title_suggestion
-      : // A resurfaced override reads best by its decision summary, not the
-        // raw `decided: …` outcome — it's open work, not a closed verdict.
-        resurfaced && typeof row.payload?.summary === "string"
+      : // A resurfaced override (or an auto-decided agent_decision) reads best
+        // by its decision summary, not the raw `decided: …` outcome.
+        (resurfaced || autoRatified) && typeof row.payload?.summary === "string"
         ? row.payload.summary
         : row.outcome;
   const revertible = isRevertible(row);
@@ -147,6 +153,13 @@ function HistoryListItem({
       <div className="flex items-center gap-2 mb-1 flex-wrap">
         {resurfaced ? (
           <span className="chip chip-decompose text-[10.5px]">resurfaced → open</span>
+        ) : autoRatified ? (
+          <span
+            className="chip chip-accent text-[10.5px]"
+            title="the agent decided this autonomously — open to override"
+          >
+            auto-decided
+          </span>
         ) : (
           <span className={cn("chip text-[10.5px]", verdictTone(row.outcome, row.status))}>
             {row.status === "dismissed" ? "dismissed" : row.outcome}

@@ -31,7 +31,17 @@ export const decisionKindEnum = [
 ] as const;
 export const autonomyModeEnum = ["collaborative", "autonomous"] as const;
 export const taskBackendEnum = ["file", "github-issues"] as const;
-export const decisionStatusEnum = ["pending", "actioned", "dismissed"] as const;
+export const decisionStatusEnum = [
+  "pending",
+  "actioned",
+  "dismissed",
+  // The Watch / Trust Ladder (ADR-012): an `agent_decision` fork the agent made
+  // on an autonomous-tier (L2+) run, auto-ratified rather than surfaced for
+  // ratification. Out of the pending inbox, shown in history, and still
+  // OVERRIDABLE post-hoc — the override is the safety valve that makes
+  // auto-ratification safe.
+  "auto_ratified",
+] as const;
 export const decisionCommentRoleEnum = ["operator", "agent"] as const;
 export const runStatusEnum = [
   "queued",

@@ -622,7 +622,11 @@ export const decisionsRouter = router({
       if (decision.kind !== "agent_decision") {
         throw new Error(`overrideAgentDecision only handles agent_decision (got ${decision.kind})`);
       }
-      if (decision.status !== "pending") {
+      // Trust Ladder (ADR-012): override is the safety valve for auto-ratified
+      // forks too — an `auto_ratified` decision (L2+) is overridable post-hoc,
+      // exactly like a `pending` one. Already-overridden (`actioned`) or
+      // `dismissed` decisions are terminal.
+      if (decision.status !== "pending" && decision.status !== "auto_ratified") {
         throw new Error(`decision already ${decision.status}`);
       }
 

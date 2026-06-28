@@ -343,12 +343,14 @@ export async function executeRun(
     prompt = prependOperatorContext(prompt, row.operatorContext);
   }
 
-  // Per-run state for the streaming agent-decision parser. Skipped entirely
-  // in autonomous mode — the prompt forbids the agent from emitting decision
-  // blocks at all, so even if one slips through we don't surface it. This
-  // keeps the autonomy toggle a hard guarantee, not best-effort.
+  // Per-run state for the streaming agent-decision parser. Trust Ladder
+  // (ADR-012): the agent always emits `factory-decision` forks; the autonomy
+  // level decides only how they're recorded — L1 (collaborative) surfaces them
+  // as PENDING ratification cards; L2+ (autonomous) auto-ratifies them
+  // (`auto_ratified`: out of the pending inbox, kept in history, still
+  // overridable). The run never pauses on a fork either way.
   const decisionState = newAgentDecisionState();
-  const decisionsEnabled = autonomyMode === "collaborative";
+  const autoRatifyDecisions = autonomyMode !== "collaborative";
 
   let lastSessionId: string | undefined;
   // No initializer: an `= null` start would let control-flow analysis narrow
@@ -413,19 +415,18 @@ export async function executeRun(
           // idempotent so a final pass after the run also catches missed
           // decisions. We pass the projectId from the closure (project
           // is loaded above; runs without a project are a runner bug).
-          if (decisionsEnabled) {
-            void persistAgentDecisions({
-              db,
-              events,
-              runId,
-              taskId: row.taskId ?? null,
-              projectId: project.id,
-              agentText,
-              state: decisionState,
-            }).catch(() => {
-              // already logged inside persistAgentDecisions
-            });
-          }
+          void persistAgentDecisions({
+            db,
+            events,
+            runId,
+            taskId: row.taskId ?? null,
+            projectId: project.id,
+            agentText,
+            state: decisionState,
+            autoRatify: autoRatifyDecisions,
+          }).catch(() => {
+            // already logged inside persistAgentDecisions
+          });
         }
         if (e.kind === "metrics") {
           void recordAgentMetrics({
@@ -454,20 +455,19 @@ export async function executeRun(
     // arrived in the same text event as the factory-status block (rare but
     // possible) and any block missed by streaming due to in-flight races.
     // Idempotent via state.processedIds — already-persisted ids are a no-op.
-    if (decisionsEnabled) {
-      try {
-        await persistAgentDecisions({
-          db,
-          events,
-          runId,
-          taskId: row.taskId ?? null,
-          projectId: project.id,
-          agentText,
-          state: decisionState,
-        });
-      } catch {
-        // already logged
-      }
+    try {
+      await persistAgentDecisions({
+        db,
+        events,
+        runId,
+        taskId: row.taskId ?? null,
+        projectId: project.id,
+        agentText,
+        state: decisionState,
+        autoRatify: autoRatifyDecisions,
+      });
+    } catch {
+      // already logged
     }
 
     const parsed = parseFactoryStatus(agentText);
