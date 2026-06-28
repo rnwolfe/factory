@@ -4,6 +4,28 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.31.0 — 2026-06-28
+
+### Added
+- **The Watch — Factory now observes your out-of-band work.** A pluggable,
+  read-only watcher reads your Claude Code (`~/.claude`) and Codex (`~/.codex`)
+  sessions, synthesizes high-signal cross-session observations (recurring
+  rituals, conventions, candidate tasks), and surfaces them in the inbox as
+  `watch_insight` cards you can **adopt as a task**, acknowledge, or dismiss. Runs
+  on an operator-tunable cadence (`watch-synthesis-cadence`: `off|hourly|daily|weekly`,
+  default daily) so you control the token spend. (ADR-010)
+- **Trust Ladder L2 — autonomous projects stop demanding ratification.** On an
+  autonomous-tier project the agent's mid-run architectural forks are
+  **auto-ratified** — recorded out of the pending inbox, kept in history, and the
+  run never pauses — while the **override stays available** post-hoc (redirect any
+  auto-decided fork → it resurfaces the work). A strict upgrade over the old
+  autonomous mode, which discarded the fork record entirely. (ADR-012)
+
+### Fixed
+- **The daemon restarts itself after a clean termination** instead of staying
+  down, and code-changing runs are warned against broad `pkill`/`killall` cleanup
+  that could take down the daemon running them.
+
 ## v0.30.1 — 2026-06-27
 
 ### Fixed
