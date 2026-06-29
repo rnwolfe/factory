@@ -4,6 +4,18 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.40.1 — 2026-06-29
+
+### Fixed
+- **The per-run summary renders as Markdown** instead of raw text — it was dumping literal
+  `**bold**` / `- bullets` through a pre-wrap block and never hit the renderer.
+
+### Changed
+- **Agent readouts and reports get a roomier reading treatment** — the hand-rolled Markdown
+  styling was tuned dense; now larger line-height, more air between paragraphs and list items,
+  brighter headings and softer body. Lifts every Markdown surface (run readouts, audit reports,
+  plan drafts, comments).
+
 ## v0.40.0 — 2026-06-29
 
 ### Added
@@ -32,9 +44,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   operator memory stamps each fact with a teal provenance line; global settings pins a teal
   "autonomy policy · system" card at the top.
 - Motion is calm and respects `prefers-reduced-motion` (live dots pulse, active runs breathe).
-- **The run summary now renders as Markdown** (it was raw text showing literal `**`/`-`), and the
-  agent's readouts/reports get a roomier reading treatment — larger line-height, more air between
-  paragraphs and list items, brighter headings.
 
 ## v0.39.0 — 2026-06-29
 
