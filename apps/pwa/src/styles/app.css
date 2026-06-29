@@ -28,10 +28,25 @@
   --color-fg-2: hsl(35 10% 60%);
   --color-fg-3: hsl(30 8% 42%);
 
-  /* one accent. used sparingly. */
+  /* one accent. used sparingly — amber is a budget: at most one per screen, and
+     it always means "a decision/action is yours." */
   --color-accent: hsl(22 88% 60%);
   --color-accent-soft: hsl(22 65% 50% / 0.18);
   --color-accent-line: hsl(22 65% 50% / 0.40);
+
+  /* teal — the voice of the working/autonomous system. in-flight runs, `auto`
+     actions, the trust ladder, ambient status, The Watch, Heimdall's read.
+     never competes with amber: amber = "yours", teal = "the system, FYI". */
+  --color-working: hsl(190 38% 56%);
+  --color-working-dim: hsl(190 28% 36%);
+  --color-working-deep: hsl(190 40% 45%);
+  --color-working-soft: hsl(190 30% 20% / 0.18);
+  --color-working-line: hsl(190 40% 45% / 0.40);
+  /* tinted teal surface (auto rows, autonomy policy card) over the dark bg */
+  --color-working-tint: hsl(190 25% 8% / 0.5);
+  --color-working-tint-line: hsl(190 30% 30% / 0.3);
+  /* future/empty trust-ladder rung — warm-neutral, reads as "not yet" */
+  --color-rung-empty: hsl(30 6% 24%);
 
   /* verdict tags */
   --color-verdict-greenlit: hsl(140 42% 58%);
@@ -151,6 +166,66 @@ body {
   border-color: var(--color-verdict-decompose);
   background: var(--color-verdict-decompose-soft);
 }
+/* teal chip — working/autonomous status (in-flight, ambient, The Watch). */
+.chip-working {
+  color: var(--color-working);
+  border-color: var(--color-working-line);
+  background: var(--color-working-soft);
+}
+/* "auto" chip — the unattended marker. tighter + smaller than a normal chip:
+   "the system did this, FYI", distinct from amber "needs you". e.g. `auto · merged`. */
+.chip-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  border: 1px solid hsl(190 40% 45% / 0.5);
+  background: hsl(190 40% 45% / 0.14);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-working);
+  line-height: 1;
+}
+/* paused state — when the emergency stop is engaged, `auto` chrome reads halted. */
+.chip-auto-paused {
+  border-color: var(--color-line);
+  background: var(--color-bg-2);
+  color: var(--color-fg-3);
+}
+
+/* verifier-coverage pips — three signals (acceptance / quality / cross-model).
+   pass = filled greenlit, fail = filled trashed, absent = HOLLOW ring (parked),
+   never reads as a pass. 9px dots. */
+.vpip {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.vpip-pass { background: var(--color-verdict-greenlit); }
+.vpip-fail { background: var(--color-verdict-trashed); }
+.vpip-absent {
+  background: transparent;
+  border: 1.5px solid var(--color-verdict-parked);
+}
+
+/* trust-ladder — supervised → collaborative → autonomous. past+current rungs
+   filled teal (dim, then bright), future rungs warm-neutral. */
+.rung {
+  border-radius: 1px;
+  background: var(--color-rung-empty);
+  transition: background 200ms ease;
+}
+.rung-past { background: var(--color-working-dim); }
+.rung-active {
+  background: var(--color-working);
+  box-shadow: 0 0 8px hsl(190 45% 50% / 0.5);
+}
 
 /* button reset, small-caps emphasis on primary buttons */
 .btn {
@@ -181,6 +256,23 @@ body {
   font-weight: 500;
 }
 .btn-primary:hover { background: hsl(22 88% 65%); border-color: hsl(22 88% 65%); }
+/* neutral-bright — a confident primary that ISN'T "the decision". used where a
+   button is the obvious next step but doesn't spend the amber budget (e.g. the
+   Capture submit). bright fg fill, dark text — reads strong without amber. */
+.btn-bright {
+  background: var(--color-fg-1);
+  border-color: var(--color-fg-1);
+  color: hsl(30 12% 8%);
+  font-weight: 500;
+}
+.btn-bright:hover { background: var(--color-fg); border-color: var(--color-fg); }
+/* teal-outlined — system-toned action (e.g. "approve retry" of an autonomous run). */
+.btn-working {
+  border-color: var(--color-working-line);
+  color: var(--color-working);
+  background: var(--color-working-soft);
+}
+.btn-working:hover { background: hsl(190 40% 45% / 0.26); border-color: var(--color-working); }
 .btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -244,6 +336,29 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .drop-in { animation: drop-in 280ms ease-out backwards; }
+
+/* calm live motion. pulse — live dots (1.7s). breathe — active-run cards, a slow
+   teal box-shadow swell (3.6s). nothing fast or bouncy. */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pulse-dot { animation: pulse-dot 1.7s ease-in-out infinite; }
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 8px hsl(190 45% 50% / 0.25); }
+  50% { box-shadow: 0 0 16px hsl(190 45% 50% / 0.55); }
+}
+.breathe { animation: breathe 3.6s ease-in-out infinite; }
+/* static teal edge — non-animated working surfaces (auto rows). */
+.glow-working { box-shadow: 0 0 10px hsl(190 45% 50% / 0.22); }
+
+/* honor the OS reduce-motion setting — drop live motion to a static state. */
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; }
+  .drop-in { animation: none; }
+  .pulse-dot { animation: none; opacity: 0.85; }
+  .breathe { animation: none; box-shadow: 0 0 12px hsl(190 45% 50% / 0.35); }
+}
 
 /* markdown block — rendered output for assistant text, audit reports,
    plan drafts, comments. Hand-rolled renderer in components/markdown-block.tsx. */

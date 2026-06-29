@@ -94,13 +94,11 @@ export function VerifierReport({ report }: Props) {
 }
 
 function SignalRow({ signal }: { signal: VerifierSignalView }) {
-  const { glyph, glyphClass, tag, tagClass } = renderState(signal.state);
+  const { tag, tagClass } = renderState(signal.state);
   return (
     <li className="px-3 py-2">
-      <div className="flex items-baseline gap-2">
-        <span className={`mono text-[11px] tabular-nums w-4 text-center shrink-0 ${glyphClass}`}>
-          {glyph}
-        </span>
+      <div className="flex items-center gap-2.5">
+        <VerifierPip state={signal.state} />
         <span className="text-[13px] text-[var(--color-fg-1)] leading-snug flex-1">
           {signal.label}
         </span>
@@ -111,7 +109,7 @@ function SignalRow({ signal }: { signal: VerifierSignalView }) {
         ) : null}
       </div>
       {signal.detail ? (
-        <p className="mt-1 ml-6 mono text-[11px] text-[var(--color-fg-2)] break-words leading-snug">
+        <p className="mt-1 ml-[19px] mono text-[11px] text-[var(--color-fg-2)] break-words leading-snug">
           {signal.detail}
         </p>
       ) : null}
@@ -120,38 +118,46 @@ function SignalRow({ signal }: { signal: VerifierSignalView }) {
 }
 
 /**
- * State → visual. `absent` is the load-bearing case: it must read as "nothing
- * checked this", not as a pass — so it gets a muted dashed glyph plus an
- * explicit "not covered" tag rather than a check.
+ * One coverage pip. `absent` is the load-bearing case: it must read as "nothing
+ * checked this", not a pass — so it's a HOLLOW parked-colour ring, never a filled
+ * dot.
  */
-function renderState(state: VerifierSignalState): {
-  glyph: string;
-  glyphClass: string;
-  tag: string | null;
-  tagClass: string;
-} {
+export function VerifierPip({ state }: { state: VerifierSignalState }) {
+  const cls = state === "pass" ? "vpip-pass" : state === "fail" ? "vpip-fail" : "vpip-absent";
+  return <span className={`vpip ${cls}`} aria-hidden />;
+}
+
+/**
+ * Compact 3-pip cluster — for inlining a run's verifier coverage anywhere a run
+ * is referenced (rows, headers) without the full report card. Renders the three
+ * signal pips in fixed order; missing signals render as `absent` rings.
+ */
+const PIP_ORDER: VerifierSignalKey[] = ["acceptance", "quality", "cross-model"];
+export function VerifierPips({
+  report,
+  className,
+}: {
+  report: VerifierReportView | null;
+  className?: string;
+}) {
+  const byKey = new Map(report?.signals.map((s) => [s.key, s.state]) ?? []);
+  return (
+    <span className={`inline-flex items-center gap-1 ${className ?? ""}`} aria-hidden>
+      {PIP_ORDER.map((k) => (
+        <VerifierPip key={k} state={byKey.get(k) ?? "absent"} />
+      ))}
+    </span>
+  );
+}
+
+/** State → the trailing tag. Pass shows nothing; fail/absent name themselves. */
+function renderState(state: VerifierSignalState): { tag: string | null; tagClass: string } {
   switch (state) {
     case "pass":
-      return {
-        glyph: "✓",
-        glyphClass: "text-[var(--color-verdict-greenlit)]",
-        tag: null,
-        tagClass: "",
-      };
+      return { tag: null, tagClass: "" };
     case "fail":
-      return {
-        glyph: "✗",
-        glyphClass: "text-[var(--color-verdict-trashed)]",
-        tag: "failed",
-        tagClass: "text-[var(--color-verdict-trashed)]",
-      };
+      return { tag: "failed", tagClass: "text-[var(--color-verdict-trashed)]" };
     default:
-      // absent — dashed, muted, never reads as a pass.
-      return {
-        glyph: "—",
-        glyphClass: "text-[var(--color-fg-3)]",
-        tag: "not covered",
-        tagClass: "text-[var(--color-fg-3)]",
-      };
+      return { tag: "not covered", tagClass: "text-[var(--color-fg-3)]" };
   }
 }

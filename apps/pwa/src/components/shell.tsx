@@ -94,16 +94,36 @@ export function Shell({ children }: { children: ReactNode }) {
                 end={item.to === "/"}
                 className={({ isActive }) =>
                   cn(
-                    "flex flex-col items-center justify-center gap-1 text-[10.5px] uppercase tracking-[0.18em]",
+                    "relative flex flex-col items-center justify-center gap-1 text-[10.5px] uppercase tracking-[0.18em]",
+                    // active tab is NOT amber — amber is rationed to "needs you".
+                    // active reads via a bright icon + a top tick; inactive is muted.
                     isActive
-                      ? "text-[var(--color-accent)]"
-                      : "text-[var(--color-fg-2)] active:bg-[var(--color-bg-2)]",
+                      ? "text-[var(--color-fg-1)]"
+                      : "text-[var(--color-fg-3)] active:bg-[var(--color-bg-2)]",
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
-                    <item.icon size={18} strokeWidth={isActive ? 2.2 : 1.6} />
+                    {isActive ? (
+                      <span
+                        className="absolute top-0 h-0.5 w-[26px] bg-[var(--color-fg-1)] rounded-b-[2px]"
+                        aria-hidden
+                      />
+                    ) : null}
+                    <span className="relative">
+                      <item.icon size={18} strokeWidth={isActive ? 2 : 1.6} />
+                      {/* the inbox tab carries the amber attention badge */}
+                      {item.to === "/" && inboxCount > 0 ? (
+                        <span
+                          role="status"
+                          className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--color-accent)] text-[hsl(30_30%_8%)] mono text-[9px] font-medium flex items-center justify-center tabular-nums"
+                          aria-label={`${inboxCount} need you`}
+                        >
+                          {inboxCount > 9 ? "9+" : inboxCount}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="mono">{item.label}</span>
                   </>
                 )}
