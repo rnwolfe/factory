@@ -4,6 +4,25 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.37.0 — 2026-06-28
+
+### Added
+- **Autonomy is now configurable, observable, and alertable (ADR-016).** Three things:
+  - **Configurable, system + per-project.** A unified autonomy policy (trust ladder,
+    verifier gate, the Watch, auto-run, retry, alerts) resolved *built-in ⊕ system ⊕
+    project*. A new **`/settings/autonomy`** panel and a per-project **Autonomy tab** —
+    **preset-first** (Conservative / Balanced / Hands-off) with an Advanced disclosure, and
+    **inheritance-aware** (each knob shows inherited-vs-overridden with one-click revert), so
+    the settings/project pages aren't knob-overloaded.
+  - **Observable.** An autonomy event log records every unattended action (trust moves, gate
+    holds, …), surfaced as a timeline on **`/ops`**.
+  - **Alertable — even when autonomous.** Out-of-the-loop work pushes "here's what I did,"
+    routed per-event (loud on risk: contraction / auto-merge / auto-run push; promotions /
+    gate-holds digest) and overridable per project. A Trust-Ladder contraction now pings you.
+
+### Fixed
+- The "what's new" brief renders markdown (bold lead-ins, `code`, links) instead of raw markup.
+
 ## v0.36.0 — 2026-06-28
 
 ### Added
