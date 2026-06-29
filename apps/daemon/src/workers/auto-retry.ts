@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { type Db, schema } from "@factory/db";
 import { eq } from "drizzle-orm";
 import { resolveAutonomyConfig } from "../autonomy/config.ts";
@@ -40,6 +41,14 @@ export interface GateRetryArgs {
   projectId: string;
   projectName: string;
   taskId: string | null;
+  /** The held run's worktree path. Reused in place for a POINTED fix when it still
+   *  exists (the run made commits) and the agent can resume — full continuity. */
+  sourceWorktreePath: string;
+  /** The held run's branch — the committed work lives here and the ref persists.
+   *  Fallback base when the worktree was reclaimed (0-commit run) or can't resume. */
+  sourceBranch: string;
+  /** The held run's agent. Only claude-code can resume a session (codex can't). */
+  agentName: string;
   report: VerifierReport;
 }
 
@@ -70,24 +79,39 @@ export async function maybeAutoRetryGatedRun(
   const attempt = depth + 1;
 
   const feedback = renderVerifierFindings(args.report);
-  let retryRunId: string;
-  try {
-    const { submitRun } = await import("./submit.ts");
-    const res = await submitRun(deps, {
-      projectId: args.projectId,
-      taskId: args.taskId ?? undefined,
-      reuseFromRunId: args.runId,
-      retryOfRunId: args.runId,
-      operatorContext: feedback,
-    });
-    retryRunId = res.runId;
-  } catch (err) {
-    // The retry couldn't be submitted (e.g. a provider with no resume support).
-    // Degrade safely: surface the block so the operator drives it.
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[auto-retry] could not auto-retry ${args.runId}: ${msg}`);
-    return { retriedRunId: null, exhausted: false };
+
+  // PREFER reusing the held run's worktree + resuming its session — a pointed fix
+  // in place, with full continuity, so the agent corrects the specific defect
+  // rather than re-approaching from scratch (or re-implementing differently).
+  // Only viable when the worktree still exists (the run made commits, so it
+  // wasn't reclaimed) AND the agent can resume (codex has no --resume). FALL BACK
+  // to branching from the branch tip — the committed work is on the ref regardless.
+  const canReuse = args.agentName === "claude-code" && existsSync(args.sourceWorktreePath);
+  const placements: Array<Record<string, string>> = canReuse
+    ? [{ reuseFromRunId: args.runId }, { baseRef: args.sourceBranch }]
+    : [{ baseRef: args.sourceBranch }];
+
+  const { submitRun } = await import("./submit.ts");
+  let retryRunId: string | null = null;
+  for (const placement of placements) {
+    try {
+      const res = await submitRun(deps, {
+        projectId: args.projectId,
+        taskId: args.taskId ?? undefined,
+        ...placement,
+        retryOfRunId: args.runId,
+        operatorContext: feedback,
+      });
+      retryRunId = res.runId;
+      break;
+    } catch (err) {
+      // This placement failed (e.g. worktree vanished between check and submit);
+      // try the next. If all fail, degrade to surfacing for the operator.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[auto-retry] placement failed for ${args.runId}: ${msg}`);
+    }
   }
+  if (!retryRunId) return { retriedRunId: null, exhausted: false };
 
   const failed = args.report.signals
     .filter((s) => s.state === "fail")

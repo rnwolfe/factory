@@ -770,7 +770,14 @@ export async function executeRun(
     // "completed" is no longer conflated with "verified." Informational for
     // now: it is persisted (and will feed the future auto-land gate) but does
     // NOT hold back the merge below. `absent` signals score zero on purpose.
-    if (finalStatus === "completed") {
+    //
+    // No-op guard: a completion with ZERO commits (e.g. the agent found the work
+    // "already done, no changes needed") has nothing to merge or verify. Skip the
+    // gate entirely — there is no diff to land, so holding it for review and
+    // feeding it into the auto-retry loop is pointless churn (the loop would
+    // re-run, find nothing to do, and exhaust the budget). It completes as a
+    // no-op; the merge below is a no-op too (nothing ahead of main).
+    if (finalStatus === "completed" && result.commits.length > 0) {
       // WS D — cross-model adversarial validation: route verification to the OTHER
       // model family (claude↔codex), the strongest input to the score. Gated to
       // autonomous-mode projects, since it's a full second-model call and that's
@@ -964,6 +971,9 @@ export async function executeRun(
           projectId: project.id,
           projectName: project.name,
           taskId: row.taskId ?? null,
+          sourceWorktreePath: result.worktreePath,
+          sourceBranch: result.branch,
+          agentName: row.agentName,
           report: gateHeldReport,
         },
       );

@@ -105,6 +105,9 @@ describe("maybeAutoRetryGatedRun — surface (null) branches", () => {
         projectId: p,
         projectName: "Demo",
         taskId: null,
+        sourceWorktreePath: "/tmp/does-not-exist",
+        sourceBranch: "factory/run-test",
+        agentName: "claude-code",
         report: failReport,
       });
       expect(out.retriedRunId).toBeNull();
@@ -124,6 +127,9 @@ describe("maybeAutoRetryGatedRun — surface (null) branches", () => {
         projectId: p,
         projectName: "Demo",
         taskId: null,
+        sourceWorktreePath: "/tmp/does-not-exist",
+        sourceBranch: "factory/run-test",
+        agentName: "claude-code",
         report: absentOnly,
       });
       expect(out.retriedRunId).toBeNull();
@@ -144,6 +150,9 @@ describe("maybeAutoRetryGatedRun — surface (null) branches", () => {
         projectId: p,
         projectName: "Demo",
         taskId: null,
+        sourceWorktreePath: "/tmp/does-not-exist",
+        sourceBranch: "factory/run-test",
+        agentName: "claude-code",
         report: failReport,
       });
       expect(out.retriedRunId).toBeNull();
