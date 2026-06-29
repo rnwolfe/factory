@@ -512,11 +512,14 @@ body {
 }
 
 .run-event-tool { background: var(--color-bg-1); }
-.run-event-tool-icon { flex-shrink: 0; color: var(--color-accent); margin-top: 2px; }
+/* the agent's tool calls (read/bash/edit) are the system working autonomously —
+   teal, the working voice. (The commit row below stays amber: the one concrete
+   "this is yours" artifact in the stream.) */
+.run-event-tool-icon { flex-shrink: 0; color: var(--color-working); margin-top: 2px; }
 .run-event-tool-name {
   font-family: var(--font-mono);
   font-size: 11.5px;
-  color: var(--color-accent);
+  color: var(--color-working);
   flex-shrink: 0;
   letter-spacing: 0.02em;
 }

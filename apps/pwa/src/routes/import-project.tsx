@@ -87,7 +87,7 @@ export function ImportProject() {
               onClick={() => setKind("url")}
               className={cn(
                 "chip",
-                kind === "url" ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                kind === "url" ? "chip-working" : "hover:border-[var(--color-line-bright)]",
               )}
             >
               clone url
@@ -97,7 +97,7 @@ export function ImportProject() {
               onClick={() => setKind("path")}
               className={cn(
                 "chip",
-                kind === "path" ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                kind === "path" ? "chip-working" : "hover:border-[var(--color-line-bright)]",
               )}
             >
               local path
@@ -199,7 +199,7 @@ export function ImportProject() {
                 onClick={() => setRole(r)}
                 className={cn(
                   "chip",
-                  role === r ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                  role === r ? "chip-working" : "hover:border-[var(--color-line-bright)]",
                 )}
               >
                 {r}
@@ -224,7 +224,7 @@ export function ImportProject() {
                 onClick={() => setCeremony(c)}
                 className={cn(
                   "chip",
-                  ceremony === c ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                  ceremony === c ? "chip-working" : "hover:border-[var(--color-line-bright)]",
                 )}
               >
                 {c}
