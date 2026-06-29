@@ -75,6 +75,23 @@ function countDecisions(ctx: MetricContext, opts: { kind?: string; status?: stri
   );
 }
 
+/** Count autonomy events of a kind in the window, optionally filtered to a project. */
+function countAutonomyEvents(ctx: MetricContext, kind: string): number {
+  const conds = [
+    gte(schema.autonomyEvents.createdAt, ctx.dayStartMs),
+    lt(schema.autonomyEvents.createdAt, ctx.dayEndMs),
+    eq(schema.autonomyEvents.kind, kind),
+  ];
+  if (ctx.project) conds.push(eq(schema.autonomyEvents.projectId, ctx.project.id));
+  return (
+    ctx.db
+      .select({ c: count() })
+      .from(schema.autonomyEvents)
+      .where(and(...conds))
+      .get()?.c ?? 0
+  );
+}
+
 /** Sum a git stat over the scope (one project, or all for the portfolio). */
 async function gitSum(
   ctx: MetricContext,
@@ -158,4 +175,23 @@ export const METRIC_CATALOG: MetricDef[] = [
         )
         .get()?.n ?? 0,
   },
+
+  // Autonomy events (ADR-016) — the unattended-action rates, chartable over time.
+  {
+    key: "autonomy_contractions",
+    scope: "both",
+    compute: (c) => countAutonomyEvents(c, "trust_contracted"),
+  },
+  {
+    key: "autonomy_promotions",
+    scope: "both",
+    compute: (c) => countAutonomyEvents(c, "trust_promoted"),
+  },
+  { key: "autonomy_gate_held", scope: "both", compute: (c) => countAutonomyEvents(c, "gate_held") },
+  {
+    key: "autonomy_auto_merged",
+    scope: "both",
+    compute: (c) => countAutonomyEvents(c, "auto_merged"),
+  },
+  { key: "autonomy_auto_ran", scope: "both", compute: (c) => countAutonomyEvents(c, "auto_ran") },
 ];
