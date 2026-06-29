@@ -213,3 +213,37 @@ export function decideAutoLand(report: VerifierReport, blast: BlastClassificatio
   }
   return { land: true, reason: "high verifier coverage + contained diff" };
 }
+
+/**
+ * True when the report has ≥1 signal the agent can FIX on retry — a real `fail`
+ * (cross-model defect, failed acceptance, failing quality check). An `absent`
+ * signal is a coverage gap a retry can't conjure away, so absent-only holds are
+ * NOT actionable and should surface for the operator instead of auto-retrying.
+ */
+export function hasActionableDefect(report: VerifierReport): boolean {
+  return report.signals.some((s) => s.state === "fail");
+}
+
+/**
+ * Render the gate's failing signals as authoritative retry feedback — injected
+ * into a retry's prompt (as operator-context) so the agent fixes the concrete
+ * cross-model / acceptance / quality defect instead of re-running blind. Shared
+ * by the operator-driven blocked_run retry and the L3 auto-retry loop.
+ */
+export function renderVerifierFindings(report: VerifierReport | null | undefined): string {
+  if (!report) return "";
+  const failing = report.signals.filter((s) => s.state === "fail" || s.state === "absent");
+  if (failing.length === 0) return "";
+  const lines = failing.map((s) => {
+    const verb = s.state === "fail" ? "FAILED" : "MISSING";
+    return `- **${s.label} — ${verb}.** ${s.detail}`;
+  });
+  return `## Verifier gate held your prior run (coverage: ${report.level})
+
+Your prior run completed but the gate held it for review — coverage was below the
+\`high\` bar. Address these before completing. A cross-model **FAIL** is a concrete
+defect another model found in your diff; treat it as authoritative and fix it. A
+**MISSING** signal is a coverage gap (e.g. no testable acceptance criteria).
+
+${lines.join("\n")}`;
+}

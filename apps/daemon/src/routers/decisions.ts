@@ -26,7 +26,7 @@ import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
 import { autoContract } from "../workers/trust-ladder.ts";
-import type { VerifierReport } from "../workers/verifier.ts";
+import { renderVerifierFindings, type VerifierReport } from "../workers/verifier.ts";
 
 interface ReleaseProposalPayload {
   templateSlug: string;
@@ -87,30 +87,6 @@ const OverrideShape = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("custom"), text: z.string().min(1).max(2000) }),
 ]);
-
-/**
- * Render the verifier gate's failing signals as authoritative retry feedback.
- * A cross-model FAIL is a concrete defect another model found in the diff; an
- * absent signal is a coverage gap. Injected automatically so retrying a gate-held
- * run carries the finding to the agent even with no operator comment.
- */
-function renderVerifierFindings(verifier: VerifierReport | undefined): string {
-  if (!verifier) return "";
-  const failing = verifier.signals.filter((s) => s.state === "fail" || s.state === "absent");
-  if (failing.length === 0) return "";
-  const lines = failing.map((s) => {
-    const verb = s.state === "fail" ? "FAILED" : "MISSING";
-    return `- **${s.label} — ${verb}.** ${s.detail}`;
-  });
-  return `## Verifier gate held your prior run (coverage: ${verifier.level})
-
-Your prior run completed but the gate held it for review — coverage was below the
-\`high\` bar. Address these before completing. A cross-model **FAIL** is a concrete
-defect another model found in your diff; treat it as authoritative and fix it. A
-**MISSING** signal is a coverage gap (e.g. no testable acceptance criteria).
-
-${lines.join("\n")}`;
-}
 
 function renderBlockedRunOperatorContext(
   payload: BlockedRunPayload,

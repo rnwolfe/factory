@@ -46,7 +46,12 @@ const overrideSchema = z
         emergencyStop: z.boolean(),
       })
       .partial(),
-    retry: z.object({ transientBudget: z.number().int().min(0).max(10) }).partial(),
+    retry: z
+      .object({
+        transientBudget: z.number().int().min(0).max(10),
+        verifierBudget: z.number().int().min(0).max(10),
+      })
+      .partial(),
     alerts: z.record(z.string(), alertEnum),
   })
   .partial();

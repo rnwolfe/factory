@@ -24,6 +24,7 @@ import { parseStoredDraft } from "../plans/iterate.ts";
 import { fetchIssueDiscussion, postIssueComment } from "../projects/github-task-store.ts";
 import { readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { newAgentDecisionState, persistAgentDecisions } from "./agent-decisions.ts";
+import { maybeAutoRetryGatedRun } from "./auto-retry.ts";
 import { type CrossModelVerdict, crossModelValidate, getRunDiff } from "./cross-model.ts";
 import {
   type AutonomyMode,
@@ -947,6 +948,35 @@ export async function executeRun(
       });
     }
 
+    // L3 auto-retry (ADR-012 / ADR-016 slice 4): a gate-held run with an
+    // ACTIONABLE verifier defect (a real fail, not an absent-only gap) retries
+    // itself — with the findings fed back to the agent — before bothering the
+    // operator, up to `retry.verifierBudget`. Only when the GATE held it
+    // (`gateHeldReport`); agent-self-blocked / failed runs still surface. Safe
+    // because the retry re-gates: unverified work can't merge, so a non-converging
+    // loop is just bounded wasted compute. When it retries, we skip the surface.
+    let autoRetriedRunId: string | null = null;
+    if (finalStatus === "needs_review" && gateHeldReport) {
+      autoRetriedRunId = await maybeAutoRetryGatedRun(
+        { config, db, events, runs, pool },
+        {
+          runId,
+          projectId: project.id,
+          projectName: project.name,
+          taskId: row.taskId ?? null,
+          report: gateHeldReport,
+        },
+      );
+      if (autoRetriedRunId) {
+        await db
+          .update(schema.runs)
+          .set({
+            summary: `${summary}\n\n_Auto-retried as ${autoRetriedRunId.slice(0, 8)} — verifier findings fed back to the agent._`,
+          })
+          .where(eq(schema.runs.id, runId));
+      }
+    }
+
     // Surface stalled runs (blocked or failed) to the decisions inbox.
     // Without this the operator has to navigate into the project to discover
     // that a run died — exactly the hidden-state failure the inbox-as-only-
@@ -957,7 +987,11 @@ export async function executeRun(
     // `usage_capped` has its own resolution path above (auto-resume or
     // `capFallbackDecision`), and `deferred`/`aborted`/`completed` don't need
     // operator attention — so we only surface the two stuck terminal states.
-    if (finalStatus === "blocked" || finalStatus === "failed" || finalStatus === "needs_review") {
+    // (A run we just auto-retried is not surfaced — the retry carries it.)
+    if (
+      !autoRetriedRunId &&
+      (finalStatus === "blocked" || finalStatus === "failed" || finalStatus === "needs_review")
+    ) {
       const decisionId = createId();
       await db.insert(schema.decisions).values({
         id: decisionId,

@@ -71,9 +71,12 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       (completed + verifier-`high`) runs. `needs_review` (gate-held) is neutral. 11 tests.
   - [x] **Surfacing (landed via ADR-016)**: trust moves now record an `autonomy_event` + push
         alert (loud-on-risk). Header level/trend chip is the one remaining bit.
-- [ ] **L3 bounded auto-retry** of *transient* `blocked_run` / `merge_failure` with an
-      operator-visible retry budget that escalates on exhaustion (never the structural human blocks).
-      *(= ADR-016 slice 4; reads `retry.transientBudget` from the config.)*
+- [x] **L3 bounded auto-retry (verifier-defect)** — a gate-held autonomous run with an
+      ACTIONABLE defect (real `fail`, not absent-only) retries itself with the findings fed back,
+      up to `retry.verifierBudget` (default 2), then surfaces. Safe: the retry re-gates, so a
+      non-converging loop is bounded wasted compute, never a bad merge. `workers/auto-retry.ts`.
+- [ ] **L3 transient auto-resume** (the other half) of *transient* `blocked_run` / `merge_failure`
+      via `retry.transientBudget` (reserved). Never the structural human blocks.
 - [ ] **L4** = Watch-generated work auto-runs (= ADR-011 Phase C / ADR-016 slice 5, own ADR), gated by WS C.
 
 ## Autonomy config / observability / alerting (ADR-016)
@@ -81,7 +84,8 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
 - [x] **Slice 1 — config core**: `AutonomyConfig` resolved built-in ⊕ system ⊕ project; `projects.autonomyConfig` blob.
 - [x] **Slice 2 — event log + alerts**: `autonomy_events` + `recordAutonomyEvent` + push routing (loud-on-risk); trust moves + gate-holds wired.
 - [x] **Slice 3 — Autonomy UI**: `autonomy.*` config CRUD + presets + history API; preset-first, inheritance-aware `AutonomyPanel` at `/settings/autonomy` + per-project tab + `/ops` history timeline.
-- [ ] **Slice 4 — L3 auto-retry** (above) · **Slice 5 — Phase C auto-run** (own ADR; per-project, top-rung, opt-in).
+- [x] **Slice 4 — L3 verifier-defect auto-retry** (above) — gate-held runs self-heal before surfacing.
+- [ ] **Slice 5 — Phase C auto-run** (ADR-017 accepted; eligibility gate shipped dark; wiring next).
 - [ ] **Polish**: header level/trend chip; daily autonomy digest push; autonomy-event metrics in the catalog (auto-runs/day, contractions).
 
 ## WS C — Verifier-Coverage Gate  *(prereq for Trust Ladder step-up + L4)*

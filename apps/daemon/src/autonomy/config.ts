@@ -42,7 +42,13 @@ export interface AutonomyConfig {
     /** System kill-switch — halts ALL auto-run portfolio-wide when true. */
     emergencyStop: boolean;
   };
-  retry: { transientBudget: number };
+  retry: {
+    /** Auto-resumes of a *transient* blocked/merge failure (reserved; ADR-012 L3). */
+    transientBudget: number;
+    /** Auto-retries of a gate-held run with an actionable verifier defect, before
+     *  it surfaces to the operator. 0 = always surface (today's behavior). */
+    verifierBudget: number;
+  };
   alerts: Record<AutonomyEventKind, AlertRoute>;
 }
 
@@ -59,7 +65,7 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
     requireQualityGate: true,
     emergencyStop: false,
   },
-  retry: { transientBudget: 1 },
+  retry: { transientBudget: 1, verifierBudget: 2 },
   // Resolution: loud on risk, digest the rest (ADR-016 §3).
   alerts: {
     trust_contracted: "push",
