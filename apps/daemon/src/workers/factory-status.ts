@@ -240,10 +240,19 @@ end your response with a single fenced block of the form:
 \`\`\`factory-status
 {"status": "done" | "blocked" | "failed",
  "summary": "One to three sentences describing what you actually did, or what is missing.",
- "questions": ["Only if status is blocked: specific questions whose answers would unblock you."]}
+ "questions": ["Only if status is blocked: specific questions whose answers would unblock you."],
+ "acceptance": [{"criterion": "<each acceptance criterion>", "met": true, "evidence": "test / file / behavior"}]}
 \`\`\`
 
 Rules:
+- **Populate \`acceptance\`** with one \`{criterion, met, evidence?, reason?}\` entry for
+  EVERY acceptance criterion this task lists — its \`## Acceptance\` section above, or a
+  frozen plan's criteria. This is how Factory verifies the work did what was asked: an
+  empty or missing \`acceptance\` array reads as "unverified" and holds the run for review
+  even when you succeeded. \`met: true\` should cite \`evidence\` (a commit sha, a file, or a
+  test that proves it); \`met: false\` should give a \`reason\`. Any \`met: false\` downgrades
+  status="done" to "blocked" so the operator sees the gap. Omit \`acceptance\` only if the
+  task genuinely lists no criteria.
 - This is a non-interactive run. Do NOT wait for stdin or ask the operator
   questions in prose; if you need input, set status to "blocked" and put your
   questions in the array.
