@@ -1,6 +1,6 @@
 # ADR-017 · Phase C — gated auto-run (the autonomy endgame)
 
-**Status:** proposed (2026-06-28) — **draft for operator review**
+**Status:** accepted (2026-06-28) — operator-reviewed; resolutions recorded below.
 **Scope:** ADR-011 Phase C / ADR-012 L4 / ADR-016 Slice 5 — the auto-run half of the
 autonomy thesis: self-generated work executing without the operator.
 **Builds on (hard prerequisites, all shipped):** WS C verifier gate (ADR-014), the
@@ -97,14 +97,20 @@ Not all Watch proposals are auto-run-eligible. Ranked by safety:
 4. **Graduate the first class** — enable `groom-backlog` auto-run on one opted-in project,
    watch the event log + metrics, then widen.
 
-## Open questions (for the operator)
+## Resolutions (operator, 2026-06-28)
 
-1. **First auto-run class.** Confirm `groom-backlog` (reversible status flip) as the proving
-   ground before any code-changing class.
-2. **Blast-radius pre-estimate.** What's the coarse pre-run signal — the task's `touches`
-   list length? a label? (The real diff is gated post-run regardless.)
-3. **Per-cadence cap default.** N auto-runs per Watch tick per project — 1 to start?
-4. **Does auto-run require quality.yaml?** A project with no quality checks caps the verifier
-   at `medium` → the gate always holds → auto-run never lands. Should auto-run eligibility
-   *require* a configured quality gate (so it can actually reach `high`)? (Lean: yes — it
-   makes the WS-C coverage real, not theatre.)
+- **First class → `groom-backlog` only.** The reversible status-flip proving ground; no
+  code-changing class auto-runs until this loop is proven on the event log + metrics.
+- **Require a configured quality gate → yes.** Code-run auto-run eligibility requires the
+  project to have a `quality.yaml` (so the verifier can actually reach `high`; fails closed).
+  N/A to `groom-backlog`, which isn't a code run.
+- **Per-cadence cap → configurable (`autorun.maxPerTick`), default 1.**
+
+These add three config knobs (ADR-016): `autorun.maxPerTick` (default 1),
+`autorun.requireQualityGate` (default true), `autorun.emergencyStop` (system kill-switch,
+default false) — all in the Autonomy panel.
+
+Note on `groom-backlog`: its "run" is auto-*executing the promotion* (close the stale task
+via the existing `updateTaskStatus` seam), not a code run — so gates 4/5 (acceptance,
+blast-radius) and the quality requirement apply only to code-changing classes; groom passes
+on the universal gates (enabled + top-rung + class allow-list + budget + kill-switch).

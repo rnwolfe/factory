@@ -30,7 +30,18 @@ export interface AutonomyConfig {
   trust: { autoPromote: boolean; promoteStreak: number; autoContract: boolean };
   gate: { minLevel: VerifierLevel; maxBlastRadius: BlastCeiling; crossModel: boolean };
   watch: { synthesisCadence: Cadence; generatorEnabled: boolean; inbandGroom: boolean };
-  autorun: { enabled: boolean; maxBlastRadius: BlastCeiling; classes: string[] };
+  autorun: {
+    enabled: boolean;
+    maxBlastRadius: BlastCeiling;
+    /** Proposal kinds eligible to auto-run (allow-list; empty = nothing). */
+    classes: string[];
+    /** Max auto-runs per project per Watch tick (loop bound). */
+    maxPerTick: number;
+    /** Code-run auto-run requires the project to have a quality.yaml (fails closed). */
+    requireQualityGate: boolean;
+    /** System kill-switch — halts ALL auto-run portfolio-wide when true. */
+    emergencyStop: boolean;
+  };
   retry: { transientBudget: number };
   alerts: Record<AutonomyEventKind, AlertRoute>;
 }
@@ -40,7 +51,14 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
   trust: { autoPromote: true, promoteStreak: 5, autoContract: true },
   gate: { minLevel: "high", maxBlastRadius: "contained", crossModel: true },
   watch: { synthesisCadence: "daily", generatorEnabled: true, inbandGroom: true },
-  autorun: { enabled: false, maxBlastRadius: "contained", classes: [] },
+  autorun: {
+    enabled: false,
+    maxBlastRadius: "contained",
+    classes: [],
+    maxPerTick: 1,
+    requireQualityGate: true,
+    emergencyStop: false,
+  },
   retry: { transientBudget: 1 },
   // Resolution: loud on risk, digest the rest (ADR-016 §3).
   alerts: {

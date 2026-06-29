@@ -37,7 +37,14 @@ const overrideSchema = z
       })
       .partial(),
     autorun: z
-      .object({ enabled: z.boolean(), maxBlastRadius: blastEnum, classes: z.array(z.string()) })
+      .object({
+        enabled: z.boolean(),
+        maxBlastRadius: blastEnum,
+        classes: z.array(z.string()),
+        maxPerTick: z.number().int().min(1).max(20),
+        requireQualityGate: z.boolean(),
+        emergencyStop: z.boolean(),
+      })
       .partial(),
     retry: z.object({ transientBudget: z.number().int().min(0).max(10) }).partial(),
     alerts: z.record(z.string(), alertEnum),
