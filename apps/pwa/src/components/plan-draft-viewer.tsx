@@ -616,7 +616,9 @@ function TaskTemplateView({ draft }: { draft: TaskTemplateDraftView }) {
               >
                 <div className="flex items-baseline gap-2">
                   <span className="display text-[13.5px] text-[var(--color-fg)]">{s.heading}</span>
-                  <span className={`chip text-[10.5px] ${s.kind === "agent" ? "chip-accent" : ""}`}>
+                  <span
+                    className={`chip text-[10.5px] ${s.kind === "agent" ? "chip-working" : ""}`}
+                  >
                     {s.kind}
                   </span>
                 </div>

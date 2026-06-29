@@ -84,7 +84,7 @@ export function History() {
               onClick={() => setFilter(f.id)}
               className={cn(
                 "chip text-[11.5px]",
-                active ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                active ? "chip-working" : "hover:border-[var(--color-line-bright)]",
               )}
             >
               {f.label}
@@ -155,7 +155,7 @@ function HistoryListItem({
           <span className="chip chip-decompose text-[10.5px]">resurfaced → open</span>
         ) : autoRatified ? (
           <span
-            className="chip chip-accent text-[10.5px]"
+            className="chip chip-working text-[10.5px]"
             title="the agent decided this autonomously — open to override"
           >
             auto-decided

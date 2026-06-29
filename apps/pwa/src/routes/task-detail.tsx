@@ -565,10 +565,10 @@ function RunStatusChip({ status }: { status: string }) {
   const tone =
     status === "completed"
       ? "chip-greenlit"
-      : status === "running" || status === "queued"
-        ? "chip-accent"
+      : status === "running"
+        ? "chip-working"
         : status === "needs_review"
-          ? "chip-decompose"
+          ? "chip-parked"
           : status === "failed" || status === "aborted" || status === "blocked"
             ? "chip-trashed"
             : "";
