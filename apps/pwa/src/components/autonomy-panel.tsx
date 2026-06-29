@@ -410,6 +410,29 @@ export function AutonomyPanelView({
                 set={(d, v) => setIn(d, "autorun", "maxBlastRadius", v)}
                 drop={(d) => dropIn(d, "autorun", "maxBlastRadius")}
               />
+              <NumberKnob
+                ctx={ctx}
+                label="max per tick"
+                min={1}
+                max={20}
+                get={(c) => c.autorun.maxPerTick}
+                set={(d, v) => setIn(d, "autorun", "maxPerTick", v)}
+                drop={(d) => dropIn(d, "autorun", "maxPerTick")}
+              />
+              <BoolKnob
+                ctx={ctx}
+                label="require quality gate"
+                get={(c) => c.autorun.requireQualityGate}
+                set={(d, v) => setIn(d, "autorun", "requireQualityGate", v)}
+                drop={(d) => dropIn(d, "autorun", "requireQualityGate")}
+              />
+              <BoolKnob
+                ctx={ctx}
+                label="emergency stop · kill-switch"
+                get={(c) => c.autorun.emergencyStop}
+                set={(d, v) => setIn(d, "autorun", "emergencyStop", v)}
+                drop={(d) => dropIn(d, "autorun", "emergencyStop")}
+              />
               <ClassesKnob ctx={ctx} />
             </KnobGroup>
 
@@ -422,6 +445,15 @@ export function AutonomyPanelView({
                 get={(c) => c.retry.transientBudget}
                 set={(d, v) => setIn(d, "retry", "transientBudget", v)}
                 drop={(d) => dropIn(d, "retry", "transientBudget")}
+              />
+              <NumberKnob
+                ctx={ctx}
+                label="verifier budget"
+                min={0}
+                max={10}
+                get={(c) => c.retry.verifierBudget}
+                set={(d, v) => setIn(d, "retry", "verifierBudget", v)}
+                drop={(d) => dropIn(d, "retry", "verifierBudget")}
               />
             </KnobGroup>
 
