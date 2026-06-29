@@ -4,6 +4,31 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.38.0 — 2026-06-28
+
+### Added
+- **Self-healing runs — autonomous projects auto-retry clear defects (ADR-016 slice 4).** When
+  the verifier gate holds an autonomous run for an *actionable* defect (a real cross-model /
+  acceptance / quality **fail**, not an absent-coverage gap), the run now **retries itself with
+  the findings fed back to the agent**, up to `retry.verifierBudget` (default 2), and surfaces
+  to you only if it still can't fix it. Safe by construction: the retry re-runs the gate, so
+  unverified work still can't merge — a non-converging loop is bounded wasted compute, never a
+  bad merge. The operator stops driving the obvious retries.
+- **Auto-retry loop-health metrics.** `auto_retries`, `auto_retry_resolved` (self-healed), and
+  `auto_retry_exhausted` (gave up) chart over time — a high resolved:exhausted ratio means the
+  gate is catching *fixable* defects; a rising exhausted rate flags hard problems or an
+  over-zealous cross-model gate to recalibrate.
+- **Autonomy-event rate metrics** (contractions, promotions, gate-holds, auto-merges, auto-runs)
+  in the catalog — the unattended-action rates, chartable on `/ops` + `/metrics`.
+- **Phase C auto-run — eligibility gate (ADR-017, ships dark).** The pure safety core for
+  self-generated work auto-running, behind seven conjunctive gates; default off everywhere.
+
+### Changed
+- **Verifier-gate holds surface clearly.** A gate-held run now reads as **"held for review"**
+  (not a bare "blocked"), shows the failing signals inline (the cross-model finding, absent
+  acceptance), and explains how to resolve. Approving the retry **auto-feeds the findings** to
+  the agent — no more re-running blind.
+
 ## v0.37.0 — 2026-06-28
 
 ### Added
