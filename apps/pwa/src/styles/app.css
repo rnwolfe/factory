@@ -352,12 +352,20 @@ body {
 /* static teal edge — non-animated working surfaces (auto rows). */
 .glow-working { box-shadow: 0 0 10px hsl(190 45% 50% / 0.22); }
 
+/* indeterminate progress — a working run with no known ETA. */
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.indeterminate { animation: indeterminate 1.6s ease-in-out infinite; }
+
 /* honor the OS reduce-motion setting — drop live motion to a static state. */
 @media (prefers-reduced-motion: reduce) {
   .skel { animation: none; }
   .drop-in { animation: none; }
   .pulse-dot { animation: none; opacity: 0.85; }
   .breathe { animation: none; box-shadow: 0 0 12px hsl(190 45% 50% / 0.35); }
+  .indeterminate { animation: none; width: 100%; opacity: 0.5; }
 }
 
 /* markdown block — rendered output for assistant text, audit reports,

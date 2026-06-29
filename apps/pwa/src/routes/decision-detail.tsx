@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { decisionProjectLabel } from "../components/decision-card.tsx";
+import { HeimdallMark } from "../components/heimdall-mark.tsx";
 import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
@@ -304,7 +305,7 @@ export function DecisionDetail() {
     return (
       <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
         decision not found.{" "}
-        <Link to="/" className="text-[var(--color-accent)] underline">
+        <Link to="/" className="text-[var(--color-fg-1)] underline">
           back to inbox
         </Link>
       </div>
@@ -398,7 +399,7 @@ export function DecisionDetail() {
           </span>
           {isAutoRatified ? (
             <span
-              className="chip chip-accent"
+              className="chip chip-working"
               title="the agent decided this autonomously — you didn't need to"
             >
               auto-decided
@@ -469,7 +470,7 @@ export function DecisionDetail() {
                         {opt.title}
                       </span>
                       {opt.chosen ? (
-                        <span className="chip chip-accent text-[10.5px]">chosen</span>
+                        <span className="chip chip-working text-[10.5px]">chosen</span>
                       ) : null}
                     </div>
                     {opt.tradeoff ? (
@@ -483,7 +484,7 @@ export function DecisionDetail() {
             </Section>
           ) : null}
           {payload.reasoning ? (
-            <Section title="agent reasoning">
+            <Section title="Heimdall's read" icon={<HeimdallMark size={12} title="Heimdall" />}>
               <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
                 {payload.reasoning}
               </p>
@@ -493,7 +494,7 @@ export function DecisionDetail() {
             <Section title="source run">
               <Link
                 to={`/projects/${d.projectId ?? ""}/runs/${payload.runId}`}
-                className="px-4 py-3 flex items-center gap-2 text-[13px] mono text-[var(--color-fg-1)] hover:text-[var(--color-accent)]"
+                className="px-4 py-3 flex items-center gap-2 text-[13px] mono text-[var(--color-fg-1)] hover:text-[var(--color-fg)]"
               >
                 run {payload.runId.slice(0, 8)}
                 {payload.taskId ? <span> · {payload.taskId}</span> : null}
@@ -561,7 +562,7 @@ export function DecisionDetail() {
                 {payload.resurfacedTaskId && d.projectId ? (
                   <Link
                     to={`/projects/${d.projectId}/tasks/${payload.resurfacedTaskId}`}
-                    className="btn btn-primary w-full"
+                    className="btn btn-bright w-full"
                   >
                     open follow-up task · {payload.resurfacedTaskId.slice(0, 8)}
                   </Link>
@@ -650,7 +651,7 @@ export function DecisionDetail() {
       ) : null}
 
       {payload.rationale ? (
-        <Section title="rationale">
+        <Section title="rationale" icon={<HeimdallMark size={12} title="Heimdall" />}>
           <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)]">
             {payload.rationale}
           </p>
@@ -666,7 +667,7 @@ export function DecisionDetail() {
                   <span className="mono text-[11px] uppercase tracking-[0.14em] text-[var(--color-fg-2)]">
                     {a.id.replace(/_/g, " ")}
                   </span>
-                  <span className="display text-[16px] tabular-nums text-[var(--color-accent)]">
+                  <span className="display text-[16px] tabular-nums text-[var(--color-fg-1)]">
                     {a.score}
                     <span className="text-[var(--color-fg-3)] text-[12px] ml-0.5">/10</span>
                   </span>
@@ -775,7 +776,7 @@ export function DecisionDetail() {
                         "mono text-[10.5px] uppercase tracking-[0.18em]",
                         c.role === "operator"
                           ? "text-[var(--color-fg-1)]"
-                          : "text-[var(--color-accent)]",
+                          : "text-[var(--color-working)]",
                       )}
                     >
                       {c.role}
@@ -839,7 +840,7 @@ export function DecisionDetail() {
                       : "reply to the agent — answer questions, push back, add context…"
                 }
                 rows={3}
-                className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)] resize-y"
+                className="w-full bg-transparent border border-[var(--color-line)] rounded px-3 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-working)] resize-y"
                 disabled={sendComment.isPending}
               />
               <div className="flex justify-between items-center gap-2">
@@ -854,7 +855,7 @@ export function DecisionDetail() {
                 </span>
                 <button
                   type="submit"
-                  className="btn btn-primary"
+                  className="btn btn-bright"
                   disabled={sendComment.isPending || draft.trim().length === 0}
                 >
                   {sendComment.isPending ? "sending…" : "send"}
@@ -883,7 +884,7 @@ export function DecisionDetail() {
           <div className="px-4 py-3 text-[14px] flex items-center gap-2 mono">
             <span className="chip">{payload.previousTag ?? "—"}</span>
             <span className="text-[var(--color-fg-3)]">→</span>
-            <span className="chip chip-accent">{payload.newTag ?? "—"}</span>
+            <span className="chip">{payload.newTag ?? "—"}</span>
             {payload.note ? (
               <span className="text-[13px] text-[var(--color-fg-2)] ml-2">{payload.note}</span>
             ) : null}
@@ -960,7 +961,7 @@ export function DecisionDetail() {
               source run ·{" "}
               <Link
                 to={`/projects/${d.projectId}/runs/${payload.runId}`}
-                className="text-[var(--color-accent)] underline"
+                className="text-[var(--color-fg-1)] underline"
               >
                 {payload.runId.slice(0, 8)}
               </Link>
@@ -984,7 +985,7 @@ export function DecisionDetail() {
                             : iv.outcome === "needs_review"
                               ? "chip-decompose"
                               : iv.status === "active"
-                                ? "chip-accent"
+                                ? "chip-working"
                                 : "chip-trashed",
                         )}
                       >
@@ -1001,7 +1002,7 @@ export function DecisionDetail() {
                         retry ·{" "}
                         <Link
                           to={`/projects/${d.projectId}/runs/${iv.retryRunId}`}
-                          className="text-[var(--color-accent)] underline"
+                          className="text-[var(--color-fg-1)] underline"
                         >
                           {iv.retryRunId.slice(0, 8)}
                         </Link>
@@ -1026,7 +1027,7 @@ export function DecisionDetail() {
                     onClick={() => setRetryAgent(null)}
                     className={cn(
                       "chip mono cursor-pointer",
-                      retryAgent === null ? "chip-accent" : "",
+                      retryAgent === null ? "chip-working" : "",
                     )}
                     title="use the task / project / settings default"
                   >
@@ -1039,7 +1040,7 @@ export function DecisionDetail() {
                       onClick={() => setRetryAgent(opt.id as AgentName)}
                       className={cn(
                         "chip mono cursor-pointer",
-                        retryAgent === opt.id ? "chip-accent" : "",
+                        retryAgent === opt.id ? "chip-working" : "",
                       )}
                       title={opt.hint}
                     >
@@ -1086,7 +1087,7 @@ export function DecisionDetail() {
               source run ·{" "}
               <Link
                 to={`/projects/${d.projectId}/runs/${payload.runId}`}
-                className="text-[var(--color-accent)] underline"
+                className="text-[var(--color-fg-1)] underline"
               >
                 {payload.runId.slice(0, 8)}
               </Link>
@@ -1329,10 +1330,19 @@ export function DecisionDetail() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="surface overflow-hidden">
-      <div className="px-3 py-1.5 border-b border-[var(--color-line)] mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+      <div className="px-3 py-1.5 border-b border-[var(--color-line)] mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] flex items-center gap-1.5">
+        {icon}
         {title}
       </div>
       {children}
@@ -1483,14 +1493,14 @@ function AgentDecisionOverrideForm({
                 <input
                   type="radio"
                   name="agent-decision-single"
-                  className="mt-1 accent-[var(--color-accent)]"
+                  className="mt-1 accent-[var(--color-fg-1)]"
                   checked={singleChoice === opt.title}
                   onChange={() => setSingleChoice(opt.title)}
                 />
                 <span className="flex-1 text-[13.5px] leading-snug text-[var(--color-fg)]">
                   <span className={opt.chosen ? "font-medium" : ""}>{opt.title}</span>
                   {opt.chosen ? (
-                    <span className="ml-1.5 chip chip-accent text-[10px]">agent's pick</span>
+                    <span className="ml-1.5 chip chip-working text-[10px]">agent's pick</span>
                   ) : null}
                   {opt.tradeoff ? (
                     <span className="block text-[12px] text-[var(--color-fg-2)] mt-0.5">
@@ -1513,7 +1523,7 @@ function AgentDecisionOverrideForm({
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    className="mt-1 accent-[var(--color-accent)]"
+                    className="mt-1 accent-[var(--color-fg-1)]"
                     checked={checked}
                     onChange={(e) => {
                       if (e.target.checked) {
@@ -1526,7 +1536,7 @@ function AgentDecisionOverrideForm({
                   <span className="flex-1 text-[13.5px] leading-snug text-[var(--color-fg)]">
                     <span className={opt.chosen ? "font-medium" : ""}>{opt.title}</span>
                     {opt.chosen ? (
-                      <span className="ml-1.5 chip chip-accent text-[10px]">agent's pick</span>
+                      <span className="ml-1.5 chip chip-working text-[10px]">agent's pick</span>
                     ) : null}
                     {opt.tradeoff ? (
                       <span className="block text-[12px] text-[var(--color-fg-2)] mt-0.5">
@@ -1636,7 +1646,9 @@ function ModeChip({
       onClick={onClick}
       className={cn(
         "chip text-[11px]",
-        active ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+        active
+          ? "border-[var(--color-line-bright)] bg-[var(--color-bg-3)] text-[var(--color-fg)]"
+          : "hover:border-[var(--color-line-bright)]",
       )}
     >
       {label}

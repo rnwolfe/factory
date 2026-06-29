@@ -88,7 +88,7 @@ function DetailShell({
       <div className="hairline mt-5" />
       <Link
         to={fullHref}
-        className="mt-4 mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-2)] hover:text-[var(--color-accent)] flex items-center gap-1.5"
+        className="mt-4 mono text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-2)] hover:text-[var(--color-fg-1)] flex items-center gap-1.5"
       >
         open full view <ArrowRight size={12} />
       </Link>
