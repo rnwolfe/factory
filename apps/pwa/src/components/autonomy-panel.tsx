@@ -25,10 +25,11 @@
 import type { AppRouter } from "@factory/daemon";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { inferRouterInputs } from "@trpc/server";
-import { Activity, ChevronRight, Loader2, RotateCcw } from "lucide-react";
+import { Activity, ChevronRight, Loader2, Power, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
+import { TrustLadder } from "./trust-ladder.tsx";
 
 // ── types (inferred from the tRPC client; lockstep with the router) ───────────
 
@@ -44,6 +45,8 @@ export type AutonomyOverride = NonNullable<
 >;
 export type AutonomyPreset = "conservative" | "balanced" | "hands-off";
 export type AutonomyHistoryRow = Awaited<ReturnType<typeof trpc.autonomy.history.query>>[number];
+/** Trust-ladder STATE for the project scope (null at system scope). */
+export type AutonomyTrust = AutonomyConfigResponse["trust"];
 
 type Scope = "system" | "project";
 type AlertRoute = "off" | "push" | "digest";
@@ -175,6 +178,7 @@ export function AutonomyPanel({ scope, projectId }: { scope: Scope; projectId?: 
     <AutonomyPanelView
       scope={scope}
       data={cfg.data}
+      trust={cfg.data?.trust ?? null}
       isLoading={cfg.isLoading}
       pending={pending}
       onApplyPreset={(p) => applyPreset.mutate(p)}
@@ -189,6 +193,8 @@ export function AutonomyPanel({ scope, projectId }: { scope: Scope; projectId?: 
 export interface AutonomyPanelViewProps {
   scope: Scope;
   data: AutonomyConfigResponse | undefined;
+  /** Trust-ladder state (project scope only; null at system scope). */
+  trust?: AutonomyTrust;
   isLoading?: boolean;
   pending?: boolean;
   onApplyPreset: (preset: AutonomyPreset) => void;
@@ -199,6 +205,7 @@ export interface AutonomyPanelViewProps {
 export function AutonomyPanelView({
   scope,
   data,
+  trust,
   isLoading,
   pending,
   onApplyPreset,
@@ -258,7 +265,7 @@ export function AutonomyPanelView({
           <div className="hairline flex-1" />
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
             {activePreset ? (
-              <span className="text-[var(--color-accent)]">{activePreset}</span>
+              <span className="text-[var(--color-working)]">{activePreset}</span>
             ) : isCustom ? (
               "custom"
             ) : (
@@ -273,7 +280,7 @@ export function AutonomyPanelView({
               type="button"
               onClick={() => onApplyPreset(p)}
               disabled={pending}
-              className={`chip ${activePreset === p ? "chip-accent" : "hover:border-[var(--color-line-bright)]"}`}
+              className={`chip ${activePreset === p ? "chip-working" : "hover:border-[var(--color-line-bright)]"}`}
             >
               {p}
             </button>
@@ -295,6 +302,24 @@ export function AutonomyPanelView({
           </div>
         ) : null}
       </section>
+
+      {/* 1.5 — trust-ladder block (project scope only; how far you've let it go) */}
+      {scope === "project" && trust ? (
+        <section className="surface p-3">
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+              trust ladder
+            </span>
+            <div className="hairline flex-1" />
+          </div>
+          <TrustLadder
+            rung={trust.rung}
+            streak={trust.cleanStreak}
+            target={trust.promoteStreak}
+            size="block"
+          />
+        </section>
+      ) : null}
 
       {/* 2 — resolved summary */}
       <ResolvedSummary cfg={data.resolved} />
@@ -469,7 +494,57 @@ export function AutonomyPanelView({
           ? "project policy overrides system; each knob shows whether it's inherited or overridden here."
           : "system policy overrides the built-in defaults for every project."}
       </p>
+
+      {/* pinned kill-switch — portfolio-wide halt; the one allowed red affordance */}
+      <EmergencyStopCard ctx={ctx} />
     </div>
+  );
+}
+
+// ── emergency stop — the pinned kill-switch ───────────────────────────────────
+
+/**
+ * The one red affordance in the panel: a prominent, always-visible halt for ALL
+ * unattended action. It reads/writes the SAME `autorun.emergencyStop` knob that
+ * lives (buried) in the advanced group, through the existing `ctx.edit` config-
+ * write path — no new mutation. Rendered at both scopes (the stop is portfolio-
+ * wide). When engaged, the card reads clearly halted.
+ */
+function EmergencyStopCard({ ctx }: { ctx: KnobCtx }) {
+  const engaged = ctx.resolved.autorun.emergencyStop;
+  return (
+    <section
+      className="rounded-[10px] border p-3"
+      style={{
+        borderColor: engaged ? "var(--color-verdict-trashed)" : "hsl(0 55% 58% / 0.40)",
+        background: "var(--color-verdict-trashed-soft)",
+      }}
+    >
+      <div className="flex items-center gap-3">
+        <Power
+          size={20}
+          strokeWidth={engaged ? 2.2 : 1.8}
+          className="shrink-0 text-[var(--color-verdict-trashed)]"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] text-[var(--color-fg-1)] leading-snug">
+            {engaged ? "all unattended action halted" : "emergency stop"}
+          </div>
+          <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-verdict-trashed)] mt-0.5">
+            {engaged ? "engaged · halted" : "halt all unattended action, now"}
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-pressed={engaged}
+          onClick={() => ctx.edit((d) => setIn(d, "autorun", "emergencyStop", !engaged))}
+          disabled={ctx.pending}
+          className={`btn shrink-0 ${engaged ? "" : "btn-danger"}`}
+        >
+          {engaged ? "resume" : "halt"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -503,7 +578,7 @@ function ResolvedSummary({ cfg }: { cfg: AutonomyConfig }) {
     ],
     [
       "autorun",
-      `${onOff(cfg.autorun.enabled)} · blast ${cfg.autorun.maxBlastRadius} · classes ${cfg.autorun.classes.length > 0 ? cfg.autorun.classes.join(", ") : "—"}`,
+      `${cfg.autorun.enabled ? "on" : "off · ships dark"} · blast ${cfg.autorun.maxBlastRadius} · classes ${cfg.autorun.classes.length > 0 ? cfg.autorun.classes.join(", ") : "—"}`,
     ],
     ["retry", `transient budget ${cfg.retry.transientBudget}`],
     ["alerts", `push ${alertCounts.push} · digest ${alertCounts.digest} · off ${alertCounts.off}`],
@@ -600,7 +675,7 @@ function KnobShell({
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-[12.5px] text-[var(--color-fg-1)] truncate">{label}</span>
           {overridden ? (
-            <span className="chip chip-accent text-[9px]">override</span>
+            <span className="chip text-[9px] text-[var(--color-fg-2)]">override</span>
           ) : (
             <span className="chip text-[9px] text-[var(--color-fg-3)]">inherited</span>
           )}
@@ -616,7 +691,7 @@ function KnobShell({
             type="button"
             onClick={() => ctx.edit(drop)}
             disabled={ctx.pending}
-            className="mono text-[10px] text-[var(--color-accent)] inline-flex items-center gap-1 hover:underline"
+            className="mono text-[10px] text-[var(--color-fg-2)] inline-flex items-center gap-1 hover:text-[var(--color-fg-1)] hover:underline"
           >
             <RotateCcw size={9} />
             revert
@@ -658,7 +733,7 @@ function BoolKnob({
             type="button"
             onClick={() => ctx.edit((d) => set(d, on))}
             disabled={ctx.pending}
-            className={`chip text-[10.5px] ${value === on ? "chip-accent" : ""}`}
+            className={`chip text-[10.5px] ${value === on ? "chip-working" : ""}`}
           >
             {on ? "on" : "off"}
           </button>
@@ -805,7 +880,7 @@ function AlertMatrix({ ctx }: { ctx: KnobCtx }) {
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="mono text-[11px] text-[var(--color-fg-1)] truncate">{kind}</span>
               {overridden ? (
-                <span className="chip chip-accent text-[9px]">override</span>
+                <span className="chip text-[9px] text-[var(--color-fg-2)]">override</span>
               ) : (
                 <span className="chip text-[9px] text-[var(--color-fg-3)]">
                   {inherited[kind] ?? "off"}
@@ -825,7 +900,7 @@ function AlertMatrix({ ctx }: { ctx: KnobCtx }) {
                     })
                   }
                   disabled={ctx.pending}
-                  className={`chip text-[10px] ${current === r ? "chip-accent" : ""}`}
+                  className={`chip text-[10px] ${current === r ? "chip-working" : ""}`}
                 >
                   {r}
                 </button>
@@ -841,7 +916,7 @@ function AlertMatrix({ ctx }: { ctx: KnobCtx }) {
                     })
                   }
                   disabled={ctx.pending}
-                  className="mono text-[10px] text-[var(--color-accent)] inline-flex items-center self-center hover:underline"
+                  className="mono text-[10px] text-[var(--color-fg-2)] inline-flex items-center self-center hover:text-[var(--color-fg-1)] hover:underline"
                 >
                   <RotateCcw size={9} />
                 </button>
@@ -874,8 +949,8 @@ const EVENT_CHIP: Record<string, string> = {
   trust_promoted: "chip-greenlit",
   gate_passed: "chip-greenlit",
   auto_merged: "chip-greenlit",
-  auto_ran: "chip-accent",
-  auto_retried: "chip-accent",
+  auto_ran: "chip-working",
+  auto_retried: "chip-working",
   proposal_surfaced: "chip-decompose",
   trust_contracted: "chip-trashed",
   gate_held: "chip-trashed",
@@ -906,7 +981,7 @@ export function AutonomyHistoryView({
   return (
     <section>
       <div className="flex items-center gap-2 px-1 mb-1.5">
-        <Activity size={12} className="text-[var(--color-accent)]" />
+        <Activity size={12} className="text-[var(--color-fg-3)]" />
         <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
           autonomy · unattended
         </span>
@@ -935,7 +1010,7 @@ export function AutonomyHistoryView({
                   {e.projectId ? (
                     <Link
                       to={`/projects/${e.projectId}`}
-                      className="text-[var(--color-accent)] hover:underline"
+                      className="text-[var(--color-fg-2)] hover:text-[var(--color-fg-1)] hover:underline"
                     >
                       project
                     </Link>
