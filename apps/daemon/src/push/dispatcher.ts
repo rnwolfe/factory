@@ -46,9 +46,16 @@ export async function payloadFor(
         tag: `autonomy:${event.projectId ?? "sys"}:${event.autonomyKind}`,
       };
     }
-    if (event.kind !== "agent_exit") return null;
-    // Failures push via decision_created (blocked_run, merge_failure, etc.).
-    if (event.exitCode !== 0) return null;
+    // Run-complete push fires on `run_finalized` — emitted at the END of the
+    // runner's finalize, NOT on raw `agent_exit`. agent_exit precedes the summary
+    // write, the task-status update, the verifier gate, and the merge; pushing
+    // there told the operator "complete" before any of that existed (and even for
+    // runs the gate then held as needs_review — leaving the task untouched on main
+    // while the notification said done). run_finalized carries the FINAL status,
+    // so we notify only for a genuinely completed run; needs_review / failed /
+    // blocked surface via their own decision pushes.
+    if (event.kind !== "run_finalized") return null;
+    if (event.finalStatus !== "completed") return null;
     // Operator opt-in: auto-advance + 4-worker concurrency would otherwise
     // produce one push per completed run. Off by default.
     if (!config.notifyOnRunComplete) return null;

@@ -375,20 +375,13 @@ describe("push dispatcher · payloadFor", () => {
     }
   });
 
-  test("agent_exit success does not push when notifyOnRunComplete is off", async () => {
+  test("run_finalized completed does not push when notifyOnRunComplete is off", async () => {
     const { db, cleanup } = setup();
     try {
       const projectId = await insertProject(db, { autonomyMode: "collaborative" });
       const runId = await insertRun(db, { projectId });
       const payload = await payloadFor(
-        {
-          channel: "events",
-          kind: "agent_exit",
-          exitCode: 0,
-          ts: Date.now(),
-          runId,
-          iteration: 1,
-        },
+        { channel: "events", kind: "run_finalized", runId, finalStatus: "completed" },
         db,
         cfg,
       );
@@ -398,7 +391,23 @@ describe("push dispatcher · payloadFor", () => {
     }
   });
 
-  test("agent_exit success pushes when notifyOnRunComplete is on", async () => {
+  test("agent_exit never drives the run-complete push (moved to run_finalized)", async () => {
+    const { db, cleanup } = setup();
+    try {
+      const projectId = await insertProject(db, { autonomyMode: "collaborative" });
+      const runId = await insertRun(db, { projectId });
+      const payload = await payloadFor(
+        { channel: "events", kind: "agent_exit", exitCode: 0, ts: Date.now(), runId, iteration: 1 },
+        db,
+        { ...cfg, notifyOnRunComplete: true },
+      );
+      expect(payload).toBeNull(); // agent_exit no longer pushes — fires too early
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("run_finalized completed pushes when notifyOnRunComplete is on", async () => {
     const { db, root, cleanup } = setup();
     try {
       const projectPath = path.join(root, "project");
@@ -414,14 +423,7 @@ describe("push dispatcher · payloadFor", () => {
         taskId: "task-009",
       });
       const payload = await payloadFor(
-        {
-          channel: "events",
-          kind: "agent_exit",
-          exitCode: 0,
-          ts: Date.now(),
-          runId,
-          iteration: 1,
-        },
+        { channel: "events", kind: "run_finalized", runId, finalStatus: "completed" },
         db,
         { ...cfg, notifyOnRunComplete: true },
       );
@@ -439,20 +441,13 @@ describe("push dispatcher · payloadFor", () => {
     }
   });
 
-  test("agent_exit non-zero never pushes — failures land via decision_created", async () => {
+  test("run_finalized non-completed (held/failed) never pushes — surfaces via decision_created", async () => {
     const { db, cleanup } = setup();
     try {
       const projectId = await insertProject(db, { autonomyMode: "collaborative" });
       const runId = await insertRun(db, { projectId });
       const payload = await payloadFor(
-        {
-          channel: "events",
-          kind: "agent_exit",
-          exitCode: 1,
-          ts: Date.now(),
-          runId,
-          iteration: 1,
-        },
+        { channel: "events", kind: "run_finalized", runId, finalStatus: "needs_review" },
         db,
         { ...cfg, notifyOnRunComplete: true },
       );

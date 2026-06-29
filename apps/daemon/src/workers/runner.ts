@@ -1125,6 +1125,18 @@ export async function executeRun(
     if (finalStatus === "completed" && !mergeFailureNote) {
       await applyPostMergeRunOutcome({ config, db, events, runs, pool }, runId);
     }
+
+    // Run fully finalized — summary, status, task-status, the verifier gate, and
+    // the merge are all settled. Emit the terminal signal the run-complete push
+    // keys on (push/dispatcher.ts), fired HERE rather than on raw agent_exit, with
+    // the FINAL status so the operator is notified only when the work truly landed.
+    events.publish({
+      channel: "events",
+      projectId: project.id,
+      kind: "run_finalized",
+      runId,
+      finalStatus,
+    });
   } catch (err) {
     await db
       .update(schema.runs)

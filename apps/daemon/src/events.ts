@@ -34,6 +34,18 @@ export type DaemonRunEvent =
     }
   | {
       /**
+       * A run fully finalized — emitted at the END of the runner's finalize
+       * (after the summary write, the task-status update, the verifier gate, and
+       * the merge), carrying the FINAL status. The run-complete push keys on this
+       * (not raw `agent_exit`) so the operator is notified only when everything is
+       * settled and only for a genuinely `completed` run.
+       */
+      kind: "run_finalized";
+      runId: string;
+      finalStatus: string;
+    }
+  | {
+      /**
        * An unattended autonomy action happened (ADR-016): a Trust-Ladder move, a
        * gate hold, an auto-run, etc. Carries the resolved alert route so the push
        * dispatcher just reads it; also drives the `/ops` history + metrics.
