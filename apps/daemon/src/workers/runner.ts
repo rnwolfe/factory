@@ -717,7 +717,10 @@ export async function executeRun(
     // show WHY (the failing verifier signals) + HOW to resolve. Null unless the
     // verifier gate is what downgraded this run.
     let gateHeldReport: VerifierReport | null = null;
-    if (finalStatus === "completed") {
+    // A no-op completion (0 commits) has had its worktree reclaimed by the runtime,
+    // so quality checks would spawn in a missing cwd (ENOENT) and log a spurious
+    // failure. There is nothing to check anyway — skip, matching the gate guard below.
+    if (finalStatus === "completed" && result.commits.length > 0) {
       try {
         qualityReport = await runQualityChecks({
           worktreePath: result.worktreePath,
