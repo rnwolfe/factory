@@ -4,6 +4,14 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.38.2 — 2026-06-29
+
+### Fixed
+- **No-op completions skip quality checks too.** A 0-commit run's worktree is reclaimed before
+  the quality checks run, so they spawned in a missing directory and logged a spurious `config`
+  check failure (`ENOENT posix_spawn 'sh'`). The no-op guard now covers the quality block as
+  well as the verifier gate — a no-op completion runs neither.
+
 ## v0.38.1 — 2026-06-29
 
 ### Fixed
