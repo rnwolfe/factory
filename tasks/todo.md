@@ -77,7 +77,8 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       non-converging loop is bounded wasted compute, never a bad merge. `workers/auto-retry.ts`.
 - [ ] **L3 transient auto-resume** (the other half) of *transient* `blocked_run` / `merge_failure`
       via `retry.transientBudget` (reserved). Never the structural human blocks.
-- [ ] **L4** = Watch-generated work auto-runs (= ADR-011 Phase C / ADR-016 slice 5, own ADR), gated by WS C.
+- [~] **L4** = Watch-generated work auto-runs (= ADR-011 Phase C / ADR-016 slice 5). First class
+      (groom-backlog) wired + dark; code-changing classes are the remaining graduation.
 
 ## Autonomy config / observability / alerting (ADR-016)
 
@@ -85,7 +86,11 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
 - [x] **Slice 2 — event log + alerts**: `autonomy_events` + `recordAutonomyEvent` + push routing (loud-on-risk); trust moves + gate-holds wired.
 - [x] **Slice 3 — Autonomy UI**: `autonomy.*` config CRUD + presets + history API; preset-first, inheritance-aware `AutonomyPanel` at `/settings/autonomy` + per-project tab + `/ops` history timeline.
 - [x] **Slice 4 — L3 verifier-defect auto-retry** (above) — gate-held runs self-heal before surfacing.
-- [ ] **Slice 5 — Phase C auto-run** (ADR-017 accepted; eligibility gate shipped dark; wiring next).
+- [~] **Slice 5 — Phase C auto-run** (ADR-017). Eligibility gate + **groom-backlog auto-execution
+      wired** (`autonomy/auto-run-groom.ts`): an eligible groom proposal auto-closes the stale task +
+      records `auto_ran` instead of surfacing, behind the full gate. Ships DARK (autorun.enabled
+      false / classes empty). Remaining: graduate a code-changing class (adopt-as-task) once
+      groom is proven on the event log; the kill-switch/budget UI knobs in the Autonomy panel.
 - [ ] **Polish**: header level/trend chip; daily autonomy digest push; autonomy-event metrics in the catalog (auto-runs/day, contractions).
 
 ## WS C — Verifier-Coverage Gate  *(prereq for Trust Ladder step-up + L4)*

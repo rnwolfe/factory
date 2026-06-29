@@ -16,7 +16,7 @@ const flush = () => new Promise<void>((r) => setTimeout(r, 1));
 // No-op synthesis collaborators for tests that only exercise scan/cursor flow.
 const NOOP_SYNTH = {
   synthesize: async () => [],
-  saveObservations: () => ({ inserted: 0, skipped: 0 }),
+  saveObservations: async () => ({ inserted: 0, skipped: 0 }),
 };
 
 describe("startScheduler", () => {

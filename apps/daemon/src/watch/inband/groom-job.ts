@@ -25,7 +25,7 @@ export function createInBandGroomJob(deps: InBandGroomJobDeps): ScheduledJob {
       const observations = await deps.detect();
       if (observations.length === 0) return;
       const { kept, dropped } = await deps.dedupeAgainstBacklog(observations);
-      const { inserted, skipped } = deps.saveObservations(kept);
+      const { inserted, skipped } = await deps.saveObservations(kept);
       console.log(
         `[watch] in-band: ${observations.length} signal(s) → ${inserted} new, ${skipped} dup, ${dropped} already-tracked`,
       );

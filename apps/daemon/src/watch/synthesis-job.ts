@@ -23,7 +23,9 @@ export type SynthesizeFn = (
   memories: MemoryDoc[],
 ) => Promise<RawObservation[]>;
 
-export type SaveObservationsFn = (obs: RawObservation[]) => { inserted: number; skipped: number };
+export type SaveObservationsFn = (
+  obs: RawObservation[],
+) => Promise<{ inserted: number; skipped: number }>;
 
 /** Drop proposals already tracked in the target project's backlog (ADR-011 precision). */
 export type DedupeBacklogFn = (
@@ -109,7 +111,7 @@ export function createSynthesisJob(deps: SynthesisJobDeps): ScheduledJob {
       const { kept, dropped } = deps.dedupeAgainstBacklog
         ? await deps.dedupeAgainstBacklog(observations)
         : { kept: observations, dropped: 0 };
-      const { inserted, skipped } = deps.saveObservations(kept);
+      const { inserted, skipped } = await deps.saveObservations(kept);
       // Only now is the work safely synthesized + persisted — advance cursors.
       for (const c of pending) cursors.set(c);
       console.log(

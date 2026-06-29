@@ -163,7 +163,7 @@ describe("createInBandGroomJob", () => {
       cadence: () => "daily",
       detect: () => [sample],
       dedupeAgainstBacklog: async (o) => ({ kept: o, dropped: 0 }),
-      saveObservations: (o) => {
+      saveObservations: async (o) => {
         saved.push(o);
         return { inserted: o.length, skipped: 0 };
       },
@@ -179,7 +179,7 @@ describe("createInBandGroomJob", () => {
       cadence: () => "daily",
       detect: () => [],
       dedupeAgainstBacklog: async (o) => ({ kept: o, dropped: 0 }),
-      saveObservations: (o) => {
+      saveObservations: async (o) => {
         saved.push(o);
         return { inserted: 0, skipped: 0 };
       },

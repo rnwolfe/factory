@@ -4,6 +4,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { eq } from "drizzle-orm";
 import { bindAgentBudgetConfig, getAgentBudgetSeconds } from "./agent-budget.ts";
 import { authorizeRequest } from "./auth.ts";
+import { autoExecuteEligibleProposals } from "./autonomy/auto-run-groom.ts";
 import { ensureVapid, type FactoryConfig, loadConfig, writeInitialConfig } from "./config.ts";
 import type { DaemonContext } from "./context.ts";
 import { recoverOrphanedDeferredTasks } from "./deferred-tasks/orchestrate.ts";
@@ -223,9 +224,14 @@ export async function startDaemon(): Promise<DaemonHandle> {
   // Shared by both Watch jobs (out-of-band synthesis + in-band groom): the
   // precision dedup against project backlogs, and persist-then-surface.
   const dedupeAgainstBacklog = (obs: RawObservation[]) => filterAlreadyTracked(db, obs);
-  const saveObservations = (obs: RawObservation[]) => {
+  const saveObservations = async (obs: RawObservation[]) => {
     const { inserted, skipped } = persistObservations(db, obs);
-    surfaceObservations(db, events, inserted);
+    // Phase C (ADR-017): eligible proposals auto-execute instead of surfacing.
+    // Dark by default — nothing is eligible until autorun is opted in per-project.
+    const autoExecuted = await autoExecuteEligibleProposals(db, events, inserted);
+    const toSurface =
+      autoExecuted.size > 0 ? inserted.filter((o) => !autoExecuted.has(o.id)) : inserted;
+    surfaceObservations(db, events, toSurface);
     return { inserted: inserted.length, skipped };
   };
 
