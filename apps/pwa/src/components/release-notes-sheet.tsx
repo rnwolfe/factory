@@ -131,6 +131,37 @@ function SheetBody({ onClose }: { onClose: () => void }) {
 }
 
 type Entry = NonNullable<Awaited<ReturnType<typeof trpc.changelog.latest.query>>>;
+type Bullet = Entry["sections"][number]["bullets"][number];
+
+/** One changelog bullet plus any nested sub-bullets, rendered recursively. */
+function BulletItem({ bullet }: { bullet: Bullet }) {
+  return (
+    <li className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
+      {bullet.lead ? (
+        <>
+          <span className="text-[var(--color-fg)] font-medium">
+            <Inline text={bullet.lead} />.
+          </span>{" "}
+          <span className="text-[var(--color-fg-2)]">
+            <Inline text={bullet.body} />
+          </span>
+        </>
+      ) : (
+        <span className="text-[var(--color-fg-2)]">
+          <Inline text={bullet.body} />
+        </span>
+      )}
+      {bullet.children?.length ? (
+        <ul className="ml-4 mt-1.5 space-y-1 list-disc marker:text-[var(--color-fg-3)]">
+          {bullet.children.map((child, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: bullets are positional, no stable id
+            <BulletItem key={i} bullet={child} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
 
 function EntryBody({ entry }: { entry: Entry }) {
   return (
@@ -148,22 +179,7 @@ function EntryBody({ entry }: { entry: Entry }) {
           <ul className="space-y-2.5">
             {section.bullets.map((bullet, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: bullets are positional, no stable id
-              <li key={i} className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
-                {bullet.lead ? (
-                  <>
-                    <span className="text-[var(--color-fg)] font-medium">
-                      <Inline text={bullet.lead} />.
-                    </span>{" "}
-                    <span className="text-[var(--color-fg-2)]">
-                      <Inline text={bullet.body} />
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-[var(--color-fg-2)]">
-                    <Inline text={bullet.body} />
-                  </span>
-                )}
-              </li>
+              <BulletItem key={i} bullet={bullet} />
             ))}
           </ul>
         </section>

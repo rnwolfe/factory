@@ -34,11 +34,33 @@ across two lines.
     expect(added.bullets[0]).toEqual({
       lead: "Retry-in-worktree",
       body: "Restart blocked runs on the prior worktree.",
+      children: [],
     });
     expect(added.bullets[1]).toEqual({
       lead: null,
       body: "A bare bullet without a bold lead.",
+      children: [],
     });
+  });
+
+  test("parses nested sub-bullets as children, not flattened body text", () => {
+    const raw = `## v1.0.0 — 2026-01-01
+
+### Added
+- **Big feature.** It does three things:
+  - **First.** the first sub-thing spanning
+    a wrapped line.
+  - **Second.** the second sub-thing.
+`;
+    const top = parseChangelog(raw)[0]?.sections[0]?.bullets[0];
+    expect(top?.lead).toBe("Big feature");
+    expect(top?.children).toHaveLength(2);
+    expect(top?.children[0]?.lead).toBe("First");
+    // the wrapped continuation line joined onto the CHILD body, not the parent
+    expect(top?.children[0]?.body).toContain("first sub-thing spanning a wrapped line");
+    expect(top?.children[1]?.lead).toBe("Second");
+    // and the parent body did NOT swallow the "- " sub-bullet markers
+    expect(top?.body).not.toContain("- ");
   });
 
   test("parses multiple entries, newest first preserved in source order", () => {

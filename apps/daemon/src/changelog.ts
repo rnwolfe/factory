@@ -6,6 +6,8 @@ export interface ChangelogBullet {
   lead: string | null;
   /** Bullet body — the prose after the bold lead-in (or the whole bullet if none). */
   body: string;
+  /** Nested sub-bullets (indented `- …` lines under this bullet). */
+  children: ChangelogBullet[];
 }
 
 export interface ChangelogSection {
@@ -130,10 +132,23 @@ export function parseChangelog(raw: string): ChangelogEntry[] {
       continue;
     }
 
-    // Continuation line for the previous bullet (indented body).
+    // A nested sub-bullet: an INDENTED `- …` / `* …` line under the current
+    // bullet. Parse it as a child so it renders as a real nested list instead of
+    // flowing into the parent body as literal "- " text.
+    const subBulletMatch = /^\s+[-*]\s+(?<body>.+)$/.exec(line);
+    const subBody = subBulletMatch?.groups?.body;
+    if (stableSection && stableSection.bullets.length > 0 && subBody) {
+      const last = stableSection.bullets[stableSection.bullets.length - 1];
+      if (last) last.children.push(parseBullet(subBody));
+      continue;
+    }
+
+    // A plain indented continuation line (a wrapped prose line). It belongs to
+    // the deepest open bullet — the last child if there is one, else the parent.
     if (stableSection && stableSection.bullets.length > 0 && /^\s+\S/.test(line)) {
       const last = stableSection.bullets[stableSection.bullets.length - 1];
-      if (last) last.body = `${last.body} ${line.trim()}`.trim();
+      const target = last?.children.at(-1) ?? last;
+      if (target) target.body = `${target.body} ${line.trim()}`.trim();
       continue;
     }
 
@@ -156,9 +171,10 @@ function parseBullet(body: string): ChangelogBullet {
     return {
       lead: lead.trim().replace(/\.$/, ""),
       body: rest.trim(),
+      children: [],
     };
   }
-  return { lead: null, body: body.trim() };
+  return { lead: null, body: body.trim(), children: [] };
 }
 
 /** Test seam — clears the mtime cache so unit tests can re-parse. */

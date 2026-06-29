@@ -3,6 +3,31 @@ import { Sparkles } from "lucide-react";
 import { trpc } from "../lib/trpc.ts";
 
 type Entry = Awaited<ReturnType<typeof trpc.changelog.all.query>>[number];
+type Bullet = Entry["sections"][number]["bullets"][number];
+
+/** One changelog bullet plus any nested sub-bullets, rendered recursively. */
+function BulletItem({ bullet }: { bullet: Bullet }) {
+  return (
+    <li className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
+      {bullet.lead ? (
+        <>
+          <span className="text-[var(--color-fg)] font-medium">{bullet.lead}.</span>{" "}
+          <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
+        </>
+      ) : (
+        <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
+      )}
+      {bullet.children?.length ? (
+        <ul className="ml-4 mt-1.5 space-y-1 list-disc marker:text-[var(--color-fg-3)]">
+          {bullet.children.map((child, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: bullets are positional, no stable id
+            <BulletItem key={i} bullet={child} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
 
 export function ReleaseNotes() {
   const all = useQuery({
@@ -66,16 +91,7 @@ function EntryCard({ entry }: { entry: Entry }) {
             <ul className="space-y-2.5">
               {section.bullets.map((bullet, i) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: bullets are positional, no stable id
-                <li key={i} className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
-                  {bullet.lead ? (
-                    <>
-                      <span className="text-[var(--color-fg)] font-medium">{bullet.lead}.</span>{" "}
-                      <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
-                    </>
-                  ) : (
-                    <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
-                  )}
-                </li>
+                <BulletItem key={i} bullet={bullet} />
               ))}
             </ul>
           </section>
