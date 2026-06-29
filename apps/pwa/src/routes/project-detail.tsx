@@ -16,6 +16,7 @@ import {
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AuditsSection } from "../components/audits-section.tsx";
+import { AutonomyPanel } from "../components/autonomy-panel.tsx";
 import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { InstantiateTemplateModal } from "../components/instantiate-template-modal.tsx";
@@ -43,13 +44,14 @@ interface RunRow {
   startedAt: number;
 }
 
-type ProjectTab = "tasks" | "runs" | "audits" | "workdir";
+type ProjectTab = "tasks" | "runs" | "audits" | "workdir" | "autonomy";
 
 const PROJECT_TABS: ReadonlyArray<{ id: ProjectTab; label: string }> = [
   { id: "tasks", label: "tasks" },
   { id: "runs", label: "runs" },
   { id: "audits", label: "audits" },
   { id: "workdir", label: "workdir" },
+  { id: "autonomy", label: "autonomy" },
 ];
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
@@ -697,6 +699,22 @@ export function ProjectDetail() {
         <SkillsSection projectId={id} />
 
         <ScriptsSection projectId={id} />
+      </ProjectTabPanel>
+
+      <ProjectTabPanel value="autonomy" active={activeTab}>
+        <section>
+          <div className="flex items-center gap-2 px-1 mb-1.5">
+            <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+              autonomy
+            </span>
+            <div className="hairline flex-1" />
+          </div>
+          <p className="px-1 mb-2 text-[12px] text-[var(--color-fg-2)] leading-relaxed">
+            per-project autonomy policy. each knob inherits from the system policy unless overridden
+            here; the project header keeps the at-a-glance autonomy mode.
+          </p>
+          <AutonomyPanel scope="project" projectId={id} />
+        </section>
       </ProjectTabPanel>
     </div>
   );

@@ -69,12 +69,20 @@ EXTEND the existing surface — `routers/ops.ts` (live runs, activity, usage win
       and on an **operator override of an auto-ratified fork** (wired in `overrideAgentDecision`);
       `maybeAutoPromote` ratchets collaborative→autonomous after **N=5** consecutive clean
       (completed + verifier-`high`) runs. `needs_review` (gate-held) is neutral. 11 tests.
-  - [ ] **Surfacing follow-up**: push notification on a move ("project X paused/earned …") + a
-        level/trend chip in the project header (today the move is logged + reflected in the mode
-        picker, but the operator isn't actively notified).
-- [ ] **Slice 3 — L3 bounded auto-retry** of *transient* `blocked_run` / `merge_failure` with an
+  - [x] **Surfacing (landed via ADR-016)**: trust moves now record an `autonomy_event` + push
+        alert (loud-on-risk). Header level/trend chip is the one remaining bit.
+- [ ] **L3 bounded auto-retry** of *transient* `blocked_run` / `merge_failure` with an
       operator-visible retry budget that escalates on exhaustion (never the structural human blocks).
-- [ ] **L4** = Watch-generated work auto-runs (= ADR-011 Phase C), gated by WS C.
+      *(= ADR-016 slice 4; reads `retry.transientBudget` from the config.)*
+- [ ] **L4** = Watch-generated work auto-runs (= ADR-011 Phase C / ADR-016 slice 5, own ADR), gated by WS C.
+
+## Autonomy config / observability / alerting (ADR-016)
+
+- [x] **Slice 1 — config core**: `AutonomyConfig` resolved built-in ⊕ system ⊕ project; `projects.autonomyConfig` blob.
+- [x] **Slice 2 — event log + alerts**: `autonomy_events` + `recordAutonomyEvent` + push routing (loud-on-risk); trust moves + gate-holds wired.
+- [x] **Slice 3 — Autonomy UI**: `autonomy.*` config CRUD + presets + history API; preset-first, inheritance-aware `AutonomyPanel` at `/settings/autonomy` + per-project tab + `/ops` history timeline.
+- [ ] **Slice 4 — L3 auto-retry** (above) · **Slice 5 — Phase C auto-run** (own ADR; per-project, top-rung, opt-in).
+- [ ] **Polish**: header level/trend chip; daily autonomy digest push; autonomy-event metrics in the catalog (auto-runs/day, contractions).
 
 ## WS C — Verifier-Coverage Gate  *(prereq for Trust Ladder step-up + L4)*
 

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity, Clock, GitBranch, Terminal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { AutonomyMetrics } from "../components/autonomy-metrics.tsx";
+import { AutonomyHistory } from "../components/autonomy-panel.tsx";
 import { trpc } from "../lib/trpc.ts";
 import { useScopedChannel } from "../lib/use-channel.ts";
 
@@ -121,6 +122,9 @@ export function Ops() {
 
       {/* Historical autonomy / throughput charts (read-only, ADR-013). */}
       <AutonomyMetrics />
+
+      {/* What the autonomy machinery did unattended (read-only, ADR-016). */}
+      <AutonomyHistory limit={50} />
 
       {/* Live snapshot block — loads independently of the charts above. */}
       {snap.isLoading ? (

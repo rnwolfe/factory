@@ -10,6 +10,7 @@ import { useAuth } from "./lib/auth.ts";
 import { useAppBadge } from "./lib/use-app-badge.ts";
 import { usePalette } from "./lib/use-palette.ts";
 import { AuditPane } from "./routes/audit-pane.tsx";
+import { AutonomySettings } from "./routes/autonomy.tsx";
 import { DecisionDetail } from "./routes/decision-detail.tsx";
 import { Deepen } from "./routes/deepen.tsx";
 import { FeedbackDetail } from "./routes/feedback-detail.tsx";
@@ -262,6 +263,14 @@ export function App() {
             element={
               <RouteBoundary label="worktrees">
                 <WorktreesAdmin />
+              </RouteBoundary>
+            }
+          />
+          <Route
+            path="/settings/autonomy"
+            element={
+              <RouteBoundary label="autonomy-settings">
+                <AutonomySettings />
               </RouteBoundary>
             }
           />
