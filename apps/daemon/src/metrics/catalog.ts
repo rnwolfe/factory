@@ -1,5 +1,5 @@
 import { type Db, schema } from "@factory/db";
-import { and, count, eq, gte, lt } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, lt } from "drizzle-orm";
 import { gitDayStats } from "./git-stats.ts";
 
 /**
@@ -194,4 +194,36 @@ export const METRIC_CATALOG: MetricDef[] = [
     compute: (c) => countAutonomyEvents(c, "auto_merged"),
   },
   { key: "autonomy_auto_ran", scope: "both", compute: (c) => countAutonomyEvents(c, "auto_ran") },
+
+  // Auto-retry loop health (ADR-016 slice 4) — the meta-signal. A high
+  // resolved:exhausted ratio means the gate catches *fixable* defects; lots of
+  // `exhausted` means hard problems OR an over-zealous "model always finds
+  // something" gate. `auto_retries ÷ runs that entered the loop` ≈ avg retries.
+  { key: "auto_retries", scope: "both", compute: (c) => countAutonomyEvents(c, "auto_retried") },
+  {
+    key: "auto_retry_exhausted",
+    scope: "both",
+    compute: (c) => countAutonomyEvents(c, "auto_retry_exhausted"),
+  },
+  {
+    // Retries that SELF-HEALED: a run that was itself a retry and then completed.
+    key: "auto_retry_resolved",
+    scope: "both",
+    compute: (c) => {
+      const conds = [
+        gte(schema.runs.startedAt, c.dayStartMs),
+        lt(schema.runs.startedAt, c.dayEndMs),
+        isNotNull(schema.runs.retryOfRunId),
+        eq(schema.runs.status, "completed"),
+      ];
+      if (c.project) conds.push(eq(schema.runs.projectId, c.project.id));
+      return (
+        c.db
+          .select({ n: count() })
+          .from(schema.runs)
+          .where(and(...conds))
+          .get()?.n ?? 0
+      );
+    },
+  },
 ];

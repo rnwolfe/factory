@@ -19,6 +19,7 @@ export type AutonomyEventKind =
   | "auto_ran"
   | "auto_merged"
   | "auto_retried"
+  | "auto_retry_exhausted"
   | "proposal_surfaced"
   | "freeze_blocked";
 
@@ -76,6 +77,8 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
     gate_held: "digest",
     gate_passed: "digest",
     auto_retried: "digest",
+    // The block surfacing already alerts; this is the analytical "loop gave up" signal.
+    auto_retry_exhausted: "digest",
     freeze_blocked: "digest",
   },
 };

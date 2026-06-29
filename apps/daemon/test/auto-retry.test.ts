@@ -107,7 +107,8 @@ describe("maybeAutoRetryGatedRun — surface (null) branches", () => {
         taskId: null,
         report: failReport,
       });
-      expect(out).toBeNull();
+      expect(out.retriedRunId).toBeNull();
+      expect(out.exhausted).toBe(false); // opted out, not exhausted
     } finally {
       h.cleanup();
     }
@@ -125,13 +126,14 @@ describe("maybeAutoRetryGatedRun — surface (null) branches", () => {
         taskId: null,
         report: absentOnly,
       });
-      expect(out).toBeNull();
+      expect(out.retriedRunId).toBeNull();
+      expect(out.exhausted).toBe(false); // absent-only is not "exhausted"
     } finally {
       h.cleanup();
     }
   });
 
-  test("exhausted retry chain → surfaces (null)", async () => {
+  test("exhausted retry chain → surfaces (null) and flags exhausted", async () => {
     const h = setup();
     try {
       const p = addProject(h.db, { retry: { verifierBudget: 1 } });
@@ -144,7 +146,8 @@ describe("maybeAutoRetryGatedRun — surface (null) branches", () => {
         taskId: null,
         report: failReport,
       });
-      expect(out).toBeNull();
+      expect(out.retriedRunId).toBeNull();
+      expect(out.exhausted).toBe(true); // the "loop gave up" signal
     } finally {
       h.cleanup();
     }

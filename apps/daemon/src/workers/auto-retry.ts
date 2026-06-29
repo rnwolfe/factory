@@ -43,21 +43,31 @@ export interface GateRetryArgs {
   report: VerifierReport;
 }
 
+export interface AutoRetryOutcome {
+  /** The new retry run's id when it auto-retried; null when it surfaced instead. */
+  retriedRunId: string | null;
+  /** True only when it surfaced because the budget was EXHAUSTED (it would have
+   *  retried, but the chain hit `verifierBudget`) — the "loop gave up" signal,
+   *  distinct from never-eligible (disabled / no-defect / submit-failed). */
+  exhausted: boolean;
+}
+
 /**
- * Returns the new retry run's id when it auto-retried, or `null` when the run
- * should surface to the operator instead (budget 0/exhausted, no actionable
- * defect, or the retry submit failed — e.g. a provider that can't resume).
+ * Auto-retry a gate-held run, or report why it surfaced. `exhausted` is the
+ * load-bearing distinction: it means the loop tried and failed to self-heal
+ * (a quality / over-zealous-gate signal), not that auto-retry was off.
  */
 export async function maybeAutoRetryGatedRun(
   deps: SubmitRunDeps,
   args: GateRetryArgs,
-): Promise<string | null> {
+): Promise<AutoRetryOutcome> {
   const cfg = resolveAutonomyConfig(deps.db, args.projectId);
   const budget = cfg.retry.verifierBudget;
-  if (budget <= 0) return null; // opted out → always surface (today's behavior)
-  if (!hasActionableDefect(args.report)) return null; // absent-only → surface
-  if (retryChainDepth(deps.db, args.runId) >= budget) return null; // exhausted → surface
-  const attempt = retryChainDepth(deps.db, args.runId) + 1;
+  if (budget <= 0) return { retriedRunId: null, exhausted: false }; // opted out
+  if (!hasActionableDefect(args.report)) return { retriedRunId: null, exhausted: false }; // absent-only
+  const depth = retryChainDepth(deps.db, args.runId);
+  if (depth >= budget) return { retriedRunId: null, exhausted: true }; // loop gave up
+  const attempt = depth + 1;
 
   const feedback = renderVerifierFindings(args.report);
   let retryRunId: string;
@@ -76,7 +86,7 @@ export async function maybeAutoRetryGatedRun(
     // Degrade safely: surface the block so the operator drives it.
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[auto-retry] could not auto-retry ${args.runId}: ${msg}`);
-    return null;
+    return { retriedRunId: null, exhausted: false };
   }
 
   const failed = args.report.signals
@@ -90,5 +100,5 @@ export async function maybeAutoRetryGatedRun(
     message: `${args.projectName} auto-retried a gate-held run (attempt ${attempt}/${budget}) — fixing: ${failed}`,
     detail: { sourceRunId: args.runId, failed },
   });
-  return retryRunId;
+  return { retriedRunId: retryRunId, exhausted: false };
 }

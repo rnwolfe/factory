@@ -957,7 +957,7 @@ export async function executeRun(
     // loop is just bounded wasted compute. When it retries, we skip the surface.
     let autoRetriedRunId: string | null = null;
     if (finalStatus === "needs_review" && gateHeldReport) {
-      autoRetriedRunId = await maybeAutoRetryGatedRun(
+      const outcome = await maybeAutoRetryGatedRun(
         { config, db, events, runs, pool },
         {
           runId,
@@ -967,6 +967,7 @@ export async function executeRun(
           report: gateHeldReport,
         },
       );
+      autoRetriedRunId = outcome.retriedRunId;
       if (autoRetriedRunId) {
         await db
           .update(schema.runs)
@@ -974,6 +975,17 @@ export async function executeRun(
             summary: `${summary}\n\n_Auto-retried as ${autoRetriedRunId.slice(0, 8)} — verifier findings fed back to the agent._`,
           })
           .where(eq(schema.runs.id, runId));
+      } else if (outcome.exhausted) {
+        // The loop tried and couldn't self-heal — the quality / over-zealous-gate
+        // signal. Record it (→ /ops history + the auto_retry_exhausted metric)
+        // before the run surfaces below.
+        recordAutonomyEvent(db, events, {
+          kind: "auto_retry_exhausted",
+          projectId: project.id,
+          runId,
+          message: `${project.name} exhausted auto-retries on a gate-held run — surfacing for review`,
+          detail: { verifierReport: gateHeldReport },
+        });
       }
     }
 
