@@ -60,6 +60,35 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+/** A partial override blob (what system/project store + what a preset is). */
+export type AutonomyOverride = DeepPartial<AutonomyConfig>;
+
+export type AutonomyPreset = "conservative" | "balanced" | "hands-off";
+
+/**
+ * Operator-facing bundles (ADR-016 §4) — pick one instead of touching ~10 knobs.
+ * Each is an override blob applied at the chosen scope; "Advanced" then tweaks
+ * individual knobs over the preset.
+ */
+export const AUTONOMY_PRESETS: Record<AutonomyPreset, AutonomyOverride> = {
+  // Everything gated, nothing self-promotes, alerts loud.
+  conservative: {
+    trust: { autoPromote: false, autoContract: true },
+    autorun: { enabled: false },
+    alerts: { trust_promoted: "push", gate_held: "push", gate_passed: "push" },
+  },
+  // The defaults: earn promotion, gate auto-merge, no auto-run.
+  balanced: {
+    trust: { autoPromote: true, promoteStreak: 5, autoContract: true },
+    autorun: { enabled: false },
+  },
+  // Promote faster and let the smallest-blast-radius work auto-run (still gated).
+  "hands-off": {
+    trust: { autoPromote: true, promoteStreak: 3, autoContract: true },
+    autorun: { enabled: true, maxBlastRadius: "contained" },
+  },
+};
+
 function merge(base: AutonomyConfig, over: DeepPartial<AutonomyConfig> | null): AutonomyConfig {
   if (!over) return base;
   return {

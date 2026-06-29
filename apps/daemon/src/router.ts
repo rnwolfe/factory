@@ -1,5 +1,6 @@
 import { agentsRouter } from "./routers/agents.ts";
 import { auditsRouter } from "./routers/audits.ts";
+import { autonomyRouter } from "./routers/autonomy.ts";
 import { changelogRouter } from "./routers/changelog.ts";
 import { decisionsRouter } from "./routers/decisions.ts";
 import { deferredTasksRouter } from "./routers/deferred-tasks.ts";
@@ -42,6 +43,7 @@ export const appRouter = router({
   rubrics: rubricsRouter,
   agents: agentsRouter,
   audits: auditsRouter,
+  autonomy: autonomyRouter,
   changelog: changelogRouter,
   memory: memoryRouter,
   metrics: metricsRouter,
