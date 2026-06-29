@@ -35,6 +35,17 @@ export async function payloadFor(
   if (event.channel !== "inbox" && event.channel !== "events") return null;
 
   if (event.channel === "events") {
+    // Autonomy alerts (ADR-016): push only when the resolved route is `push`.
+    // The route was decided at the record site, so we just read it here.
+    if (event.kind === "autonomy_event") {
+      if (event.alert !== "push") return null;
+      return {
+        title: "factory · autonomy",
+        body: event.message,
+        url: event.projectId ? `/projects/${event.projectId}` : "/ops",
+        tag: `autonomy:${event.projectId ?? "sys"}:${event.autonomyKind}`,
+      };
+    }
     if (event.kind !== "agent_exit") return null;
     // Failures push via decision_created (blocked_run, merge_failure, etc.).
     if (event.exitCode !== 0) return null;

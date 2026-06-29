@@ -102,17 +102,20 @@ export function maybeAutoPromote(
  * Evaluate the ladder at run finalize. A held (`needs_review`) run is the gate
  * working, not a failure — it neither contracts nor promotes.
  */
+export type TrustMove = "contracted" | "promoted" | null;
+
 export function evaluateTrustOnOutcome(
   db: Db,
   project: TrustProject,
   outcome: { finalStatus: string; mergeConflict: boolean },
   cfg: AutonomyConfig = BUILTIN_AUTONOMY,
-): void {
+): TrustMove {
   if (outcome.finalStatus === "failed" || outcome.mergeConflict) {
-    autoContract(db, project, outcome.mergeConflict ? "merge conflict" : "run failed", cfg);
-    return;
+    const reason = outcome.mergeConflict ? "merge conflict" : "run failed";
+    return autoContract(db, project, reason, cfg) ? "contracted" : null;
   }
   if (outcome.finalStatus === "completed") {
-    maybeAutoPromote(db, project, cfg);
+    return maybeAutoPromote(db, project, cfg) ? "promoted" : null;
   }
+  return null;
 }

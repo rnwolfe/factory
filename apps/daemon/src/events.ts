@@ -1,4 +1,5 @@
 import type { RuntimeEvent } from "@factory/runtime";
+import type { AlertRoute, AutonomyEventKind } from "./autonomy/config.ts";
 
 /**
  * Daemon-only event, broadcast on /ws/events alongside RuntimeEvents but
@@ -30,6 +31,18 @@ export type DaemonRunEvent =
       runId: string;
       deferredTaskId: string;
       pid: number | null;
+    }
+  | {
+      /**
+       * An unattended autonomy action happened (ADR-016): a Trust-Ladder move, a
+       * gate hold, an auto-run, etc. Carries the resolved alert route so the push
+       * dispatcher just reads it; also drives the `/ops` history + metrics.
+       */
+      kind: "autonomy_event";
+      autonomyKind: AutonomyEventKind;
+      runId?: string | null;
+      message: string;
+      alert: AlertRoute;
     };
 
 /**

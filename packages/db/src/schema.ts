@@ -1242,6 +1242,32 @@ export const metricsDaily = sqliteTable(
 );
 
 export type MetricDailyRow = typeof metricsDaily.$inferSelect;
+
+/**
+ * The autonomy event log (ADR-016): one row per unattended autonomy action
+ * (Trust-Ladder move, gate hold, auto-run, …). Single source for the /ops
+ * history timeline, autonomy metrics, and alert routing. `kind` is a text enum
+ * at the TS layer (AutonomyEventKind); the column is plain text.
+ */
+export const autonomyEvents = sqliteTable(
+  "autonomy_events",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id").references(() => projects.id),
+    runId: text("run_id"),
+    kind: text("kind").notNull(),
+    message: text("message").notNull(),
+    /** Optional JSON detail blob. */
+    detail: text("detail"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("autonomy_events_created_idx").on(t.createdAt),
+    index("autonomy_events_project_idx").on(t.projectId),
+  ],
+);
+
+export type AutonomyEventRow = typeof autonomyEvents.$inferSelect;
 export type NewMetricDailyRow = typeof metricsDaily.$inferInsert;
 
 /** Sentinel `projectId` for portfolio-wide (cross-project) metric rows. */

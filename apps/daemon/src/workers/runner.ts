@@ -15,6 +15,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { and, eq, gt } from "drizzle-orm";
 import { type AgentName, getAgentDescriptor } from "../agents/registry.ts";
 import { resolveAutonomyConfig } from "../autonomy/config.ts";
+import { recordAutonomyEvent } from "../autonomy/events.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { resolveBotGitAuthor } from "../github/app-auth.ts";
@@ -807,6 +808,13 @@ export async function executeRun(
               summary: `${summary}\n\n_Verifier gate held this run for review — ${gate.reason}._`,
             })
             .where(eq(schema.runs.id, runId));
+          recordAutonomyEvent(db, events, {
+            kind: "gate_held",
+            projectId: project.id,
+            runId,
+            message: `${project.name} run held for review — ${gate.reason}`,
+            detail: { verifierReport },
+          });
         }
       }
     }
@@ -907,12 +915,27 @@ export async function executeRun(
     // itself on this outcome — contract autonomous→collaborative on a failure or
     // merge conflict, ratchet collaborative→autonomous on a clean verifier-green
     // completion. (A held `needs_review` run is the gate working, so it's neutral.)
-    evaluateTrustOnOutcome(
+    const trustMove = evaluateTrustOnOutcome(
       db,
       { id: project.id, name: project.name, autonomyMode },
       { finalStatus, mergeConflict: mergeFailureNote !== null },
       resolveAutonomyConfig(db, project.id),
     );
+    if (trustMove === "contracted") {
+      recordAutonomyEvent(db, events, {
+        kind: "trust_contracted",
+        projectId: project.id,
+        runId,
+        message: `${project.name} paused to collaborative — ${mergeFailureNote ? "merge conflict" : "run failed"}`,
+      });
+    } else if (trustMove === "promoted") {
+      recordAutonomyEvent(db, events, {
+        kind: "trust_promoted",
+        projectId: project.id,
+        runId,
+        message: `${project.name} earned autonomous mode (clean track record)`,
+      });
+    }
 
     // Surface stalled runs (blocked or failed) to the decisions inbox.
     // Without this the operator has to navigate into the project to discover

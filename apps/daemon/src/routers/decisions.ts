@@ -6,6 +6,7 @@ import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { AGENT_NAME_ENUM } from "../agents/registry.ts";
 import { resolveAutonomyConfig } from "../autonomy/config.ts";
+import { recordAutonomyEvent } from "../autonomy/events.ts";
 import { echoOperatorCommentToIssue, runDecisionReply } from "../decisions/dialog.ts";
 import {
   type AgentDecisionOverride,
@@ -778,12 +779,20 @@ export const decisionsRouter = router({
           }
           // The override contracts the ladder when the fork was auto-ratified.
           if (wasAutoRatified) {
-            autoContract(
+            const contracted = autoContract(
               ctx.db,
               project,
               "operator overrode an auto-ratified decision",
               resolveAutonomyConfig(ctx.db, project.id),
             );
+            if (contracted) {
+              recordAutonomyEvent(ctx.db, ctx.events, {
+                kind: "trust_contracted",
+                projectId: project.id,
+                runId: payload.runId ?? null,
+                message: `${project.name} paused to collaborative — you overrode an auto-ratified decision`,
+              });
+            }
           }
         }
       }
