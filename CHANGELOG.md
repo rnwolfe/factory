@@ -4,6 +4,24 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.38.3 — 2026-06-29
+
+### Fixed
+- **Acceptance criteria are now actually verified — on every task, in every repo.** The
+  structured `acceptance` array the verifier scores was only ever requested for runs from a
+  frozen task plan; plain task files (milestone/feature-plan tasks, ad-hoc tasks) were never
+  asked to report it, so their acceptance signal was *always* absent and autonomous runs were
+  perpetually held. The base completion footer now requests acceptance against the task's own
+  `## Acceptance` section. (Confirmed in prod: only 5 of 203 runs had ever reported acceptance.)
+- The "what's new" brief renders **nested bullet lists** correctly instead of flowing
+  sub-bullets inline as literal `- ` text.
+
+### Changed
+- **Milestone planning enforces acceptance criteria.** Freezing a feature plan on an autonomous
+  project now requires every emitted task to carry at least one acceptance criterion (matching
+  the task-plan gate), and the planner prompt mandates verifiable criteria per task — resolving
+  the old "leave acceptance short" guidance that produced unverifiable `(TBD)` tasks.
+
 ## v0.38.2 — 2026-06-29
 
 ### Fixed
