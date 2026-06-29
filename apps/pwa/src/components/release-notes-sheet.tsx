@@ -3,6 +3,7 @@ import { Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
+import { Inline } from "./markdown-block.tsx";
 
 const LAST_SEEN_KEY = "factory.lastSeenVersion";
 
@@ -135,7 +136,9 @@ function EntryBody({ entry }: { entry: Entry }) {
   return (
     <>
       {entry.intro ? (
-        <p className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">{entry.intro}</p>
+        <p className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
+          <Inline text={entry.intro} />
+        </p>
       ) : null}
       {entry.sections.map((section) => (
         <section key={section.heading}>
@@ -148,11 +151,17 @@ function EntryBody({ entry }: { entry: Entry }) {
               <li key={i} className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
                 {bullet.lead ? (
                   <>
-                    <span className="text-[var(--color-fg)] font-medium">{bullet.lead}.</span>{" "}
-                    <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
+                    <span className="text-[var(--color-fg)] font-medium">
+                      <Inline text={bullet.lead} />.
+                    </span>{" "}
+                    <span className="text-[var(--color-fg-2)]">
+                      <Inline text={bullet.body} />
+                    </span>
                   </>
                 ) : (
-                  <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
+                  <span className="text-[var(--color-fg-2)]">
+                    <Inline text={bullet.body} />
+                  </span>
                 )}
               </li>
             ))}

@@ -286,7 +286,9 @@ function tokenizeInline(text: string): InlineToken[] {
   return tokens;
 }
 
-function Inline({ text }: { text: string }) {
+/** Render a single line of inline markdown (bold/italic/code/links). Exported for
+ *  surfaces that lay out their own structure but still want inline formatting. */
+export function Inline({ text }: { text: string }) {
   const tokens = useMemo(() => tokenizeInline(text), [text]);
   return (
     <>
