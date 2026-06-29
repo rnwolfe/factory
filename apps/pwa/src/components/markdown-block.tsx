@@ -11,7 +11,8 @@ const SOURCE_CAP = 32_000;
 
 // Hand-rolled markdown → React renderer covering the subset assistant text
 // and operator/agent comments actually produce: paragraphs, headings, fenced
-// code, inline code, bullet/ordered lists, blockquotes, bold, italic, links.
+// code, inline code, bullet/ordered lists, task-list checkboxes, GFM tables,
+// blockquotes, bold, italic, links.
 // Treats unmatched inline markers as literal text — no dangerouslySetInnerHTML,
 // no HTML pass-through. Bundle-weight-conscious: avoids pulling marked@13.
 export function MarkdownBlock({ source }: { source: string }) {
@@ -44,7 +45,49 @@ type Block =
   | { kind: "ul"; items: string[] }
   | { kind: "ol"; items: string[] }
   | { kind: "blockquote"; lines: string[] }
+  | {
+      kind: "table";
+      headers: string[];
+      align: ("left" | "right" | "center" | null)[];
+      rows: string[][];
+    }
   | { kind: "hr" };
+
+type CellAlign = "left" | "right" | "center" | null;
+
+/** Split a `| a | b |` table row into trimmed cells, dropping the leading/trailing pipes. */
+function splitTableRow(row: string): string[] {
+  let s = row.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map((c) => c.trim());
+}
+
+/** A GFM table separator row: `| --- | :--: | ---: |` — pipes + dashes, optional
+ *  alignment colons. Requires a pipe so a bare `---` stays a horizontal rule. */
+function isTableSeparator(line: string): boolean {
+  const s = line.trim();
+  if (!s.includes("|") || !s.includes("-")) return false;
+  const cells = splitTableRow(s);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+/** Read alignment from a separator cell: leading colon → left, trailing → right,
+ *  both → center, neither → default (null). */
+function parseAlign(cell: string): CellAlign {
+  const c = cell.trim();
+  const left = c.startsWith(":");
+  const right = c.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  if (left) return "left";
+  return null;
+}
+
+/** True when `line` opens a GFM table (has a pipe and the next line is a separator). */
+function startsTable(line: string, next: string): boolean {
+  return line.includes("|") && isTableSeparator(next);
+}
 
 function parseBlocks(src: string): Block[] {
   const lines = src.replace(/\r\n/g, "\n").split("\n");
@@ -82,6 +125,20 @@ function parseBlocks(src: string): Block[] {
     if (/^---+\s*$/.test(line) || /^\*\*\*+\s*$/.test(line)) {
       out.push({ kind: "hr" });
       i++;
+      continue;
+    }
+
+    // GFM table: header row + separator row, then body rows containing pipes
+    if (startsTable(line, lines[i + 1] ?? "")) {
+      const headers = splitTableRow(line);
+      const align = splitTableRow(lines[i + 1] ?? "").map(parseAlign);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && (lines[i] ?? "").includes("|") && (lines[i] ?? "").trim() !== "") {
+        rows.push(splitTableRow(lines[i] ?? ""));
+        i++;
+      }
+      out.push({ kind: "table", headers, align, rows });
       continue;
     }
 
@@ -134,6 +191,7 @@ function parseBlocks(src: string): Block[] {
       if (/^>\s?/.test(l)) break;
       if (/^\s*[-*]\s+/.test(l)) break;
       if (/^\s*\d+\.\s+/.test(l)) break;
+      if (startsTable(l, lines[i + 1] ?? "")) break;
       pLines.push(l);
       i++;
     }
@@ -170,12 +228,35 @@ function BlockNode({ block }: { block: Block }) {
   if (block.kind === "ul") {
     return (
       <ul className="md-ul">
-        {block.items.map((item, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: list items are immutable per source
-          <li key={i}>
-            <Inline text={item} />
-          </li>
-        ))}
+        {block.items.map((item, i) => {
+          // Task-list item: `[ ]`/`[x]`/`[X]` after the bullet marker → checkbox row.
+          const task = /^\[([ xX])\]\s+(.*)$/.exec(item);
+          if (task) {
+            const checked = task[1] !== " ";
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: list items are immutable per source
+              <li key={i} className="md-task-item flex items-baseline gap-2 list-none">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  readOnly
+                  disabled
+                  aria-checked={checked}
+                  className="md-task-checkbox accent-[var(--color-accent)] translate-y-[1px]"
+                />
+                <span>
+                  <Inline text={task[2] ?? ""} />
+                </span>
+              </li>
+            );
+          }
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: list items are immutable per source
+            <li key={i}>
+              <Inline text={item} />
+            </li>
+          );
+        })}
       </ul>
     );
   }
@@ -196,6 +277,49 @@ function BlockNode({ block }: { block: Block }) {
       <blockquote className="md-bq">
         <Inline text={block.lines.join(" ")} />
       </blockquote>
+    );
+  }
+  if (block.kind === "table") {
+    const alignOf = (col: number): "left" | "right" | "center" | undefined =>
+      block.align[col] ?? undefined;
+    return (
+      // Horizontally scrollable so wide tables survive a 390px phone viewport.
+      <div className="md-table-wrap overflow-x-auto">
+        <table className="md-table w-full border-collapse text-[12px]">
+          <thead>
+            <tr>
+              {block.headers.map((cell, c) => (
+                <th
+                  // biome-ignore lint/suspicious/noArrayIndexKey: table cells are immutable per source
+                  key={c}
+                  className="border border-[var(--color-line)] px-2 py-1 font-semibold text-[var(--color-fg)] whitespace-nowrap"
+                  style={{ textAlign: alignOf(c) }}
+                >
+                  <Inline text={cell} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, r) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: table rows are immutable per source
+              <tr key={r}>
+                {/* Iterate by header count so under/over-filled rows render gracefully. */}
+                {block.headers.map((_, c) => (
+                  <td
+                    // biome-ignore lint/suspicious/noArrayIndexKey: table cells are immutable per source
+                    key={c}
+                    className="border border-[var(--color-line)] px-2 py-1 align-top text-[var(--color-fg-1)]"
+                    style={{ textAlign: alignOf(c) }}
+                  >
+                    <Inline text={row[c] ?? ""} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   }
   if (block.kind === "hr") {
