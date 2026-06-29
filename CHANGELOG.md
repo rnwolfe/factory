@@ -4,6 +4,35 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.40.0 — 2026-06-29
+
+### Added
+- **A visual language for autonomy — felt at a glance across every screen.** Now that Factory
+  acts on its own, the surface makes three things instantly legible: **what needs you** (amber,
+  now strictly rationed to at most one "this is yours" action per screen), **what the system is
+  doing on its own** (a new calm **teal** — in-flight runs, the agent's tool calls, `auto · …`
+  markers, The Watch, Heimdall's read), and **how far you've let it go** (a **trust ladder**:
+  supervised → collaborative → autonomous, with clean-streak progress toward the next rung).
+- **The inbox is now grouped by attention** — *needs you* · *in flight* (live runs, breathing,
+  with progress) · *done while you were away* (what merged/ran unattended, FYI-only) · *settling*
+  — with a Heimdall watch strip up top (running · queued · spend · needs-you).
+- **Projects portfolio + dashboard show posture, not just activity** — a working/idle summary,
+  per-project trust ladder, today's runs and merged-rate, and a new project **overview** tab
+  (posture + vitals + in-flight + recently-merged). Project tabs now work on a phone.
+- **An always-reachable emergency-stop kill-switch** — a pinned card on the Autonomy panel halts
+  all unattended action immediately (wired to `autorun.emergencyStop`).
+- **Verifier coverage reads as pips** — acceptance / quality / cross-model as filled (pass) /
+  filled-red (fail) / hollow-ring (not covered, never mistaken for a pass).
+
+### Changed
+- Run/execution detail: in-flight runs read teal; a held run reads **parked** ("held for review");
+  a retried run shows a teal **self-healing** card; the agent's tool calls are teal while the
+  **commit** row keeps the one amber accent (the concrete artifact that's yours).
+- Metrics lead with the **decisions-per-run** north-star in teal (down is good — "less you");
+  operator memory stamps each fact with a teal provenance line; global settings pins a teal
+  "autonomy policy · system" card at the top.
+- Motion is calm and respects `prefers-reduced-motion` (live dots pulse, active runs breathe).
+
 ## v0.39.0 — 2026-06-29
 
 ### Added
