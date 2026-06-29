@@ -504,6 +504,45 @@ export const plansRouter = router({
         }
       }
 
+      // Parity for feature_plan (milestone) freezes on AUTONOMOUS projects: every
+      // emitted task must carry ≥1 acceptance criterion, for the same reason — the
+      // milestone path was the source of the unverifiable "(TBD)" tasks that block
+      // runs. Operator-verified criteria (for inherently human-gated tasks) count;
+      // they surface for review rather than auto-landing, which is correct.
+      if (plan.kind === "feature_plan" && plan.projectId) {
+        const project = await ctx.db
+          .select({ autonomyMode: schema.projects.autonomyMode })
+          .from(schema.projects)
+          .where(eq(schema.projects.id, plan.projectId))
+          .get();
+        if (project?.autonomyMode === "autonomous") {
+          let offenders: string[] = [];
+          try {
+            const obj = JSON.parse(plan.draft) as FeaturePlanDraft;
+            if (obj.kind === "feature_plan" && Array.isArray(obj.tasks)) {
+              offenders = obj.tasks
+                .filter(
+                  (t) =>
+                    !Array.isArray(t.acceptance) ||
+                    t.acceptance.filter((a) => typeof a === "string" && a.trim().length > 0)
+                      .length === 0,
+                )
+                .map((t) => t.title || "(untitled)");
+            }
+          } catch {
+            offenders = ["(unparseable draft)"];
+          }
+          if (offenders.length > 0) {
+            const shown = offenders.slice(0, 5).join("; ");
+            const more = offenders.length > 5 ? ` (+${offenders.length - 5} more)` : "";
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `autonomous projects require every milestone task to carry at least one acceptance criterion — these lack them: ${shown}${more}. Iterate the plan to add criteria (testable for code, operator-verified for human gates) so the tasks are verifiable.`,
+            });
+          }
+        }
+      }
+
       const now = Date.now();
       await ctx.db
         .update(schema.plans)

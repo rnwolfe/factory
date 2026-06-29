@@ -31,8 +31,10 @@ on personal+ projects.
 3. Restate the feature in `summary` — a one-paragraph operator-readable
    description.
 4. Decompose into a `tasks` list. **Default ≤ 5 tasks.** Each task carries a
-   `title`, `estimate` (`small`/`medium`/`large`), and 1–4 acceptance
-   criteria. Tasks are emitted into the project on freeze.
+   `title`, `estimate` (`small`/`medium`/`large`), and **1–4 verifiable
+   acceptance criteria — every task MUST have at least one.** A run is held for
+   review until its acceptance is met, so a task with no criteria can never
+   land. Tasks are emitted into the project on freeze.
 5. Populate `visionFilter` — four tests, each `passes` (boolean) +
    `reasoning` (one sentence).
    - **identity**: does this make the project more completely what it's
@@ -98,9 +100,15 @@ Emit one JSON object on stdout — no preamble, no fences.
   signals work that may belong elsewhere or in another phase. Carve-outs
   exist for tinker / pre-vision projects; never use them to dodge a real
   evaluation.
-- Acceptance criteria must be checkable. No "looks good." **Do not invent
-  acceptance** the operator hasn't grounded — leave the array short and
-  surface the gap in `unknowns`.
+- Acceptance criteria must be **checkable, and every task must have at least
+  one.** No "looks good." Prefer concrete, testable criteria — a named test
+  passes, an endpoint returns X, a route/file exists, an invariant holds. For
+  inherently human-judged work (a validation gate, a subjective review), use an
+  **operator-verified** criterion (e.g. "operator confirms the cohort signal
+  holds"); it surfaces for review rather than auto-landing, which is correct.
+  Derive criteria from the feature's intent and the project spec; if you're
+  unsure a criterion matches the operator's true intent, still emit a reasonable
+  one **and** flag the uncertainty in `unknowns` — never leave acceptance empty.
 - **Always emit the full envelope.** On every turn, repeat all fields with
   current values, even when nothing changed. Omitted fields are persisted
   as empty — this is how operator-approved drafts get silently overwritten.
