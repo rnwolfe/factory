@@ -26,6 +26,7 @@ import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
 import { autoContract } from "../workers/trust-ladder.ts";
+import type { VerifierReport } from "../workers/verifier.ts";
 
 interface ReleaseProposalPayload {
   templateSlug: string;
@@ -57,6 +58,14 @@ interface BlockedRunPayload {
    * frames it as "run failed, retry" instead of "agent blocked, answer".
    */
   failed?: boolean;
+  /**
+   * Set when the verifier GATE held the run for review (ADR-014). The agent
+   * completed cleanly but coverage was below `high` — carries the failing
+   * signals (cross-model fail, absent acceptance, …) so the inbox card names
+   * the WHY and the retry auto-feeds them back to the agent.
+   */
+  needsReview?: boolean;
+  verifier?: VerifierReport;
 }
 
 interface MergeFailurePayload {
@@ -80,36 +89,60 @@ const OverrideShape = z.discriminatedUnion("kind", [
 ]);
 
 /**
- * Render the operator-context payload threaded into a blocked-run retry.
- * Quotes the agent's prior questions back at it (so the agent sees what
- * was asked even if its session context is cold) and inlines the operator
- * thread in chronological order. Empty-string return signals "no operator
- * input — submit the retry without a context block" so the runner falls
- * back to the original prompt.
+ * Render the verifier gate's failing signals as authoritative retry feedback.
+ * A cross-model FAIL is a concrete defect another model found in the diff; an
+ * absent signal is a coverage gap. Injected automatically so retrying a gate-held
+ * run carries the finding to the agent even with no operator comment.
  */
+function renderVerifierFindings(verifier: VerifierReport | undefined): string {
+  if (!verifier) return "";
+  const failing = verifier.signals.filter((s) => s.state === "fail" || s.state === "absent");
+  if (failing.length === 0) return "";
+  const lines = failing.map((s) => {
+    const verb = s.state === "fail" ? "FAILED" : "MISSING";
+    return `- **${s.label} — ${verb}.** ${s.detail}`;
+  });
+  return `## Verifier gate held your prior run (coverage: ${verifier.level})
+
+Your prior run completed but the gate held it for review — coverage was below the
+\`high\` bar. Address these before completing. A cross-model **FAIL** is a concrete
+defect another model found in your diff; treat it as authoritative and fix it. A
+**MISSING** signal is a coverage gap (e.g. no testable acceptance criteria).
+
+${lines.join("\n")}`;
+}
+
 function renderBlockedRunOperatorContext(
   payload: BlockedRunPayload,
   thread: Array<{ role: "operator" | "agent"; body: string; createdAt: number }>,
 ): string {
+  const verifierBlock = renderVerifierFindings(payload.verifier);
   const operatorReplies = thread.filter((c) => c.role === "operator");
-  if (operatorReplies.length === 0) return "";
+  if (operatorReplies.length === 0 && !verifierBlock) return "";
 
-  const header = `## Operator notes (from prior blocked run)
+  const parts: string[] = [];
+  if (verifierBlock) parts.push(verifierBlock);
+
+  if (operatorReplies.length > 0) {
+    const header = `## Operator notes (from prior blocked run)
 
 The operator replied to your prior run's blocking questions. Treat this as
 authoritative — these answers are the resolution for the blocker. If they
 contradict the task body, the operator's notes are the more recent intent.`;
 
-  const questionsBlock =
-    payload.questions && payload.questions.length > 0
-      ? `### Questions you asked\n\n${payload.questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n\n`
-      : "";
+    const questionsBlock =
+      payload.questions && payload.questions.length > 0
+        ? `### Questions you asked\n\n${payload.questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n\n`
+        : "";
 
-  const repliesBlock = operatorReplies
-    .map((c) => `### Operator reply · ${new Date(c.createdAt).toISOString()}\n\n${c.body.trim()}`)
-    .join("\n\n");
+    const repliesBlock = operatorReplies
+      .map((c) => `### Operator reply · ${new Date(c.createdAt).toISOString()}\n\n${c.body.trim()}`)
+      .join("\n\n");
 
-  return `${header}\n\n${questionsBlock}${repliesBlock}`;
+    parts.push(`${header}\n\n${questionsBlock}${repliesBlock}`);
+  }
+
+  return parts.join("\n\n");
 }
 
 interface AgentDecisionPayloadShape {

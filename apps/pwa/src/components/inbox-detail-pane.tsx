@@ -263,7 +263,7 @@ function DecisionDetail({
     <DetailShell
       chips={
         <>
-          <span className="chip">{kindLabel(row.kind)}</span>
+          <span className="chip">{kindLabel(row.kind, row.payload)}</span>
           <span className="chip">{row.outcome}</span>
           <span className="chip">{decisionProjectLabel(row)}</span>
           <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
@@ -490,13 +490,16 @@ function countSeverity(findings: Finding[]) {
   );
 }
 
-function kindLabel(kind: DecisionRow["kind"]): string {
+function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]): string {
   switch (kind) {
     case "triage":
       return "triage";
     case "tag_change":
       return "tag";
     case "blocked_run":
+      // Same kind, several causes: a verifier-gate hold reads "held for
+      // review", not "blocked".
+      if (payload?.needsReview) return "held for review";
       return "blocked run";
     case "merge_failure":
       return "merge failure";

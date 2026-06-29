@@ -42,7 +42,12 @@ import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
 import { evaluateTrustOnOutcome } from "./trust-ladder.ts";
-import { classifyBlastRadius, computeVerifierReport, decideAutoLand } from "./verifier.ts";
+import {
+  classifyBlastRadius,
+  computeVerifierReport,
+  decideAutoLand,
+  type VerifierReport,
+} from "./verifier.ts";
 
 export interface RunnerDeps {
   config: FactoryConfig;
@@ -707,6 +712,10 @@ export async function executeRun(
     // block the merge in v0.2 — the report is informational. Persisted on
     // the run row + broadcast on /ws/events so the live pane re-renders.
     let qualityReport: QualityReport | null = null;
+    // Carried to the block-payload site so a gate-held `needs_review` card can
+    // show WHY (the failing verifier signals) + HOW to resolve. Null unless the
+    // verifier gate is what downgraded this run.
+    let gateHeldReport: VerifierReport | null = null;
     if (finalStatus === "completed") {
       try {
         qualityReport = await runQualityChecks({
@@ -801,6 +810,7 @@ export async function executeRun(
         const gate = decideAutoLand(verifierReport, blast);
         if (!gate.land) {
           finalStatus = "needs_review";
+          gateHeldReport = verifierReport;
           await db
             .update(schema.runs)
             .set({
@@ -970,6 +980,10 @@ export async function executeRun(
           // inspect and merge, or retry — so the card frames it as "review",
           // not "failed".
           ...(finalStatus === "needs_review" ? { needsReview: true } : {}),
+          // When the VERIFIER GATE is what held the run, carry the report so the
+          // inbox card can name the failing signals (cross-model fail, absent
+          // acceptance, …) + the resolution, instead of a bare "blocked".
+          ...(gateHeldReport ? { verifier: gateHeldReport } : {}),
         },
         status: "pending",
         createdAt: Date.now(),

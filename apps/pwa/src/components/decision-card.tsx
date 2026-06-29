@@ -132,7 +132,7 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
       return "tag";
     case "blocked_run":
       // Same kind, several causes: framing follows the cause.
-      if (payload?.needsReview) return "needs review";
+      if (payload?.needsReview) return "held for review";
       if (payload?.failed) return "failed run";
       if (payload?.usageCapped) return "usage cap";
       return "blocked run";
@@ -260,7 +260,7 @@ export function DecisionCard({
     ? (decision.payload.summary ??
       `run ${decision.payload.runId?.slice(0, 8) ?? ""} ${
         decision.payload.needsReview
-          ? "needs review"
+          ? "held for review"
           : decision.payload.failed
             ? "failed"
             : "blocked"

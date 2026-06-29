@@ -8,6 +8,7 @@ import { MarkdownView } from "../components/markdown-view.tsx";
 import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
 import { RecoveryPrompt } from "../components/recovery-prompt.tsx";
 import { SourceIssueLink, sourceIssueLabel } from "../components/source-link.tsx";
+import { VerifierReport, type VerifierReportView } from "../components/verifier-report.tsx";
 import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
@@ -69,6 +70,12 @@ interface DecisionPayload {
   // means the agent self-blocked with questions.
   usageCapped?: boolean;
   failed?: boolean;
+  // needs_review: the agent finished + committed cleanly, but the verifier
+  // gate held the run because coverage was below `high`. Distinct from
+  // `failed` (agent died) and from a self-block with `questions`.
+  needsReview?: boolean;
+  // The verifier gate's report — already a parsed object on the payload.
+  verifier?: VerifierReportView | null;
   // merge_failure-only
   reason?: string;
   message?: string;
@@ -324,6 +331,12 @@ export function DecisionDetail() {
   const issueTitle = typeof payload.title === "string" ? payload.title : "";
   const issueHtmlUrl =
     typeof payload.htmlUrl === "string" && payload.htmlUrl.length > 0 ? payload.htmlUrl : null;
+  // Verifier-gate hold (needs_review): surface the report inline so the
+  // operator sees WHY the gate held without opening the run.
+  const verifierSignals = Array.isArray(payload.verifier?.signals) ? payload.verifier.signals : [];
+  const acceptanceAbsent = verifierSignals.some(
+    (s) => s.key === "acceptance" && s.state === "absent",
+  );
   const headline = isMergeFailure
     ? `merge to main failed${payload.taskId ? ` for ${payload.taskId}` : ""} — ${payload.reason ?? "unknown"}`
     : isAgentDecision
@@ -364,11 +377,13 @@ export function DecisionDetail() {
             {isTriage
               ? "triage"
               : isBlockedRun
-                ? payload.failed
-                  ? "failed run"
-                  : payload.usageCapped
-                    ? "usage cap"
-                    : "blocked run"
+                ? payload.needsReview
+                  ? "held for review"
+                  : payload.failed
+                    ? "failed run"
+                    : payload.usageCapped
+                      ? "usage cap"
+                      : "blocked run"
                 : isMergeFailure
                   ? "merge failure"
                   : isAgentDecision
@@ -878,6 +893,47 @@ export function DecisionDetail() {
 
       {isBlockedRun ? (
         <>
+          {payload.needsReview ? (
+            <>
+              <Section title="held for review">
+                <div className="px-4 py-3 space-y-3">
+                  <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)]">
+                    The agent finished and committed, but the verifier gate held it because coverage
+                    was below <span className="mono text-[12px] text-[var(--color-fg)]">high</span>.
+                    Nothing crashed — this is a quality hold, and the work is waiting on the run's
+                    branch.
+                  </p>
+                  <VerifierReport report={payload.verifier ?? null} />
+                </div>
+              </Section>
+              <Section title="how to resolve">
+                <div className="px-4 py-3 space-y-2 text-[13px] leading-relaxed text-[var(--color-fg-1)]">
+                  <p>
+                    <span className="text-[var(--color-fg)] font-medium">Approve to retry</span> —
+                    the verifier findings (including any cross-model failure) are fed back to the
+                    agent automatically, so it addresses them on the next run.
+                  </p>
+                  <p className="text-[var(--color-fg-2)]">
+                    Or inspect the branch
+                    {payload.branch ? (
+                      <span className="mono text-[12px] text-[var(--color-fg-1)]">
+                        {" "}
+                        {payload.branch}
+                      </span>
+                    ) : null}{" "}
+                    and merge by hand if you disagree with the gate.
+                  </p>
+                  {acceptanceAbsent ? (
+                    <p className="text-[var(--color-fg-2)]">
+                      This task had no testable acceptance criteria — add them to the task so future
+                      runs can verify intent and reach{" "}
+                      <span className="mono text-[12px] text-[var(--color-fg-1)]">high</span>.
+                    </p>
+                  ) : null}
+                </div>
+              </Section>
+            </>
+          ) : null}
           {payload.summary ? (
             <Section title="agent summary">
               <p className="px-4 py-3 text-[14px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
