@@ -67,11 +67,13 @@ export function trustedGithubIssueHref(
 }
 
 function variantClass(variant: SourceLinkVariant): string {
+  // Provenance/source links are NEUTRAL — they must not spend the amber budget.
+  // Both variants read as quiet links that brighten to fg-1 on hover.
   if (variant === "chip") {
-    return "inline-flex max-w-full items-center gap-1 rounded-[2px] border border-[var(--color-accent-line)] bg-[var(--color-accent-soft)] px-1.5 py-[2px] mono text-[10.5px] leading-none text-[var(--color-accent)] no-underline hover:border-[var(--color-accent)] hover:text-[var(--color-fg)]";
+    return "inline-flex max-w-full items-center gap-1 rounded-[2px] border border-[var(--color-line)] bg-[var(--color-bg-2)] px-1.5 py-[2px] mono text-[10.5px] leading-none text-[var(--color-fg-2)] no-underline hover:border-[var(--color-line-bright)] hover:text-[var(--color-fg-1)]";
   }
 
-  return "text-[var(--color-accent)] no-underline border-b border-[var(--color-line)] hover:border-[var(--color-accent-line)] hover:text-[var(--color-fg)]";
+  return "text-[var(--color-fg-2)] no-underline border-b border-[var(--color-line)] hover:border-[var(--color-line-bright)] hover:text-[var(--color-fg-1)]";
 }
 
 export function SourceLink({

@@ -206,7 +206,7 @@ export function ImportSpec() {
                 onClick={() => setRole(r)}
                 className={cn(
                   "chip",
-                  role === r ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                  role === r ? "chip-working" : "hover:border-[var(--color-line-bright)]",
                 )}
               >
                 {r}
@@ -227,7 +227,7 @@ export function ImportSpec() {
                 onClick={() => setCeremony(c)}
                 className={cn(
                   "chip",
-                  ceremony === c ? "chip-accent" : "hover:border-[var(--color-line-bright)]",
+                  ceremony === c ? "chip-working" : "hover:border-[var(--color-line-bright)]",
                 )}
               >
                 {c}
@@ -405,7 +405,7 @@ function ReviewStep(props: ReviewStepProps) {
                       className={cn(
                         "chip text-[11px]",
                         t.estimate === e
-                          ? "chip-accent"
+                          ? "chip-working"
                           : "hover:border-[var(--color-line-bright)]",
                       )}
                     >

@@ -7,6 +7,7 @@ import {
   BUILTIN_AUTONOMY,
   resolveAutonomyConfig,
 } from "../autonomy/config.ts";
+import { projectTrustState } from "../projects/trust-stats.ts";
 import { readAllSettings, setSetting } from "../settings/store.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
@@ -84,12 +85,25 @@ export const autonomyRouter = router({
               .get()?.ac,
           )
         : null;
+      // Trust-ladder STATE (earned rung + streak progress) for the project scope,
+      // so the autonomy tab renders the ladder block without a second round-trip.
+      // Null at system scope — the ladder is a per-project notion.
+      let trust = null;
+      if (projectId) {
+        const p = ctx.db
+          .select({ id: schema.projects.id, autonomyMode: schema.projects.autonomyMode })
+          .from(schema.projects)
+          .where(eq(schema.projects.id, projectId))
+          .get();
+        if (p) trust = projectTrustState(ctx.db, p);
+      }
       return {
         resolved: resolveAutonomyConfig(ctx.db, projectId),
         builtin: BUILTIN_AUTONOMY,
         systemOverride,
         projectOverride,
         presets: AUTONOMY_PRESETS,
+        trust,
       };
     }),
 

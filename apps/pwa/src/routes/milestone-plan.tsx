@@ -83,7 +83,7 @@ export function MilestonePlan() {
           <ArrowLeft size={14} />
         </Link>
         <div className="display text-[16px] text-[var(--color-fg)]">plan next milestone</div>
-        {dec?.milestone ? <span className="ml-auto chip chip-accent">{dec.milestone}</span> : null}
+        {dec?.milestone ? <span className="ml-auto chip">{dec.milestone}</span> : null}
       </div>
 
       {propose.isPending ? (
@@ -112,7 +112,7 @@ export function MilestonePlan() {
                   <span
                     key={m.id}
                     title={`${m.goal}${m.killGate ? ` · kill-gate: ${m.killGate}` : ""}`}
-                    className={cn("chip text-[11px]", m.id === dec.milestone ? "chip-accent" : "")}
+                    className={cn("chip text-[11px]", m.id === dec.milestone ? "chip-working" : "")}
                   >
                     {m.id}
                     {m.title ? ` · ${m.title}` : ""}
@@ -192,7 +192,7 @@ export function MilestonePlan() {
                           className={cn(
                             "chip text-[11px]",
                             t.estimate === e
-                              ? "chip-accent"
+                              ? "chip-working"
                               : "hover:border-[var(--color-line-bright)]",
                           )}
                         >

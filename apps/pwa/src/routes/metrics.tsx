@@ -373,7 +373,7 @@ function PillButton({
       className={[
         "mono text-[9.5px] uppercase tracking-[0.14em] px-2 py-0.5 rounded transition-colors",
         active
-          ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border border-[var(--color-accent-line)]"
+          ? "text-[var(--color-fg-1)] border border-[var(--color-line-bright)]"
           : "text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]",
       ].join(" ")}
     >

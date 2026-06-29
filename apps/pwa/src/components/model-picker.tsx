@@ -112,7 +112,7 @@ export function AgentModelPicker({
               title={opt.hint}
               className={cn(
                 "chip mono cursor-pointer",
-                selected ? "chip-accent" : "",
+                selected ? "chip-working" : "",
                 disabled ? "opacity-50 cursor-not-allowed" : "",
               )}
               data-card-skip-open
@@ -134,7 +134,7 @@ export function AgentModelPicker({
               title={opt.hint}
               className={cn(
                 "chip mono cursor-pointer text-[11px]",
-                selected ? "chip-accent" : "",
+                selected ? "chip-working" : "",
                 disabled ? "opacity-50 cursor-not-allowed" : "",
               )}
               data-card-skip-open
@@ -179,7 +179,7 @@ export function ModelPicker({
             title={opt.hint}
             className={cn(
               "chip mono cursor-pointer",
-              selected ? "chip-accent" : "",
+              selected ? "chip-working" : "",
               disabled ? "opacity-50 cursor-not-allowed" : "",
             )}
             data-card-skip-open

@@ -1,13 +1,54 @@
 import { type QueryKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, FileText, Plus, RotateCcw, ThumbsDown, ThumbsUp } from "lucide-react";
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  Clock,
+  FileText,
+  GitMerge,
+  Plus,
+  RotateCcw,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { AttentionHeader } from "../components/attention-header.tsx";
 import { AuditCard, type AuditRow } from "../components/audit-card.tsx";
+import { AutoChip } from "../components/auto-chip.tsx";
 import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx";
+import { HeimdallMark } from "../components/heimdall-mark.tsx";
 import { type InboxDetailItem, InboxDetailPane } from "../components/inbox-detail-pane.tsx";
 import { PlanCard, type PlanRow } from "../components/plan-card.tsx";
 import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
+
+interface AmbientRun {
+  runId: string;
+  projectId: string;
+  projectName: string | null;
+  projectSlug: string | null;
+  taskId: string | null;
+  status: string;
+  startedAt: number;
+  iterationCount: number;
+  budgetSeconds: number;
+  agentName: string;
+}
+interface AmbientEvent {
+  id: string;
+  kind: string;
+  message: string;
+  projectId: string | null;
+  projectName: string | null;
+  projectSlug: string | null;
+  runId: string | null;
+  createdAt: number;
+}
+interface OpsSnapshotLite {
+  running: unknown[];
+  queued: unknown[];
+  usage: { today: { totalCostUsd: number } };
+}
 
 interface FeedbackInboxRow {
   id: string;
@@ -103,6 +144,25 @@ export function Inbox() {
     enabled: inbox.data && inbox.data.length > 0,
   });
 
+  // Ambient context — what the system is doing / did on its own. Powers the
+  // "in flight" (live runs) and "done while you were away" (unattended) groups.
+  const ambient = useQuery({
+    queryKey: ["decisions.ambient"],
+    queryFn: () =>
+      trpc.decisions.ambient.query() as unknown as Promise<{
+        inFlight: AmbientRun[];
+        unattended: AmbientEvent[];
+      }>,
+    refetchInterval: 6_000,
+  });
+
+  // The watch strip's ambient counters (running / queued / spend today).
+  const opsSnap = useQuery({
+    queryKey: ["ops.snapshot"],
+    queryFn: () => trpc.ops.snapshot.query() as unknown as Promise<OpsSnapshotLite>,
+    refetchInterval: 30_000,
+  });
+
   // Live push: subscribe to /ws/inbox for instant updates.
   useEffect(() => {
     const token = getToken();
@@ -120,6 +180,7 @@ export function Inbox() {
         qc.invalidateQueries({ queryKey: ["audits.inbox"] });
         qc.invalidateQueries({ queryKey: ["feedback.inbox"] });
         qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
+        qc.invalidateQueries({ queryKey: ["decisions.ambient"] });
       };
     } catch {
       // ignore — polling still covers us
@@ -258,6 +319,10 @@ export function Inbox() {
     .sort((a, b) => b.ts - a.ts)
     .map(({ ts: _ts, ...rest }) => rest as InboxItem);
 
+  // Ambient groups only show in the active view (they're never "snoozed").
+  const inFlight = view === "active" ? (ambient.data?.inFlight ?? []) : [];
+  const unattended = view === "active" ? (ambient.data?.unattended ?? []) : [];
+
   // Drop selection if the item left the list (e.g. operator approved a decision).
   const selectedStillPresent =
     selected !== null &&
@@ -268,7 +333,12 @@ export function Inbox() {
     setSelected(null);
   }
 
-  if (merged.length === 0 && triagingRows.length === 0) {
+  if (
+    merged.length === 0 &&
+    triagingRows.length === 0 &&
+    inFlight.length === 0 &&
+    unattended.length === 0
+  ) {
     if (view === "snoozed") {
       return (
         <div>
@@ -292,18 +362,18 @@ export function Inbox() {
             the inbox is empty. capture an idea — Heimdall triages within ~2 min.
           </p>
           <div className="flex flex-col gap-2 items-center">
-            <Link to="/inbox/new" className="btn btn-primary">
+            <Link to="/inbox/new" className="btn btn-bright">
               <Plus size={16} /> new idea
             </Link>
             <Link
               to="/inbox/import-spec"
-              className="mono text-[11.5px] text-[var(--color-fg-2)] hover:text-[var(--color-accent)] flex items-center gap-1.5 mt-1"
+              className="mono text-[11.5px] text-[var(--color-fg-2)] hover:text-[var(--color-fg)] flex items-center gap-1.5 mt-1"
             >
               <FileText size={11} /> or import an existing spec
             </Link>
             <Link
               to="/history"
-              className="mono text-[11.5px] text-[var(--color-fg-3)] hover:text-[var(--color-accent)] mt-2"
+              className="mono text-[11.5px] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)] mt-2"
             >
               view history →
             </Link>
@@ -348,102 +418,283 @@ export function Inbox() {
     else nav(`/feedback/${row.id}`);
   };
 
+  // One inbox item → its card. Shared between the grouped active view and the
+  // flat snoozed view.
+  const renderItem = (item: InboxItem, i: number) => {
+    const isSelected =
+      selected !== null && selected.kind === item.kind && selected.row.id === item.row.id;
+    if (item.kind === "decision") {
+      const d = item.row;
+      return (
+        <SelectableWrapper key={d.id} active={isSelected}>
+          <DecisionCard
+            decision={d}
+            ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
+            index={i}
+            onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
+            onOpen={() => openDecision(d)}
+            snoozeControl={
+              <SnoozeControl
+                view={view}
+                disabled={snooze.isPending}
+                snoozedUntil={d.snoozedUntil ?? null}
+                onSnooze={(until) => handleSnooze("decision", d.id, until)}
+              />
+            }
+          />
+        </SelectableWrapper>
+      );
+    }
+    if (item.kind === "plan") {
+      const p = item.row;
+      return (
+        <SelectableWrapper key={p.id} active={isSelected}>
+          <PlanCard
+            plan={p}
+            index={i}
+            onOpen={() => openPlan(p)}
+            snoozeControl={
+              <SnoozeControl
+                view={view}
+                disabled={snooze.isPending}
+                snoozedUntil={p.snoozedUntil ?? null}
+                onSnooze={(until) => handleSnooze("plan", p.id, until)}
+              />
+            }
+          />
+        </SelectableWrapper>
+      );
+    }
+    if (item.kind === "feedback") {
+      return (
+        <SelectableWrapper key={item.row.id} active={isSelected}>
+          <FeedbackCard
+            row={item.row}
+            onOpen={() => openFeedback(item.row)}
+            snoozeControl={
+              <SnoozeControl
+                view={view}
+                disabled={snooze.isPending}
+                snoozedUntil={item.row.snoozedUntil ?? null}
+                onSnooze={(until) => handleSnooze("feedback", item.row.id, until)}
+              />
+            }
+          />
+        </SelectableWrapper>
+      );
+    }
+    const a = item.row;
+    return (
+      <SelectableWrapper key={a.id} active={isSelected}>
+        <AuditCard
+          audit={a}
+          projectName={projectNameById.get(a.projectId) ?? null}
+          index={i}
+          onOpen={() => openAudit(a)}
+          snoozeControl={
+            <SnoozeControl
+              view={view}
+              disabled={snooze.isPending}
+              snoozedUntil={a.snoozedUntil ?? null}
+              onSnooze={(until) => handleSnooze("audit", a.id, until)}
+            />
+          }
+        />
+      </SelectableWrapper>
+    );
+  };
+
+  const inFlightCount = triagingRows.length + inFlight.length;
+
   return (
     <div className="md:grid md:grid-cols-[minmax(320px,400px)_minmax(0,640px)] md:gap-6 md:items-start md:max-w-[1080px] md:mx-auto">
-      <div className="space-y-2.5">
+      <div className="space-y-3">
+        <WatchStrip
+          running={opsSnap.data?.running.length ?? inFlight.length}
+          queued={opsSnap.data?.queued.length ?? 0}
+          costToday={opsSnap.data?.usage.today.totalCostUsd ?? 0}
+          needYou={merged.length}
+        />
         <ViewToggle view={view} onChange={setView} />
-        {triagingRows.map((idea) => (
-          <TriagingRow key={idea.id} idea={idea} />
-        ))}
-        {merged.map((item, i) => {
-          const isSelected =
-            selected !== null && selected.kind === item.kind && selected.row.id === item.row.id;
-          if (item.kind === "decision") {
-            const d = item.row;
-            return (
-              <SelectableWrapper key={d.id} active={isSelected}>
-                <DecisionCard
-                  decision={d}
-                  ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
-                  index={i}
-                  onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
-                  onOpen={() => openDecision(d)}
-                  snoozeControl={
-                    <SnoozeControl
-                      view={view}
-                      disabled={snooze.isPending}
-                      snoozedUntil={d.snoozedUntil ?? null}
-                      onSnooze={(until) => handleSnooze("decision", d.id, until)}
-                    />
-                  }
+
+        {view === "active" ? (
+          <>
+            {merged.length > 0 ? (
+              <section className="space-y-2.5">
+                <AttentionHeader label="needs you" count={merged.length} tone="needs-you" />
+                {merged.map((item, i) => renderItem(item, i))}
+              </section>
+            ) : null}
+
+            {inFlightCount > 0 ? (
+              <section className="space-y-2">
+                <AttentionHeader label="in flight" count={inFlightCount} tone="in-flight" />
+                {inFlight.map((r) => (
+                  <InFlightRow key={r.runId} run={r} />
+                ))}
+                {triagingRows.map((idea) => (
+                  <TriagingRow key={idea.id} idea={idea} />
+                ))}
+              </section>
+            ) : null}
+
+            {unattended.length > 0 ? (
+              <section className="space-y-2">
+                <AttentionHeader
+                  label="done while you were away"
+                  count={unattended.length}
+                  tone="unattended"
                 />
-              </SelectableWrapper>
-            );
-          }
-          if (item.kind === "plan") {
-            const p = item.row;
-            return (
-              <SelectableWrapper key={p.id} active={isSelected}>
-                <PlanCard
-                  plan={p}
-                  index={i}
-                  onOpen={() => openPlan(p)}
-                  snoozeControl={
-                    <SnoozeControl
-                      view={view}
-                      disabled={snooze.isPending}
-                      snoozedUntil={p.snoozedUntil ?? null}
-                      onSnooze={(until) => handleSnooze("plan", p.id, until)}
-                    />
-                  }
-                />
-              </SelectableWrapper>
-            );
-          }
-          if (item.kind === "feedback") {
-            return (
-              <SelectableWrapper key={item.row.id} active={isSelected}>
-                <FeedbackCard
-                  row={item.row}
-                  onOpen={() => openFeedback(item.row)}
-                  snoozeControl={
-                    <SnoozeControl
-                      view={view}
-                      disabled={snooze.isPending}
-                      snoozedUntil={item.row.snoozedUntil ?? null}
-                      onSnooze={(until) => handleSnooze("feedback", item.row.id, until)}
-                    />
-                  }
-                />
-              </SelectableWrapper>
-            );
-          }
-          const a = item.row;
-          return (
-            <SelectableWrapper key={a.id} active={isSelected}>
-              <AuditCard
-                audit={a}
-                projectName={projectNameById.get(a.projectId) ?? null}
-                index={i}
-                onOpen={() => openAudit(a)}
-                snoozeControl={
-                  <SnoozeControl
-                    view={view}
-                    disabled={snooze.isPending}
-                    snoozedUntil={a.snoozedUntil ?? null}
-                    onSnooze={(until) => handleSnooze("audit", a.id, until)}
-                  />
-                }
-              />
-            </SelectableWrapper>
-          );
-        })}
+                {unattended.map((e) => (
+                  <UnattendedRow key={e.id} event={e} />
+                ))}
+              </section>
+            ) : null}
+          </>
+        ) : (
+          merged.map((item, i) => renderItem(item, i))
+        )}
       </div>
 
       <div className="hidden md:block md:sticky md:top-5">
         <InboxDetailPane item={selected} onDecisionAction={handleDecisionAction} />
       </div>
     </div>
+  );
+}
+
+/**
+ * The watch strip — Heimdall's ambient presence above the inbox. Pairs with the
+ * shell ticker but adds the eye glyph + the amber "needs you" count (the one
+ * amber element this surface spends, since it points at decisions that are yours).
+ */
+function WatchStrip({
+  running,
+  queued,
+  costToday,
+  needYou,
+}: {
+  running: number;
+  queued: number;
+  costToday: number;
+  needYou: number;
+}) {
+  const cost = costToday === 0 ? "$0" : costToday < 0.01 ? "<$0.01" : `$${costToday.toFixed(2)}`;
+  return (
+    <Link
+      to="/ops"
+      className="flex items-center gap-2.5 px-3 h-9 surface-2 mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--color-fg-2)] tabular-nums"
+      aria-label="ops dashboard"
+    >
+      <HeimdallMark size={14} title="Heimdall" />
+      {running > 0 ? (
+        <span className="flex items-center gap-1.5 text-[var(--color-working)]">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-working)] pulse-dot" />
+          {running} running
+        </span>
+      ) : (
+        <span>idle</span>
+      )}
+      {queued > 0 ? <span>· {queued}q</span> : null}
+      <span>· {cost} today</span>
+      <span className="flex-1" />
+      {needYou > 0 ? <span className="chip chip-accent">{needYou} need you</span> : null}
+    </Link>
+  );
+}
+
+/** A live run, mid-flight. Teal, breathing, with an indeterminate progress bar. */
+function InFlightRow({ run }: { run: AmbientRun }) {
+  const elapsed = Math.max(0, Math.floor((Date.now() - run.startedAt) / 1000));
+  const elapsedLabel =
+    elapsed < 60
+      ? `${elapsed}s`
+      : elapsed < 3600
+        ? `${Math.floor(elapsed / 60)}m`
+        : `${Math.floor(elapsed / 3600)}h`;
+  return (
+    <Link
+      to={`/runs/${run.runId}`}
+      className="block relative overflow-hidden surface drop-in active:bg-[var(--color-bg-2)] border-l-2 border-[var(--color-working)] breathe"
+    >
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-working)] pulse-dot" />
+          <span className="mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-working)]">
+            running
+          </span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+            · iter {run.iterationCount}
+          </span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+            {elapsedLabel}
+          </span>
+        </div>
+        <p className="display text-[15px] text-[var(--color-fg)] leading-snug truncate">
+          {run.projectName ?? run.projectSlug ?? "run"}
+        </p>
+        <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-0.5 truncate">
+          {run.taskId ? `${run.taskId} · ` : ""}
+          {run.agentName} · {run.runId.slice(0, 8)}
+        </p>
+      </div>
+      {/* indeterminate progress — the run is working, ETA unknown */}
+      <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-[var(--color-working-soft)] overflow-hidden">
+        <div className="h-full w-1/3 bg-[var(--color-working)] indeterminate" />
+      </div>
+    </Link>
+  );
+}
+
+const UNATTENDED_CHIP: Record<string, { label: string; icon: typeof GitMerge }> = {
+  auto_merged: { label: "auto · merged", icon: GitMerge },
+  auto_ran: { label: "auto · ran", icon: ArrowUpRight },
+  trust_promoted: { label: "auto · promoted", icon: CheckCircle2 },
+};
+
+/** A thing the system did unattended while you were away. FYI only, no action. */
+function UnattendedRow({ event }: { event: AmbientEvent }) {
+  const elapsed = Math.max(0, Math.floor((Date.now() - event.createdAt) / 1000));
+  const ago =
+    elapsed < 60
+      ? `${elapsed}s`
+      : elapsed < 3600
+        ? `${Math.floor(elapsed / 60)}m`
+        : elapsed < 86400
+          ? `${Math.floor(elapsed / 3600)}h`
+          : `${Math.floor(elapsed / 86400)}d`;
+  const chip = UNATTENDED_CHIP[event.kind] ?? { label: `auto · ${event.kind}`, icon: ArrowUpRight };
+  const Icon = chip.icon;
+  const href = event.runId
+    ? `/runs/${event.runId}`
+    : event.projectId
+      ? `/projects/${event.projectId}`
+      : "/ops";
+  return (
+    <Link
+      to={href}
+      className="block px-4 py-2.5 rounded-[10px] border active:bg-[var(--color-bg-2)]"
+      style={{
+        background: "var(--color-working-tint)",
+        borderColor: "var(--color-working-tint-line)",
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <AutoChip>
+          <Icon size={9} />
+          {chip.label}
+        </AutoChip>
+        {event.projectName ? (
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+            {event.projectName}
+          </span>
+        ) : null}
+        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">{ago} ago</span>
+      </div>
+      <p className="text-[13px] text-[var(--color-fg-2)] leading-snug mt-1 line-clamp-2">
+        {event.message}
+      </p>
+    </Link>
   );
 }
 
@@ -459,7 +710,7 @@ function ViewToggle({ view, onChange }: { view: InboxView; onChange: (v: InboxVi
           aria-pressed={view === v}
           className={
             view === v
-              ? "chip chip-accent"
+              ? "chip text-[var(--color-fg-1)] border-[var(--color-line-bright)]"
               : "chip text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
           }
         >
@@ -475,7 +726,7 @@ function SelectableWrapper({ active, children }: { active: boolean; children: Re
     <div
       className={
         active
-          ? "md:ring-1 md:ring-[var(--color-accent-line)] md:rounded-sm md:transition"
+          ? "md:ring-1 md:ring-[var(--color-line-bright)] md:rounded-sm md:transition"
           : "md:transition"
       }
     >
@@ -566,7 +817,7 @@ function SnoozeControl({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="h-7 w-7 inline-flex items-center justify-center text-[var(--color-fg-2)] hover:text-[var(--color-accent)] disabled:opacity-50"
+        className="h-7 w-7 inline-flex items-center justify-center text-[var(--color-fg-2)] hover:text-[var(--color-fg)] disabled:opacity-50"
       >
         <Clock size={15} />
       </button>
@@ -624,10 +875,10 @@ function TriagingRow({ idea }: { idea: TriagingIdea }) {
   const elapsed = Math.max(0, Math.floor((Date.now() - idea.createdAt) / 1000));
   const elapsedLabel = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m`;
   return (
-    <div className="surface drop-in px-4 py-3 border-l-2 border-[var(--color-accent)]">
+    <div className="surface drop-in px-4 py-3 border-l-2 border-[var(--color-working)]">
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="chip chip-accent flex items-center gap-1.5">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
+        <span className="chip chip-working flex items-center gap-1.5">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-working)] pulse-dot" />
           triaging
         </span>
         {idea.intentRole ? <span className="chip">{idea.intentRole}</span> : null}

@@ -265,7 +265,7 @@ export function TaskTemplateEditor({ slug }: TaskTemplateEditorProps) {
                   key={p}
                   type="button"
                   onClick={() => updateField("priority", p)}
-                  className={`chip mono text-[11px] ${draft.priority === p ? "chip-accent" : ""}`}
+                  className={`chip mono text-[11px] ${draft.priority === p ? "chip-working" : ""}`}
                 >
                   {p}
                 </button>
@@ -282,7 +282,7 @@ export function TaskTemplateEditor({ slug }: TaskTemplateEditorProps) {
                   key={e}
                   type="button"
                   onClick={() => updateField("estimate", e)}
-                  className={`chip mono text-[11px] ${draft.estimate === e ? "chip-accent" : ""}`}
+                  className={`chip mono text-[11px] ${draft.estimate === e ? "chip-working" : ""}`}
                 >
                   {e}
                 </button>
@@ -459,7 +459,7 @@ export function TaskTemplateEditor({ slug }: TaskTemplateEditorProps) {
                     ),
                   )
                 }
-                className={`chip mono text-[10.5px] ${s.kind === "agent" ? "chip-accent" : ""}`}
+                className={`chip mono text-[10.5px] ${s.kind === "agent" ? "chip-working" : ""}`}
                 title="toggle static / agent-rendered"
               >
                 {s.kind}

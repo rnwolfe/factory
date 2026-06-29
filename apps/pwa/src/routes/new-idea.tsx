@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, FileText } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { HeimdallMark } from "../components/heimdall-mark.tsx";
 import { trpc } from "../lib/trpc.ts";
 
 const CEREMONIES = ["tinker", "personal", "shared", "production"] as const;
@@ -44,7 +45,7 @@ export function NewIdea() {
         to="/inbox/import-spec"
         className="surface px-4 py-3 flex items-center gap-3 active:bg-[var(--color-bg-2)] hover:border-[var(--color-line-bright)]"
       >
-        <FileText size={16} className="text-[var(--color-accent)] shrink-0" />
+        <FileText size={16} className="text-[var(--color-fg-2)] shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="display text-[14px] text-[var(--color-fg)] leading-tight">
             already have a spec?
@@ -71,6 +72,7 @@ export function NewIdea() {
           placeholder="what's on your mind? a sentence is enough."
           value={text}
           onChange={(e) => setText(e.target.value)}
+          style={{ caretColor: "var(--color-working)" }}
         />
 
         <div className="mt-4 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
@@ -83,7 +85,7 @@ export function NewIdea() {
               type="button"
               onClick={() => setRole(role === r ? "" : r)}
               className={
-                role === r ? "chip chip-accent" : "chip hover:border-[var(--color-line-bright)]"
+                role === r ? "chip chip-working" : "chip hover:border-[var(--color-line-bright)]"
               }
             >
               {r}
@@ -101,7 +103,9 @@ export function NewIdea() {
               type="button"
               onClick={() => setCeremony(ceremony === c ? "" : c)}
               className={
-                ceremony === c ? "chip chip-accent" : "chip hover:border-[var(--color-line-bright)]"
+                ceremony === c
+                  ? "chip chip-working"
+                  : "chip hover:border-[var(--color-line-bright)]"
               }
             >
               {c}
@@ -117,7 +121,7 @@ export function NewIdea() {
 
         <button
           type="button"
-          className="btn btn-primary w-full mt-5"
+          className="btn btn-bright w-full mt-5"
           disabled={!can}
           onClick={() =>
             submit.mutate({
@@ -132,9 +136,9 @@ export function NewIdea() {
         </button>
       </div>
 
-      <p className="text-[12px] mono text-[var(--color-fg-3)] px-2">
-        Heimdall will triage this against the active rubric within ~2 min and surface a decision
-        card.
+      <p className="text-[12px] mono text-[var(--color-fg-3)] px-2 flex items-start gap-1.5">
+        <HeimdallMark size={12} className="text-[var(--color-working)] shrink-0 mt-0.5" />
+        <span>triaged the moment it lands · verdict in your inbox</span>
       </p>
     </div>
   );

@@ -93,7 +93,8 @@ function fmtCost(n: number): string {
 function statusChip(status: string): string {
   if (status === "completed") return "chip-greenlit";
   if (status === "failed" || status === "blocked" || status === "aborted") return "chip-trashed";
-  if (status === "running" || status === "queued") return "chip-accent";
+  if (status === "running") return "chip-working";
+  if (status === "queued") return "chip";
   if (status === "usage_capped" || status === "deferred" || status === "needs_review")
     return "chip-decompose";
   return "";
@@ -112,7 +113,7 @@ export function Ops() {
     <div className="space-y-4 pb-4">
       <header className="surface p-4">
         <div className="flex items-center gap-2">
-          <Activity size={14} className="text-[var(--color-accent)]" />
+          <Activity size={14} className="text-[var(--color-fg-3)]" />
           <h1 className="display text-[20px] leading-none">ops</h1>
         </div>
         <p className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mt-2">
@@ -174,7 +175,7 @@ function OpsLive({ data }: { data: OpsSnapshot }) {
                 to={`/projects/${r.projectId}/runs/${r.id}`}
                 className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
               >
-                <span className="chip chip-accent">{r.status}</span>
+                <span className="chip chip-working">{r.status}</span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[14px] truncate">
                     <span className="text-[var(--color-fg)]">{r.projectName}</span>
@@ -236,7 +237,7 @@ function OpsLive({ data }: { data: OpsSnapshot }) {
                 to={`/projects/${s.projectId}/sessions/${s.id}`}
                 className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
               >
-                <Terminal size={12} className="text-[var(--color-accent)] shrink-0" />
+                <Terminal size={12} className="text-[var(--color-fg-3)] shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[14px] truncate">{s.projectSlug}</div>
                   <div className="mono text-[10.5px] text-[var(--color-fg-3)]">

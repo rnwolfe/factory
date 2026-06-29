@@ -137,7 +137,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
                     key={k}
                     type="button"
                     onClick={() => setKind(k)}
-                    className={cn("chip", kind === k ? "chip-accent" : "")}
+                    className={cn("chip", kind === k ? "chip-working" : "")}
                     disabled={create.isPending}
                   >
                     {k}
@@ -155,7 +155,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
                     key={p}
                     type="button"
                     onClick={() => setPriority(p)}
-                    className={cn("chip", priority === p ? "chip-accent" : "")}
+                    className={cn("chip", priority === p ? "chip-working" : "")}
                     disabled={create.isPending}
                   >
                     {p}

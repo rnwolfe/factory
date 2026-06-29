@@ -440,7 +440,7 @@ export function DecisionCard({
           <div className="px-4 pb-3 space-y-1.5">
             <div className="flex items-center gap-1.5 mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-fg-3)]">
               <span>chose</span>
-              <span className="text-[var(--color-accent)] normal-case tracking-normal">
+              <span className="text-[var(--color-working)] normal-case tracking-normal">
                 {decision.payload.decided ?? "(unspecified)"}
               </span>
               {decision.payload.kind ? <span>· {decision.payload.kind}</span> : null}

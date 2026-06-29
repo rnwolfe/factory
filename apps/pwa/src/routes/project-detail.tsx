@@ -32,6 +32,7 @@ import { SessionsList } from "../components/sessions-list.tsx";
 import { SkillsSection } from "../components/skills-section.tsx";
 import { type ProvenanceLink, ProvenanceLinks } from "../components/source-link.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
+import { TrustLadder } from "../components/trust-ladder.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
 import { cn } from "../lib/cn.ts";
 import { fmtCost } from "../lib/metrics-format.ts";
@@ -44,14 +45,16 @@ interface RunRow {
   startedAt: number;
 }
 
-type ProjectTab = "tasks" | "runs" | "audits" | "workdir" | "autonomy";
+type ProjectTab = "overview" | "tasks" | "runs" | "audits" | "workdir" | "autonomy" | "settings";
 
 const PROJECT_TABS: ReadonlyArray<{ id: ProjectTab; label: string }> = [
+  { id: "overview", label: "overview" },
   { id: "tasks", label: "tasks" },
   { id: "runs", label: "runs" },
   { id: "audits", label: "audits" },
   { id: "workdir", label: "workdir" },
   { id: "autonomy", label: "autonomy" },
+  { id: "settings", label: "settings" },
 ];
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
@@ -93,7 +96,7 @@ export function ProjectDetail() {
   const [showArchivedTasks, setShowArchivedTasks] = useState(false);
   const [showAllRuns, setShowAllRuns] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get("tab") ?? "tasks") as ProjectTab;
+  const activeTab = (searchParams.get("tab") ?? "overview") as ProjectTab;
   const setActiveTab = (tab: ProjectTab) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", tab);
@@ -223,7 +226,7 @@ export function ProjectDetail() {
     return (
       <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
         project not found.{" "}
-        <Link to="/projects" className="text-[var(--color-accent)] underline">
+        <Link to="/projects" className="text-[var(--color-fg-1)] underline">
           back
         </Link>
       </div>
@@ -234,6 +237,8 @@ export function ProjectDetail() {
     project: p,
     tasks,
     hasSpec,
+    trust,
+    stats,
   } = project.data as unknown as {
     hasSpec?: boolean;
     project: {
@@ -259,6 +264,17 @@ export function ProjectDetail() {
       model?: string | null;
       sourceLinks?: ProvenanceLink[];
     }>;
+    trust: {
+      rung: "supervised" | "collaborative" | "autonomous";
+      cleanStreak: number;
+      promoteStreak: number;
+    };
+    stats: {
+      runsToday: number;
+      mergedToday: number;
+      autoMergedToday: number;
+      mergedPct: number | null;
+    };
   };
   const allRuns = runs.data ?? [];
   const activeRuns = allRuns.filter((r) => ACTIVE_RUN_STATUSES.has(r.status));
@@ -273,6 +289,16 @@ export function ProjectDetail() {
   const archivedTasks = tasks.filter((t) => ARCHIVED_TASK_STATUSES.has(t.status));
   const visibleRuns = showAllRuns ? allRuns : allRuns.slice(0, RUNS_DEFAULT_VISIBLE);
   const hiddenRunCount = allRuns.length - visibleRuns.length;
+  // Overview vitals: queued = runs awaiting a worker; recently-merged = the most
+  // recent completed runs. Posture wording reads off the trust rung.
+  const queuedRunCount = allRuns.filter((r) => r.status === "queued").length;
+  const recentlyMerged = allRuns.filter((r) => r.status === "completed").slice(0, 5);
+  const postureLine =
+    trust.rung === "autonomous"
+      ? "Healthy · running itself"
+      : trust.rung === "collaborative"
+        ? "Healthy · collaborative"
+        : "Healthy · supervised";
 
   return (
     <div className="space-y-4">
@@ -452,63 +478,129 @@ export function ProjectDetail() {
           </div>
         ) : null}
 
-        <label className="mt-3 flex items-center gap-2 text-[12.5px] text-[var(--color-fg-2)] cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={p.autoAdvance ?? true}
-            onChange={(e) => setAutoAdvance.mutate(e.target.checked)}
-            disabled={setAutoAdvance.isPending}
-            className="accent-[var(--color-accent)]"
-          />
-          <span>auto-advance to next ready task on success</span>
-        </label>
-
-        <div className="mt-3">
-          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
-            agent autonomy
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {(["collaborative", "autonomous"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setAutonomyMode.mutate(mode)}
-                disabled={setAutonomyMode.isPending}
-                className={cn(
-                  "chip text-[11.5px]",
-                  (p.autonomyMode ?? "collaborative") === mode
-                    ? "chip-accent"
-                    : "hover:border-[var(--color-line-bright)]",
-                )}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
-          <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1.5">
-            {p.autonomyMode === "autonomous"
-              ? "agent makes architectural calls silently — choices noted in run summaries only."
-              : "agent surfaces architectural / library / naming choices to the inbox without halting the run."}
-          </p>
-        </div>
-
-        <div className="mt-3">
-          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
-            agent · model
-          </div>
-          <AgentModelPicker
-            agent={p.agent ?? "claude-code"}
-            model={p.model ?? null}
-            onAgentChange={(a) => setAgent.mutate(a)}
-            onModelChange={(m) => setModel.mutate(m)}
-            disabled={setAgent.isPending || setModel.isPending}
-          />
-        </div>
-
         <SpendStrip projectId={p.id} />
       </header>
 
       <ProjectTabStrip active={activeTab} setActive={setActiveTab} />
+
+      <ProjectTabPanel value="overview" active={activeTab}>
+        {/* posture — what the system is doing on its own + how far it's let to go */}
+        <div className="surface p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className="pulse-dot inline-block w-2 h-2 rounded-full shrink-0"
+                style={{ background: "var(--color-working)" }}
+                aria-hidden
+              />
+              <span className="display text-[16px] text-[var(--color-fg)] truncate">
+                {postureLine}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab("autonomy")}
+              className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)] shrink-0"
+            >
+              tune ›
+            </button>
+          </div>
+          <div className="mt-3">
+            <TrustLadder
+              rung={trust.rung}
+              streak={trust.cleanStreak}
+              target={trust.promoteStreak}
+              size="inline"
+            />
+          </div>
+        </div>
+
+        {/* 3-up vitals */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="surface-2 p-3">
+            <div className="display text-[22px] leading-none text-[var(--color-fg)] tabular-nums">
+              {queuedRunCount}
+            </div>
+            <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-fg-3)] mt-1.5">
+              queued
+            </div>
+          </div>
+          <div className="surface-2 p-3">
+            <div className="display text-[22px] leading-none text-[var(--color-fg)] tabular-nums">
+              {stats.runsToday}
+            </div>
+            <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-fg-3)] mt-1.5">
+              runs today
+            </div>
+          </div>
+          <div className="surface-2 p-3">
+            <div className="display text-[22px] leading-none text-[var(--color-fg)] tabular-nums">
+              {stats.mergedPct == null ? "—" : `${stats.mergedPct}%`}
+            </div>
+            <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-fg-3)] mt-1.5">
+              merged
+            </div>
+          </div>
+        </div>
+
+        {/* in flight — runs the system is working right now */}
+        {activeRuns.length > 0 ? (
+          <section>
+            <SectionHeader title="in flight" count={activeRuns.length} />
+            <div className="surface divide-y divide-[var(--color-line)]">
+              {activeRuns.map((r) => (
+                <Link
+                  key={r.id}
+                  to={`/projects/${id}/runs/${r.id}`}
+                  className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
+                >
+                  <span
+                    className="pulse-dot inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: "var(--color-working)" }}
+                    aria-hidden
+                  />
+                  <span className="mono text-[11px] text-[var(--color-working)]">
+                    {r.id.slice(0, 8)}
+                  </span>
+                  <span className="mono text-[11px] text-[var(--color-fg-3)] truncate">
+                    {r.taskId ? `task ${r.taskId}` : "ad-hoc"}
+                  </span>
+                  <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto shrink-0">
+                    {timeAgo(r.startedAt)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {/* recently merged — completed work, most recent first */}
+        {recentlyMerged.length > 0 ? (
+          <section>
+            <SectionHeader title="recently merged" count={recentlyMerged.length} />
+            <div className="surface divide-y divide-[var(--color-line)]">
+              {recentlyMerged.map((r) => (
+                <Link
+                  key={r.id}
+                  to={`/projects/${id}/runs/${r.id}`}
+                  className="flex items-center gap-2.5 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
+                >
+                  <span className="text-[var(--color-verdict-greenlit)] shrink-0">✓</span>
+                  <span className="mono text-[11px] text-[var(--color-fg-1)]">
+                    {r.id.slice(0, 8)}
+                  </span>
+                  <span className="mono text-[11px] text-[var(--color-fg-3)] truncate">
+                    {r.taskId ? `task ${r.taskId}` : "ad-hoc"}
+                  </span>
+                  <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto shrink-0">
+                    {timeAgo(r.startedAt)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </ProjectTabPanel>
 
       <ProjectTabPanel value="tasks" active={activeTab}>
         <section>
@@ -711,9 +803,75 @@ export function ProjectDetail() {
           </div>
           <p className="px-1 mb-2 text-[12px] text-[var(--color-fg-2)] leading-relaxed">
             per-project autonomy policy. each knob inherits from the system policy unless overridden
-            here; the project header keeps the at-a-glance autonomy mode.
+            here; the settings tab keeps the at-a-glance agent autonomy mode.
           </p>
           <AutonomyPanel scope="project" projectId={id} />
+        </section>
+      </ProjectTabPanel>
+
+      <ProjectTabPanel value="settings" active={activeTab}>
+        <section className="surface p-4 space-y-4">
+          <label className="flex items-center gap-2 text-[12.5px] text-[var(--color-fg-2)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={p.autoAdvance ?? true}
+              onChange={(e) => setAutoAdvance.mutate(e.target.checked)}
+              disabled={setAutoAdvance.isPending}
+              className="accent-[var(--color-working)]"
+            />
+            <span>auto-advance to next ready task on success</span>
+          </label>
+
+          <div>
+            <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+              agent autonomy
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(["collaborative", "autonomous"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setAutonomyMode.mutate(mode)}
+                  disabled={setAutonomyMode.isPending}
+                  className={cn(
+                    "chip text-[11.5px]",
+                    (p.autonomyMode ?? "collaborative") === mode
+                      ? "chip-working"
+                      : "hover:border-[var(--color-line-bright)]",
+                  )}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+            <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1.5">
+              {p.autonomyMode === "autonomous"
+                ? "agent makes architectural calls silently — choices noted in run summaries only."
+                : "agent surfaces architectural / library / naming choices to the inbox without halting the run."}
+            </p>
+          </div>
+
+          <div>
+            <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1.5">
+              agent · model
+            </div>
+            <AgentModelPicker
+              agent={p.agent ?? "claude-code"}
+              model={p.model ?? null}
+              onAgentChange={(a) => setAgent.mutate(a)}
+              onModelChange={(m) => setModel.mutate(m)}
+              disabled={setAgent.isPending || setModel.isPending}
+            />
+          </div>
+
+          <div>
+            <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-verdict-trashed)] mb-1.5">
+              danger
+            </div>
+            <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+              delete this project from the ⋯ menu in the header.
+            </p>
+          </div>
         </section>
       </ProjectTabPanel>
     </div>
@@ -729,7 +887,7 @@ function ProjectTabStrip({
 }) {
   return (
     <nav
-      className="hidden md:flex items-center gap-6 border-b border-[var(--color-line)]"
+      className="flex items-center gap-4 border-b border-[var(--color-line)] overflow-x-auto whitespace-nowrap"
       aria-label="project sections"
     >
       {PROJECT_TABS.map((tab) => {
@@ -740,7 +898,7 @@ function ProjectTabStrip({
             type="button"
             onClick={() => setActive(tab.id)}
             className={cn(
-              "relative h-10 mono text-[11.5px] uppercase tracking-[0.18em] transition-colors",
+              "relative h-10 shrink-0 mono text-[11.5px] uppercase tracking-[0.18em] transition-colors",
               isActive
                 ? "text-[var(--color-fg)]"
                 : "text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]",
@@ -748,7 +906,7 @@ function ProjectTabStrip({
           >
             {tab.label}
             {isActive ? (
-              <span className="absolute -bottom-px left-0 right-0 h-px bg-[var(--color-accent)]" />
+              <span className="absolute -bottom-px left-0 right-0 h-0.5 bg-[var(--color-fg-1)]" />
             ) : null}
           </button>
         );
@@ -766,9 +924,8 @@ function ProjectTabPanel({
   active: ProjectTab;
   children: React.ReactNode;
 }) {
-  // On mobile (< md): always visible — sections stack as before.
-  // On desktop: only the active tab's content is visible.
-  return <div className={cn("space-y-4", value !== active && "md:hidden")}>{children}</div>;
+  // Real tabs on every viewport: only the active tab's content is visible.
+  return <div className={cn("space-y-4", value !== active && "hidden")}>{children}</div>;
 }
 
 function WorkdirPanel({
@@ -1056,13 +1213,15 @@ function RunStatusChip({ status }: { status: string }) {
   const tone =
     status === "completed"
       ? "chip-greenlit"
-      : status === "running" || status === "queued"
-        ? "chip-accent"
-        : status === "deferred" || status === "needs_review"
-          ? "chip-decompose"
-          : status === "failed" || status === "aborted" || status === "blocked"
-            ? "chip-trashed"
-            : "";
+      : status === "running"
+        ? "chip-working"
+        : status === "queued"
+          ? ""
+          : status === "deferred" || status === "needs_review"
+            ? "chip-decompose"
+            : status === "failed" || status === "aborted" || status === "blocked"
+              ? "chip-trashed"
+              : "";
   return <span className={`chip ${tone}`}>{status === "needs_review" ? "review" : status}</span>;
 }
 
@@ -1117,7 +1276,7 @@ function Sparkline({
             y={SPARK_H - barH - 1}
             width={barW}
             height={barH}
-            fill="hsl(22 88% 60%)"
+            fill="var(--color-working)"
             opacity={0.82}
           />
         );

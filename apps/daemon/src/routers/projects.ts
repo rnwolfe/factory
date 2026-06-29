@@ -41,6 +41,7 @@ import {
   updateTaskModel,
   updateTaskStatus,
 } from "../projects/tasks.ts";
+import { projectMergeStats, projectTrustState } from "../projects/trust-stats.ts";
 import { snapshotWorkdir } from "../projects/workdir.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
@@ -441,6 +442,10 @@ export const projectsRouter = router({
           ...r,
           runningRunCount: a?.running ?? 0,
           queuedRunCount: a?.queued ?? 0,
+          // "how far you've let it go" + "what it did on its own" — the Heimdall
+          // portfolio signals. Derived read-only; see projects/trust-stats.ts.
+          trust: projectTrustState(ctx.db, r),
+          stats: projectMergeStats(ctx.db, r.id),
         };
       });
     }),
@@ -510,7 +515,14 @@ export const projectsRouter = router({
     // Whether the project carries an imported spec — gates the "plan next
     // milestone" affordance, which re-decomposes docs/internal/SPEC.md (ADR-009).
     const hasSpec = existsSync(path.join(project.workdirPath, "docs", "internal", "SPEC.md"));
-    return { project: reconciled, tasks: tasks.map((t) => taskSummary(project.id, t)), hasSpec };
+    return {
+      project: reconciled,
+      tasks: tasks.map((t) => taskSummary(project.id, t)),
+      hasSpec,
+      // Heimdall dashboard signals — posture (trust ladder) + today's vitals.
+      trust: projectTrustState(ctx.db, reconciled),
+      stats: projectMergeStats(ctx.db, reconciled.id),
+    };
   }),
 
   tag: protectedProcedure
