@@ -32,6 +32,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
   operator memory stamps each fact with a teal provenance line; global settings pins a teal
   "autonomy policy · system" card at the top.
 - Motion is calm and respects `prefers-reduced-motion` (live dots pulse, active runs breathe).
+- **The run summary now renders as Markdown** (it was raw text showing literal `**`/`-`), and the
+  agent's readouts/reports get a roomier reading treatment — larger line-height, more air between
+  paragraphs and list items, brighter headings.
 
 ## v0.39.0 — 2026-06-29
 

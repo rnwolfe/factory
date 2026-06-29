@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { ArrowLeft, Hourglass, ListTree, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { MarkdownBlock } from "../components/markdown-block.tsx";
 import { QualityReportPanel, type QualityReportView } from "../components/quality-report.tsx";
 import { RunEventStream } from "../components/run-event-stream.tsx";
 import {
@@ -444,13 +445,11 @@ export function LivePane() {
       </div>
 
       {run.data?.summary ? (
-        <div className="surface mb-2 px-3 py-2.5">
-          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1">
+        <div className="surface mb-2 px-3.5 py-3">
+          <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2">
             summary
           </div>
-          <p className="text-[14px] leading-relaxed text-[var(--color-fg)] whitespace-pre-wrap">
-            {run.data.summary}
-          </p>
+          <MarkdownBlock source={run.data.summary} />
         </div>
       ) : null}
 
