@@ -4,6 +4,19 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.38.1 — 2026-06-29
+
+### Fixed
+- **Auto-retry now reuses the held run's worktree + session** for a pointed correction
+  (continuity — the agent fixes the specific defect in place rather than re-approaching),
+  falling back to branching from the branch tip only when the worktree was reclaimed or the
+  agent can't resume (codex). v0.38.0 always reused the worktree id and died with "existing
+  worktree missing from disk" when it had been cleaned up.
+- **No-op completions no longer get held or auto-retried.** A run that made zero commits
+  ("already done, no changes needed") has nothing to merge or verify — it now bypasses the
+  verifier gate and completes, instead of being held as `needs_review` and churning through
+  the auto-retry budget on already-finished work.
+
 ## v0.38.0 — 2026-06-28
 
 ### Added
