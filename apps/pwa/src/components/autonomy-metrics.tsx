@@ -42,10 +42,12 @@ interface Snapshot {
 
 const PALETTE = {
   accent: "var(--color-accent)",
+  working: "var(--color-working)", // teal — the autonomous voice; north-star trend
   green: "var(--color-verdict-greenlit)",
   amber: "var(--color-verdict-parked)",
   red: "var(--color-verdict-trashed)",
   blue: "var(--color-verdict-decompose)",
+  neutral: "var(--color-fg-2)",
 } as const;
 
 type RangeKey = "7d" | "30d" | "90d";
@@ -105,7 +107,7 @@ function RangePill({
       className={[
         "mono text-[9.5px] uppercase tracking-[0.14em] px-2 py-0.5 rounded transition-colors",
         active
-          ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border border-[var(--color-accent-line)]"
+          ? "text-[var(--color-fg-1)] border border-[var(--color-line-bright)]"
           : "text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]",
       ].join(" ")}
     >
@@ -134,7 +136,7 @@ function StatTile({
         className={[
           "mono tabular-nums mt-1 leading-none",
           emphasis
-            ? "text-[26px] text-[var(--color-accent)]"
+            ? "text-[26px] text-[var(--color-working)]"
             : "text-[20px] text-[var(--color-fg)]",
         ].join(" ")}
       >
@@ -355,7 +357,7 @@ export function AutonomyMetrics() {
       <ChartCard title="decisions per run · over time">
         <MetricChart
           data={dprRows}
-          series={[{ key: "value", label: "decisions/run", color: PALETTE.accent, kind: "line" }]}
+          series={[{ key: "value", label: "decisions/run", color: PALETTE.working, kind: "line" }]}
           height={180}
           formatX={fmtDay}
           formatY={fmtRatio}
@@ -379,7 +381,7 @@ export function AutonomyMetrics() {
         <ChartCard title="commits / day">
           <MetricChart
             data={commitRows}
-            series={[{ key: "commits", label: "commits", color: PALETTE.amber }]}
+            series={[{ key: "commits", label: "commits", color: PALETTE.neutral }]}
             formatX={fmtDay}
             formatY={fmtInt}
             empty={rowsAllZero(commitRows, ["commits"])}

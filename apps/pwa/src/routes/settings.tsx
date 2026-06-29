@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Loader2, Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { HeimdallMark } from "../components/heimdall-mark.tsx";
 import { AgentModelPicker, type AgentName } from "../components/model-picker.tsx";
 import { useAuth } from "../lib/auth.ts";
 import * as notifications from "../lib/notifications.ts";
@@ -55,6 +56,29 @@ export function Settings() {
 
   return (
     <div className="space-y-4 md:max-w-3xl md:mx-auto">
+      <Link
+        to="/settings/autonomy"
+        className="surface block p-4 active:opacity-90"
+        style={{
+          background: "var(--color-working-tint)",
+          borderColor: "var(--color-working-tint-line)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <HeimdallMark size={13} />
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-working)]">
+            autonomy policy · system
+          </span>
+        </div>
+        <p className="text-[13px] text-[var(--color-fg-1)] mt-2 leading-relaxed">
+          The system's autonomy policy applies to all projects unless a project overrides it.
+        </p>
+        <span className="mono text-[11px] text-[var(--color-working)] mt-2 inline-flex items-center gap-1">
+          open full policy
+          <ChevronRight size={12} />
+        </span>
+      </Link>
+
       <Section title="connection">
         <Row label="server">
           <span className="mono text-[12px]">{location.host}</span>
@@ -162,19 +186,6 @@ export function Settings() {
       </Section>
 
       <OperatorMemorySection />
-
-      <Section title="autonomy">
-        <Link
-          to="/settings/autonomy"
-          className="px-3 h-11 flex items-center justify-between border-b border-[var(--color-line)] last:border-b-0 active:bg-[var(--color-bg-2)]"
-        >
-          <span className="text-[13px] text-[var(--color-fg-1)]">autonomy policy</span>
-          <span className="flex items-center gap-1.5">
-            <span className="mono text-[10.5px] text-[var(--color-fg-3)]">system</span>
-            <ChevronRight size={14} className="text-[var(--color-fg-3)]" />
-          </span>
-        </Link>
-      </Section>
 
       <Section title="agent">
         <Link
@@ -308,7 +319,7 @@ function OperatorMemorySection() {
         <p className="mt-2 text-[10.5px] mono text-[var(--color-fg-3)] leading-relaxed">
           synthesizes your Claude Code / Codex memories into operator-memory facts. token-heavy;
           runs in the background — watch{" "}
-          <Link to="/memory" className="text-[var(--color-accent)] underline">
+          <Link to="/memory" className="text-[var(--color-fg-1)] underline">
             /memory
           </Link>{" "}
           fill.
@@ -526,7 +537,7 @@ function BudgetRow({
               aria-pressed={infinite}
               className={`mono text-[11px] !h-7 !px-2 rounded border ${
                 infinite
-                  ? "bg-[var(--color-accent)] text-[var(--color-bg)] border-[var(--color-accent)]"
+                  ? "bg-[var(--color-fg-1)] text-[var(--color-bg)] border-[var(--color-fg-1)]"
                   : "bg-[var(--color-bg-2)] border-[var(--color-line)] text-[var(--color-fg-2)]"
               }`}
             >
@@ -1201,7 +1212,7 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
               type="button"
               onClick={() => setLanding.mutate(opt)}
               disabled={setLanding.isPending}
-              className={`chip ${snap.ops.landingRoute === opt ? "chip-accent" : ""}`}
+              className={`chip ${snap.ops.landingRoute === opt ? "chip-working" : ""}`}
             >
               {opt}
             </button>
@@ -1248,7 +1259,7 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
               type="button"
               onClick={() => setFable5.mutate(on)}
               disabled={setFable5.isPending}
-              className={`chip ${snap.ops.experimentalFable5 === on ? "chip-accent" : ""}`}
+              className={`chip ${snap.ops.experimentalFable5 === on ? "chip-working" : ""}`}
             >
               {on ? "on" : "off"}
             </button>
@@ -1270,7 +1281,7 @@ function DashboardSettingsRows({ snap }: { snap: SettingsSnapshot }) {
               type="button"
               onClick={() => setQueueEmpty.mutate(on)}
               disabled={setQueueEmpty.isPending}
-              className={`chip ${snap.ops.notifyOnQueueEmpty === on ? "chip-accent" : ""}`}
+              className={`chip ${snap.ops.notifyOnQueueEmpty === on ? "chip-working" : ""}`}
             >
               {on ? "on" : "off"}
             </button>

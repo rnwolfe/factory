@@ -401,7 +401,7 @@ export function LivePane() {
             {run.data?.taskId ? (
               <Link
                 to={`/projects/${id}/tasks/${run.data.taskId}`}
-                className="text-[var(--color-accent)] hover:underline"
+                className="text-[var(--color-fg-1)] hover:underline"
               >
                 task {run.data.taskId}
               </Link>
@@ -414,7 +414,7 @@ export function LivePane() {
                 {"·"}{" "}
                 <Link
                   to={`/projects/${id}/runs/${run.data.retryOfRunId}`}
-                  className="text-[var(--color-accent)] hover:underline"
+                  className="text-[var(--color-fg-1)] hover:underline"
                 >
                   retried from {run.data.retryOfRunId.slice(0, 12)}
                 </Link>
@@ -454,6 +454,17 @@ export function LivePane() {
         </div>
       ) : null}
 
+      {run.data?.retryOfRunId ? (
+        <div
+          className="breathe mb-2 px-3 py-2 rounded-[10px] border border-[var(--color-working-line)] bg-[var(--color-working-tint)]"
+          title="this run was spawned to heal a prior run's findings"
+        >
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-working)]">
+            self-healing · retry of {run.data.retryOfRunId.slice(0, 8)} · findings fed back
+          </span>
+        </div>
+      ) : null}
+
       {status === "blocked" && run.data?.blockerQuestions ? (
         <BlockerPanel rawQuestions={run.data.blockerQuestions} />
       ) : null}
@@ -481,7 +492,7 @@ export function LivePane() {
           type="button"
           className={`mono text-[10.5px] uppercase tracking-[0.18em] px-2 py-1 rounded-[2px] ${
             view === "raw"
-              ? "text-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+              ? "text-[var(--color-fg-1)] bg-[var(--color-bg-2)]"
               : "text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
           }`}
           onClick={() => {
@@ -520,7 +531,7 @@ export function LivePane() {
           type="button"
           onClick={() => retryInWorktree.mutate()}
           disabled={retryInWorktree.isPending}
-          className="btn w-full mt-2"
+          className="btn btn-primary w-full mt-2"
         >
           <RefreshCw size={14} />
           {retryInWorktree.isPending ? "retrying…" : "retry in worktree"}
@@ -666,7 +677,7 @@ function DiffPanel({ diff }: { diff: RunDiff }) {
         <ul className="divide-y divide-[var(--color-line)]">
           {commits.map((c) => (
             <li key={c.sha} className="px-3 py-1.5 text-[12.5px] leading-snug">
-              <span className="mono text-[11px] text-[var(--color-accent)] mr-2">
+              <span className="mono text-[11px] text-[var(--color-fg-2)] mr-2">
                 {c.sha.slice(0, 8)}
               </span>
               <span className="text-[var(--color-fg-1)]">{c.subject}</span>
@@ -699,9 +710,10 @@ function DiffPanel({ diff }: { diff: RunDiff }) {
 
 function chipForStatus(s: string): string {
   if (s === "completed") return "chip-greenlit";
-  if (s === "running") return "chip-accent";
+  if (s === "running") return "chip-working";
   if (s === "failed" || s === "aborted" || s === "blocked") return "chip-trashed";
-  if (s === "deferred" || s === "needs_review") return "chip-decompose";
+  if (s === "needs_review") return "chip-parked";
+  if (s === "deferred") return "chip-decompose";
   return "";
 }
 
@@ -767,9 +779,9 @@ function DeferredTaskPanel({ runId }: { runId: string }) {
   const tailContent = tail.data?.content ?? "";
 
   return (
-    <div className="surface mb-2 p-0 overflow-hidden border-l-2 border-[var(--color-accent)]">
+    <div className="surface mb-2 p-0 overflow-hidden border-l-2 border-[var(--color-verdict-parked)]">
       <div className="px-3 py-1.5 border-b border-[var(--color-line)] flex items-center gap-2">
-        <Hourglass size={13} className="text-[var(--color-accent)]" />
+        <Hourglass size={13} className="text-[var(--color-verdict-parked)]" />
         <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
           deferred work
         </span>
@@ -813,7 +825,7 @@ function DeferredTaskPanel({ runId }: { runId: string }) {
             continuation run:{" "}
             <Link
               to={`/projects/${t.projectId}/runs/${t.continuationRunId}`}
-              className="mono text-[var(--color-accent)] hover:underline"
+              className="mono text-[var(--color-fg-1)] hover:underline"
             >
               {t.continuationRunId.slice(0, 12)}
             </Link>

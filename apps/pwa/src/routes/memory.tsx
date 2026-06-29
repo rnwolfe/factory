@@ -37,7 +37,7 @@ export function Memory() {
     <div className="space-y-4 pb-4">
       <header className="surface p-4">
         <div className="flex items-center gap-2">
-          <BookMarked size={14} className="text-[var(--color-accent)]" />
+          <BookMarked size={14} className="text-[var(--color-fg-3)]" />
           <h1 className="display text-[20px] leading-none">operator memory</h1>
         </div>
         <p className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mt-2">
@@ -133,10 +133,10 @@ function FactRow({ fact }: { fact: MemoryFact }) {
             {fact.body}
           </pre>
           {provenance.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="mono text-[10.5px] text-[var(--color-working)]">
               {provenance.map((p) => (
-                <span key={p} className="chip mono text-[10.5px]">
-                  {p}
+                <span key={p}>
+                  <span className="text-[var(--color-fg-3)]">·</span> {p}{" "}
                 </span>
               ))}
             </div>

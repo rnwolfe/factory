@@ -14,8 +14,8 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { Eye } from "lucide-react";
 import { trpc } from "../lib/trpc.ts";
+import { HeimdallMark } from "./heimdall-mark.tsx";
 
 /** The `watch.status` payload, kept in lockstep with the tRPC router via inference. */
 export type WatchStatus = Awaited<ReturnType<typeof trpc.watch.status.query>>;
@@ -35,7 +35,7 @@ function fmtAgo(ts: number | null | undefined): string {
 
 const STATUS_CHIP: Record<string, string> = {
   pending: "",
-  surfaced: "chip-accent",
+  surfaced: "chip-working",
   adopted: "chip-greenlit",
   dismissed: "chip-trashed",
   superseded: "chip-decompose",
@@ -204,9 +204,9 @@ export function WatchPanelView({
 
       {/* Header line: cadence + last scan */}
       <div className="surface p-3 flex items-center gap-3 flex-wrap">
-        <Eye size={14} className="text-[var(--color-accent)] shrink-0" />
+        <HeimdallMark size={14} className="text-[var(--color-working)] shrink-0" />
         <span className="mono text-[11px] text-[var(--color-fg-1)]">
-          synthesis: <span className="text-[var(--color-accent)]">{data.cadence}</span>
+          synthesis: <span className="text-[var(--color-working)]">{data.cadence}</span>
         </span>
         <div className="hairline flex-1 min-w-[12px]" />
         <span className="mono text-[10px] text-[var(--color-fg-3)]">
