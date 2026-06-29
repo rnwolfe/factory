@@ -4,6 +4,27 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.39.0 — 2026-06-29
+
+### Added
+- **Phase C — the first human-out-of-the-loop action (ADR-017).** An eligible `groom-backlog`
+  Watch proposal now auto-executes — closing a stale task — instead of surfacing for approval,
+  recording an `auto_ran` event (push + `/ops` history). Intentionally the smallest, safest
+  class: a reversible status flip that can't break a build, behind the full eligibility gate
+  (kill-switch · enabled · top-rung · class allow-list · per-tick budget). **Ships dark** — opt
+  in per-project from the Autonomy tab (`autorun.enabled` + add `groom-backlog` to `classes`).
+- **Full autorun/retry controls in the Autonomy panel** — `max per tick`, `require quality gate`,
+  the **emergency-stop kill-switch**, and the L3 `verifier budget`, all inheritance-aware.
+
+### Fixed
+- **The run-complete notification now fires when the work is actually done.** It keyed on the
+  agent's process exit — before the summary, task status, verifier gate, and merge settled — so
+  you could be pinged "complete" while the task still read "yet-to-be-run" (a gate-held run skips
+  the merge). It now fires at the end of finalize, only for a genuinely completed run.
+- **The model's final readout renders GFM tables and task-list checkboxes** (`- [ ]` / `- [x]`)
+  instead of raw text; tables scroll horizontally on phone.
+- Markdown also renders on the "view all releases" page (parity with the what's-new sheet).
+
 ## v0.38.3 — 2026-06-29
 
 ### Fixed
