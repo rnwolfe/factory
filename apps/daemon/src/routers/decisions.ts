@@ -2,7 +2,7 @@ import { schema } from "@factory/db";
 import { mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { AGENT_NAME_ENUM } from "../agents/registry.ts";
 import { resolveAutonomyConfig } from "../autonomy/config.ts";
@@ -229,6 +229,79 @@ export const decisionsRouter = router({
         .where(eq(schema.decisions.id, input.id))
         .get() ?? null
     );
+  }),
+
+  /**
+   * The inbox's ambient context — what the system is doing/did on its own, which
+   * the decisions feed doesn't carry. Feeds the "in flight" (live runs) and
+   * "done while you were away" (recent unattended events) groups. Read-only and
+   * additive; pending decisions are unchanged and still come from `inbox`.
+   */
+  ambient: protectedProcedure.query(async ({ ctx }) => {
+    const inFlight = ctx.db
+      .select({
+        runId: schema.runs.id,
+        projectId: schema.runs.projectId,
+        projectName: schema.projects.name,
+        projectSlug: schema.projects.slug,
+        taskId: schema.runs.taskId,
+        status: schema.runs.status,
+        startedAt: schema.runs.startedAt,
+        iterationCount: schema.runs.iterationCount,
+        budgetSeconds: schema.runs.budgetSeconds,
+        agentName: schema.runs.agentName,
+      })
+      .from(schema.runs)
+      .leftJoin(schema.projects, eq(schema.projects.id, schema.runs.projectId))
+      .where(eq(schema.runs.status, "running"))
+      .orderBy(desc(schema.runs.startedAt))
+      .all();
+
+    // "done while you were away" — unattended outcomes from the last 48h, FYI only.
+    const since = Date.now() - 48 * 60 * 60 * 1000;
+    const unattended = ctx.db
+      .select({
+        id: schema.autonomyEvents.id,
+        kind: schema.autonomyEvents.kind,
+        message: schema.autonomyEvents.message,
+        projectId: schema.autonomyEvents.projectId,
+        projectName: schema.projects.name,
+        projectSlug: schema.projects.slug,
+        runId: schema.autonomyEvents.runId,
+        createdAt: schema.autonomyEvents.createdAt,
+      })
+      .from(schema.autonomyEvents)
+      .leftJoin(schema.projects, eq(schema.projects.id, schema.autonomyEvents.projectId))
+      .where(
+        and(
+          gte(schema.autonomyEvents.createdAt, since),
+          inArray(schema.autonomyEvents.kind, ["auto_merged", "auto_ran", "trust_promoted"]),
+        ),
+      )
+      .orderBy(desc(schema.autonomyEvents.createdAt))
+      .limit(20)
+      .all();
+
+    return { inFlight, unattended };
+  }),
+
+  /**
+   * The narrow "needs you" count — pending, non-snoozed decisions only. Backs the
+   * amber nav badge. Distinct from `use-inbox-count` (which sums every feed).
+   */
+  needsYouCount: protectedProcedure.query(async ({ ctx }) => {
+    const now = Date.now();
+    const row = ctx.db
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(schema.decisions)
+      .where(
+        and(
+          eq(schema.decisions.status, "pending"),
+          snoozeWhere(schema.decisions.snoozedUntil, "active", now),
+        ),
+      )
+      .get();
+    return Number(row?.n ?? 0);
   }),
 
   action: protectedProcedure

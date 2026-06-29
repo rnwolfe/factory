@@ -4,6 +4,7 @@ import { type ReactNode, useCallback } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
 import { useInboxCount } from "../lib/use-inbox-count.ts";
+import { useNeedsYouCount } from "../lib/use-needs-you-count.ts";
 import { DashboardTickerMobile } from "./dashboard-ticker.tsx";
 import { DesktopTopBar } from "./desktop-top-bar.tsx";
 import { FeedbackFab } from "./feedback-fab.tsx";
@@ -31,6 +32,9 @@ export function Shell({ children }: { children: ReactNode }) {
   };
   const title = titleByRoute[loc.pathname] ?? "Heimdall";
   const inboxCount = useInboxCount(true);
+  // The mobile nav badge is amber = "needs you", so it tracks only pending
+  // decisions, not the all-feeds total the desktop sidebar shows.
+  const needsYouCount = useNeedsYouCount(true);
 
   // Pull-to-refresh refetches the active route's data without per-route
   // wiring: invalidate every query but only refetch the ones with live
@@ -114,13 +118,13 @@ export function Shell({ children }: { children: ReactNode }) {
                     <span className="relative">
                       <item.icon size={18} strokeWidth={isActive ? 2 : 1.6} />
                       {/* the inbox tab carries the amber attention badge */}
-                      {item.to === "/" && inboxCount > 0 ? (
+                      {item.to === "/" && needsYouCount > 0 ? (
                         <span
                           role="status"
                           className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--color-accent)] text-[hsl(30_30%_8%)] mono text-[9px] font-medium flex items-center justify-center tabular-nums"
-                          aria-label={`${inboxCount} need you`}
+                          aria-label={`${needsYouCount} need you`}
                         >
-                          {inboxCount > 9 ? "9+" : inboxCount}
+                          {needsYouCount > 9 ? "9+" : needsYouCount}
                         </span>
                       ) : null}
                     </span>
