@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
+import { Inline } from "../components/markdown-block.tsx";
 import { trpc } from "../lib/trpc.ts";
 
 type Entry = Awaited<ReturnType<typeof trpc.changelog.all.query>>[number];
@@ -11,11 +12,17 @@ function BulletItem({ bullet }: { bullet: Bullet }) {
     <li className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
       {bullet.lead ? (
         <>
-          <span className="text-[var(--color-fg)] font-medium">{bullet.lead}.</span>{" "}
-          <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
+          <span className="text-[var(--color-fg)] font-medium">
+            <Inline text={bullet.lead} />.
+          </span>{" "}
+          <span className="text-[var(--color-fg-2)]">
+            <Inline text={bullet.body} />
+          </span>
         </>
       ) : (
-        <span className="text-[var(--color-fg-2)]">{bullet.body}</span>
+        <span className="text-[var(--color-fg-2)]">
+          <Inline text={bullet.body} />
+        </span>
       )}
       {bullet.children?.length ? (
         <ul className="ml-4 mt-1.5 space-y-1 list-disc marker:text-[var(--color-fg-3)]">
@@ -81,7 +88,9 @@ function EntryCard({ entry }: { entry: Entry }) {
       </header>
       <div className="px-4 py-3 space-y-4">
         {entry.intro ? (
-          <p className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">{entry.intro}</p>
+          <p className="text-[13px] text-[var(--color-fg-1)] leading-relaxed">
+            <Inline text={entry.intro} />
+          </p>
         ) : null}
         {entry.sections.map((section) => (
           <section key={section.heading}>
