@@ -4,6 +4,30 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.41.0 — 2026-06-30
+
+### Added
+- **Task dependencies — sequential work now runs in order (ADR-019).** A task can be *blocked by*
+  other tasks and only becomes startable once every dependency is done. Auto-advance, the "start
+  run" button, and the project's "ready" count all respect it; a gated task shows a
+  `blocked · waiting on …` chip on the board and is never picked until its blockers clear. Edit a
+  task's dependencies from its detail view (cycles are rejected) or set them when capturing a task.
+  Aligned with GitHub's native "blocked by" issue-dependency model.
+- **Decomposition emits dependency chains.** When a plan, spec, or milestone is broken into tasks,
+  genuinely sequential steps are now linked automatically — a five-step feature where step 3 builds
+  on step 1 ships as a real chain instead of five tasks that could run out of order. Independent
+  tasks stay parallel (the model only links true prerequisites).
+
+### Fixed
+- **Promoted tasks no longer get silently stuck.** Tasks created from an audit finding or a Watch
+  insight had no `## Acceptance` section, so the verifier's acceptance signal was always absent and
+  autonomous runs were held forever. Every task now gets an acceptance section at creation.
+- The project overview's first vital now shows **ready tasks** (what's waiting to be worked) instead
+  of queued *runs* (which is almost always 0 and read as misleading next to a task backlog).
+- Finished the amber-budget sweep across the remaining screens — amber is now reserved for "a
+  decision is yours" everywhere; the agent's tool calls, running status, and selections read teal.
+- The "ship feature" goal field accepts up to 2000 characters (was 280).
+
 ## v0.40.1 — 2026-06-29
 
 ### Fixed
