@@ -1,11 +1,11 @@
 ---
 id: task-066
 title: Raise ship-feature goal limit from 280 to 2000 chars
-status: ready
+status: done
 priority: med
 estimate: small
 created: 2026-06-30T02:31:20.732Z
-updated: 2026-06-30T02:31:20.732Z
+updated: 2026-06-30T02:34:43.296Z
 labels:
   - feedback
 ---
@@ -77,3 +77,4 @@ The `reasoning` field: a single, well-scoped one-line validator change with a kn
 ## Acceptance
 
 - [ ] (TBD)
+

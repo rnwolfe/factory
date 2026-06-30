@@ -199,7 +199,7 @@ export const plansRouter = router({
     }),
 
   startFeaturePlan: protectedProcedure
-    .input(z.object({ projectId: z.string(), goal: z.string().min(1).max(280) }))
+    .input(z.object({ projectId: z.string(), goal: z.string().min(1).max(2000) }))
     .mutation(async ({ ctx, input }) => {
       const project = await ctx.db
         .select()
