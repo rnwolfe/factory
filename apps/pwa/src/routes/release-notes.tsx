@@ -46,7 +46,7 @@ export function ReleaseNotes() {
   return (
     <div className="space-y-3 md:max-w-3xl md:mx-auto">
       <div className="flex items-center gap-2 px-1">
-        <Sparkles size={14} className="text-[var(--color-accent)]" />
+        <Sparkles size={14} className="text-[var(--color-fg-2)]" />
         <span className="display text-lg text-[var(--color-fg)]">release notes</span>
       </div>
 

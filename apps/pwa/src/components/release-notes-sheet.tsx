@@ -70,7 +70,7 @@ function SheetBody({ onClose }: { onClose: () => void }) {
       <div className="surface w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-[var(--color-bg-1)] border-b border-[var(--color-line)] px-4 py-3 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <Sparkles size={14} className="text-[var(--color-accent)] shrink-0" />
+            <Sparkles size={14} className="text-[var(--color-fg-2)] shrink-0" />
             <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
               what's new
             </span>

@@ -142,7 +142,7 @@ export function RepoBrowser() {
             onClick={() => setTab(t)}
             className={`px-3 py-1.5 mono text-[11px] uppercase tracking-[0.18em] ${
               tab === t || (tab === "blob" && t === "tree")
-                ? "text-[var(--color-fg-1)] border-b-2 border-[var(--color-accent)]"
+                ? "text-[var(--color-fg-1)] border-b-2 border-[var(--color-working)]"
                 : "text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
             }`}
           >
@@ -277,7 +277,7 @@ function TreeView({
                 className="w-full text-left px-3 py-2 hover:bg-[var(--color-bg-2)] flex items-center gap-2.5"
               >
                 {e.type === "tree" ? (
-                  <Folder size={13} className="text-[var(--color-accent)] shrink-0" />
+                  <Folder size={13} className="text-[var(--color-fg-2)] shrink-0" />
                 ) : e.type === "symlink" ? (
                   <Link2 size={13} className="text-[var(--color-fg-3)] shrink-0" />
                 ) : (
@@ -633,7 +633,7 @@ const STATUS_LABEL: Record<DiffStatus, string> = {
 function statusColor(s: DiffStatus): string {
   if (s === "added") return "text-[var(--color-verdict-greenlit)]";
   if (s === "deleted") return "text-[var(--color-verdict-trashed)]";
-  if (s === "renamed" || s === "copied") return "text-[var(--color-accent)]";
+  if (s === "renamed" || s === "copied") return "text-[var(--color-fg-1)]";
   return "text-[var(--color-fg-2)]";
 }
 
@@ -841,7 +841,7 @@ function DiffPatch({ patch }: { patch: string }) {
         if (l.startsWith("+++") || l.startsWith("---")) {
           cls = "text-[var(--color-fg-3)]";
         } else if (l.startsWith("@@")) {
-          cls = "text-[var(--color-accent)]";
+          cls = "text-[var(--color-fg-2)]";
         } else if (l.startsWith("+")) {
           cls = "text-[var(--color-verdict-greenlit)]";
         } else if (l.startsWith("-")) {

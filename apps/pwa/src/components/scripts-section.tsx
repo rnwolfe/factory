@@ -113,7 +113,7 @@ export function ScriptsSection({ projectId }: Props) {
                     {s.command}
                   </div>
                   {r && r.urls.length > 0 ? (
-                    <div className="mono text-[10.5px] text-[var(--color-accent)] truncate mt-0.5">
+                    <div className="mono text-[10.5px] text-[var(--color-working)] truncate mt-0.5">
                       {r.urls.slice(0, 2).join(" · ")}
                     </div>
                   ) : null}

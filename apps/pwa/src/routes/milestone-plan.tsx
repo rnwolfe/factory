@@ -242,7 +242,7 @@ export function MilestonePlan() {
                           <button
                             type="button"
                             onClick={() => updateTask(i, { acceptance: [...t.acceptance, ""] })}
-                            className="mono text-[11px] text-[var(--color-fg-3)] hover:text-[var(--color-accent)] flex items-center gap-1 pt-1"
+                            className="mono text-[11px] text-[var(--color-fg-3)] hover:text-[var(--color-fg)] flex items-center gap-1 pt-1"
                           >
                             <Plus size={10} /> add criterion
                           </button>

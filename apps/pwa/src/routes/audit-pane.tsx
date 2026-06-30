@@ -158,7 +158,7 @@ export function AuditPane() {
           <div className="mono text-[10.5px] text-[var(--color-fg-3)] flex items-center gap-1.5 flex-wrap">
             <span>{projectName}</span>
             <span>·</span>
-            <Link to={skillCommitHref} className="text-[var(--color-accent)] hover:underline">
+            <Link to={skillCommitHref} className="text-[var(--color-fg-2)] hover:underline">
               skill commit {a.skillVersion.slice(0, 8)}
             </Link>
           </div>
@@ -209,7 +209,7 @@ export function AuditPane() {
             {isReviewable && selectedFindings.length > 0 ? (
               <button
                 type="button"
-                className="btn btn-primary text-[12px]"
+                className="btn btn-bright text-[12px]"
                 onClick={() => setShowPromote(true)}
               >
                 promote {selectedFindings.length}
@@ -273,7 +273,7 @@ export function AuditPane() {
         <div className="surface p-3 mono text-[11px] text-[var(--color-fg-2)]">
           report committed to{" "}
           {approvedReportHref ? (
-            <Link to={approvedReportHref} className="text-[var(--color-accent)] underline">
+            <Link to={approvedReportHref} className="text-[var(--color-fg-1)] underline">
               {a.approvedReportPath}
             </Link>
           ) : (
@@ -304,7 +304,7 @@ export function AuditPane() {
                           "mono text-[10.5px] uppercase tracking-[0.18em]",
                           c.role === "operator"
                             ? "text-[var(--color-fg-1)]"
-                            : "text-[var(--color-accent)]",
+                            : "text-[var(--color-working)]",
                         )}
                       >
                         {c.role}
@@ -368,7 +368,7 @@ export function AuditPane() {
                   </span>
                   <button
                     type="submit"
-                    className="btn btn-primary"
+                    className="btn btn-bright"
                     disabled={sendComment.isPending || comment.trim().length === 0}
                   >
                     {sendComment.isPending ? "sending…" : "send"}

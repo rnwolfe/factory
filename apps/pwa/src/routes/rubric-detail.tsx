@@ -92,7 +92,7 @@ export function RubricDetail() {
     return (
       <div className="surface p-3 text-[13px] text-[var(--color-fg-2)]">
         missing rubric key.{" "}
-        <Link to="/settings/rubrics" className="text-[var(--color-accent)] underline">
+        <Link to="/settings/rubrics" className="text-[var(--color-fg-1)] underline">
           back
         </Link>
       </div>

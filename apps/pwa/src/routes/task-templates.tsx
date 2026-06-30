@@ -70,7 +70,7 @@ export function TaskTemplates() {
       </Link>
       <header>
         <div className="flex items-center gap-2 px-1">
-          <Layers size={14} className="text-[var(--color-accent)]" />
+          <Layers size={14} className="text-[var(--color-fg-2)]" />
           <span className="display text-lg text-[var(--color-fg)]">task templates</span>
         </div>
         <p className="px-1 mt-1 text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">
@@ -217,7 +217,7 @@ export function TaskTemplateEditor({ slug }: TaskTemplateEditorProps) {
         <p className="text-[13px] text-[var(--color-fg-2)]">template not found</p>
         <Link
           to="/settings/task-templates"
-          className="mono text-[11px] text-[var(--color-accent)] underline mt-2 inline-block"
+          className="mono text-[11px] text-[var(--color-fg-1)] underline mt-2 inline-block"
         >
           back to library
         </Link>

@@ -143,7 +143,7 @@ export function TaskDetail() {
     return (
       <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
         task not found.{" "}
-        <Link to={`/projects/${id}`} className="text-[var(--color-accent)] underline">
+        <Link to={`/projects/${id}`} className="text-[var(--color-fg-1)] underline">
           back
         </Link>
       </div>
@@ -241,10 +241,7 @@ export function TaskDetail() {
         {!activeRun && frozenTaskPlan ? (
           <div className="mt-1.5 mono text-[10.5px] text-[var(--color-fg-3)]">
             with frozen plan ·{" "}
-            <Link
-              to={`/plans/${frozenTaskPlan.id}`}
-              className="text-[var(--color-accent)] underline"
-            >
+            <Link to={`/plans/${frozenTaskPlan.id}`} className="text-[var(--color-fg-2)] underline">
               {frozenTaskPlan.id.slice(0, 8)}
             </Link>
           </div>
@@ -274,7 +271,7 @@ export function TaskDetail() {
             className="surface block px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
           >
             <div className="flex items-center gap-2 mb-1">
-              <ListTree size={12} className="text-[var(--color-accent)]" />
+              <ListTree size={12} className="text-[var(--color-fg-2)]" />
               <span className="mono text-[11px] text-[var(--color-fg-2)]">
                 drafting · {draftingTaskPlan.id.slice(0, 8)}
               </span>
@@ -292,7 +289,7 @@ export function TaskDetail() {
             className="surface block px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
           >
             <div className="flex items-center gap-2 mb-1">
-              <Snowflake size={12} className="text-[var(--color-accent)]" />
+              <Snowflake size={12} className="text-[var(--color-fg-2)]" />
               <span className="mono text-[11px] text-[var(--color-fg-2)]">
                 frozen · {frozenTaskPlan.id.slice(0, 8)}
               </span>
@@ -388,7 +385,7 @@ export function TaskDetail() {
                     onSuccess: () => setEditing(false),
                   });
                 }}
-                className="btn btn-primary text-[11px] !h-7 !px-2"
+                className="btn btn-bright text-[11px] !h-7 !px-2"
                 disabled={updateBody.isPending || draft === task.data?.body}
               >
                 {updateBody.isPending ? "saving…" : "save"}
@@ -544,7 +541,7 @@ function TaskThread({ projectId, taskId }: { projectId: string; taskId: string }
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">authored as you</span>
           <button
             type="button"
-            className="btn btn-primary !h-7 !px-3 text-[11px]"
+            className="btn btn-bright !h-7 !px-3 text-[11px]"
             disabled={post.isPending || reply.trim().length === 0}
             onClick={() => post.mutate(reply.trim())}
           >

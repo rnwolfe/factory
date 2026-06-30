@@ -95,7 +95,7 @@ export function SessionsList({ projectId }: Props) {
           onClick={() => setMode(m)}
           className={`px-2 py-0.5 border ${
             mode === m
-              ? "border-[var(--color-accent)] text-[var(--color-fg-1)]"
+              ? "border-[var(--color-working)] text-[var(--color-fg-1)]"
               : "border-[var(--color-line)] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
           }`}
         >

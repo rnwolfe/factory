@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { cn } from "../lib/cn.ts";
 import { AuditMetricsChip } from "./metrics-chip.tsx";
 
 export type AuditStatus = "running" | "completed" | "reviewed" | "approved" | "rejected" | "failed";
@@ -74,11 +73,11 @@ export function AuditCard({ audit, projectName, index = 0, snoozeControl, onOpen
   const reviewed = audit.status === "reviewed" || audit.status === "approved";
   return (
     <div
-      className="surface drop-in border-l-2 border-[var(--color-accent)]"
+      className="surface drop-in border-l-2 border-[var(--color-line-bright)]"
       style={{ animationDelay: `${index * 40}ms` }}
     >
       <div className="px-4 pt-3 pb-2 flex items-center gap-2 flex-wrap">
-        <span className={cn("chip", "chip-accent")}>audit · {audit.skillName}</span>
+        <span className="chip">audit · {audit.skillName}</span>
         <span className="chip">{audit.status}</span>
         {audit.skillVersion ? (
           <Link

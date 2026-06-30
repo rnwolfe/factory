@@ -77,7 +77,7 @@ function parseTarget(t: string | null):
 }
 
 function draftChipClass(kind: FeedbackDraft["kind"]): string {
-  if (kind === "plan") return "chip-accent";
+  if (kind === "plan") return "chip";
   if (kind === "task") return "chip-greenlit";
   return "chip-parked";
 }
@@ -158,7 +158,7 @@ export function FeedbackDetail() {
     return (
       <div className="surface p-3 text-[13px]">
         missing id.{" "}
-        <Link to="/" className="text-[var(--color-accent)] underline">
+        <Link to="/" className="text-[var(--color-fg-1)] underline">
           back
         </Link>
       </div>
@@ -228,13 +228,13 @@ export function FeedbackDetail() {
           <div className="mt-2 mono text-[11px] text-[var(--color-fg-3)]">
             resolved →{" "}
             {target.kind === "plan" ? (
-              <Link to={`/plans/${target.id}`} className="text-[var(--color-accent)] underline">
+              <Link to={`/plans/${target.id}`} className="text-[var(--color-fg-1)] underline">
                 plan {target.id.slice(0, 8)}
               </Link>
             ) : (
               <Link
                 to={`/projects/${target.projectId}/tasks/${target.taskId}`}
-                className="text-[var(--color-accent)] underline"
+                className="text-[var(--color-fg-1)] underline"
               >
                 {target.taskId}
               </Link>
@@ -328,7 +328,7 @@ export function FeedbackDetail() {
             <div
               key={c.id}
               className={`surface p-3 ${
-                c.role === "operator" ? "border-l-2 border-[var(--color-accent)]" : ""
+                c.role === "operator" ? "border-l-2 border-[var(--color-fg-3)]" : ""
               }`}
             >
               <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-1 flex items-center gap-2">
@@ -367,7 +367,7 @@ export function FeedbackDetail() {
               type="button"
               onClick={() => comment.mutate(body)}
               disabled={body.length === 0 || comment.isPending}
-              className="btn btn-primary text-[12px]"
+              className="btn btn-bright text-[12px]"
             >
               {comment.isPending ? (
                 <>
@@ -424,7 +424,7 @@ function FeedbackSuggestionCard({
   const showActions = isLatestDraft && isMutable;
 
   return (
-    <article className="surface p-3 border-l-2 border-[var(--color-accent-line)]">
+    <article className="surface p-3 border-l-2 border-[var(--color-working-line)]">
       <div className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] mb-2 flex items-center gap-2 flex-wrap">
         <span>agent</span>
         <span>·</span>

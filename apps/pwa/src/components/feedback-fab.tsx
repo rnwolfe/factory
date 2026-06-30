@@ -17,7 +17,7 @@ export function FeedbackFab() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="capture feedback"
-        className="fixed right-4 z-40 h-12 w-12 rounded-full surface flex items-center justify-center text-[var(--color-fg-1)] hover:text-[var(--color-accent)] active:bg-[var(--color-bg-2)] shadow-lg border border-[var(--color-line)]"
+        className="fixed right-4 z-40 h-12 w-12 rounded-full surface flex items-center justify-center text-[var(--color-fg-1)] hover:text-[var(--color-fg)] active:bg-[var(--color-bg-2)] shadow-lg border border-[var(--color-line)]"
         style={{ bottom: "calc(72px + env(safe-area-inset-bottom))" }}
       >
         <MessageSquarePlus size={18} />

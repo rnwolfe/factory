@@ -36,7 +36,7 @@ export function TagChip({ projectId, tag }: { projectId: string; tag: Tag }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`chip ${tag === "active" ? "chip-accent" : ""} hover:border-[var(--color-line-bright)]`}
+        className={`chip ${tag === "active" ? "border-[var(--color-line-bright)] text-[var(--color-fg-1)]" : ""} hover:border-[var(--color-line-bright)]`}
       >
         {tag}
       </button>
@@ -58,7 +58,7 @@ export function TagChip({ projectId, tag }: { projectId: string; tag: Tag }) {
                   setOpen(false);
                 }}
                 className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--color-bg-3)] ${
-                  t === tag ? "text-[var(--color-accent)]" : "text-[var(--color-fg-1)]"
+                  t === tag ? "text-[var(--color-working)]" : "text-[var(--color-fg-1)]"
                 }`}
               >
                 {t}

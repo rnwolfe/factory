@@ -64,7 +64,7 @@ export function PullToRefresh({
             strokeWidth={2}
             className={cn(
               refreshing && "animate-spin",
-              armed || refreshing ? "text-[var(--color-accent)]" : "text-[var(--color-fg-2)]",
+              armed || refreshing ? "text-[var(--color-fg)]" : "text-[var(--color-fg-2)]",
             )}
             style={iconStyle}
           />

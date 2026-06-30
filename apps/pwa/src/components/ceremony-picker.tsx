@@ -62,7 +62,7 @@ export function CeremonyPicker({ projectId, ceremony, onChanged }: Props) {
                 type="button"
                 onClick={() => setCeremony.mutate(c)}
                 className={`w-full text-left px-3 py-1.5 hover:bg-[var(--color-bg-2)] ${
-                  c === ceremony ? "text-[var(--color-accent)]" : "text-[var(--color-fg-1)]"
+                  c === ceremony ? "text-[var(--color-working)]" : "text-[var(--color-fg-1)]"
                 }`}
               >
                 {c}

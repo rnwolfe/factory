@@ -57,7 +57,7 @@ export function DashboardTicker() {
 
   const runningLabel =
     running.length > 0 ? (
-      <span className="text-[var(--color-accent)]">{running.length} running</span>
+      <span className="text-[var(--color-working)]">{running.length} running</span>
     ) : (
       <span>idle</span>
     );
@@ -107,7 +107,7 @@ export function DashboardTickerMobile() {
       <span className="flex items-center gap-2">
         <Activity size={10} className="text-[var(--color-fg-3)]" />
         {running.length > 0 ? (
-          <span className="text-[var(--color-accent)]">{running.length} run</span>
+          <span className="text-[var(--color-working)]">{running.length} run</span>
         ) : (
           <span>idle</span>
         )}

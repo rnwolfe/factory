@@ -159,7 +159,7 @@ export function Deepen() {
                       isInstalled
                         ? "text-[var(--color-verdict-greenlit)]"
                         : recommended
-                          ? "text-[var(--color-accent)]"
+                          ? "text-[var(--color-fg-2)]"
                           : "text-[var(--color-fg-3)]"
                     }`}
                   >
@@ -169,7 +169,7 @@ export function Deepen() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[13.5px] text-[var(--color-fg)]">{t.name}</span>
                       <span className="chip">{t.frontmatter.kind}</span>
-                      {recommended ? <span className="chip chip-accent">recommended</span> : null}
+                      {recommended ? <span className="chip">recommended</span> : null}
                       {isInstalled ? <span className="chip chip-greenlit">installed</span> : null}
                     </div>
                     <div className="text-[12.5px] leading-relaxed text-[var(--color-fg-2)]">

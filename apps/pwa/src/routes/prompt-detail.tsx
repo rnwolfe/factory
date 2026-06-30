@@ -90,7 +90,7 @@ export function PromptDetail() {
     return (
       <div className="surface p-3 text-[13px] text-[var(--color-fg-2)]">
         missing prompt key.{" "}
-        <Link to="/settings/prompts" className="text-[var(--color-accent)] underline">
+        <Link to="/settings/prompts" className="text-[var(--color-fg-1)] underline">
           back
         </Link>
       </div>

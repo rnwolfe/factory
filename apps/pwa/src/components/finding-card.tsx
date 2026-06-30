@@ -14,7 +14,7 @@ const SEVERITY_CHIP: Record<AuditFinding["severity"], string> = {
   critical: "chip-trashed",
   major: "chip-decompose",
   minor: "chip",
-  enhancement: "chip-accent",
+  enhancement: "chip",
 };
 
 export function FindingCard({ finding, selected, onToggle, promotedHref }: Props) {
@@ -25,14 +25,14 @@ export function FindingCard({ finding, selected, onToggle, promotedHref }: Props
       className={cn(
         "surface block px-3.5 py-3 transition-colors",
         interactive && "cursor-pointer hover:bg-[var(--color-bg-2)]",
-        selected && "ring-1 ring-[var(--color-accent)]",
+        selected && "ring-1 ring-[var(--color-working)]",
       )}
     >
       <div className="flex items-start gap-2">
         {interactive ? (
           <input
             type="checkbox"
-            className="mt-1 accent-[var(--color-accent)]"
+            className="mt-1 accent-[var(--color-working)]"
             checked={!!selected}
             onChange={onToggle}
           />

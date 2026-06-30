@@ -208,7 +208,7 @@ export function CommandPalette() {
                   {item.hint}
                 </span>
                 {i === selectedIndex ? (
-                  <ArrowRight size={11} className="text-[var(--color-accent)] shrink-0" />
+                  <ArrowRight size={11} className="text-[var(--color-fg-2)] shrink-0" />
                 ) : null}
               </button>
             ))

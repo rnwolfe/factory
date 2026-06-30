@@ -197,7 +197,7 @@ export function PlanDetail() {
     return (
       <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
         plan not found.{" "}
-        <Link to="/" className="text-[var(--color-accent)] underline">
+        <Link to="/" className="text-[var(--color-fg-1)] underline">
           back to inbox
         </Link>
       </div>
@@ -213,7 +213,7 @@ export function PlanDetail() {
     p.projectId && p.kind !== "project_spec" ? (
       <Link
         to={`/projects/${p.projectId}`}
-        className="mono text-[10.5px] text-[var(--color-accent)] underline"
+        className="mono text-[10.5px] text-[var(--color-fg-2)] underline"
       >
         project
       </Link>
@@ -222,7 +222,7 @@ export function PlanDetail() {
     p.projectId && p.taskId ? (
       <Link
         to={`/projects/${p.projectId}/tasks/${p.taskId}`}
-        className="mono text-[10.5px] text-[var(--color-accent)] underline"
+        className="mono text-[10.5px] text-[var(--color-fg-2)] underline"
       >
         task {p.taskId}
       </Link>
@@ -255,7 +255,7 @@ export function PlanDetail() {
           {p.decisionId ? (
             <Link
               to={`/decisions/${p.decisionId}`}
-              className="mono text-[10.5px] text-[var(--color-accent)] underline"
+              className="mono text-[10.5px] text-[var(--color-fg-2)] underline"
             >
               origin decision
             </Link>
@@ -282,7 +282,7 @@ export function PlanDetail() {
         {p.status === "superseded" && p.supersededBy ? (
           <div className="mt-3 surface px-3 py-2 mono text-[11.5px] text-[var(--color-fg-2)]">
             superseded by{" "}
-            <Link to={`/plans/${p.supersededBy}`} className="text-[var(--color-accent)] underline">
+            <Link to={`/plans/${p.supersededBy}`} className="text-[var(--color-fg-1)] underline">
               plan #{p.supersededBy.slice(0, 8)}
             </Link>
           </div>
@@ -326,7 +326,7 @@ export function PlanDetail() {
                         "mono text-[10.5px] uppercase tracking-[0.18em]",
                         c.role === "operator"
                           ? "text-[var(--color-fg-1)]"
-                          : "text-[var(--color-accent)]",
+                          : "text-[var(--color-working)]",
                       )}
                     >
                       {c.role}
@@ -393,7 +393,7 @@ export function PlanDetail() {
                 </span>
                 <button
                   type="submit"
-                  className="btn btn-primary"
+                  className="btn btn-bright"
                   disabled={sendComment.isPending || draftText.trim().length === 0}
                 >
                   {sendComment.isPending ? "sending…" : "send"}

@@ -50,7 +50,7 @@ export function OpenTasks() {
           <div className="flex items-center gap-2 px-1 mb-1.5">
             <Link
               to={`/projects/${g.project.id}`}
-              className="text-[13px] text-[var(--color-fg-1)] hover:text-[var(--color-accent)] truncate"
+              className="text-[13px] text-[var(--color-fg-1)] hover:text-[var(--color-fg)] truncate"
             >
               {g.project.name}
             </Link>

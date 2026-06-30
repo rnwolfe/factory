@@ -206,7 +206,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
               checked={runNow}
               onChange={(e) => setRunNow(e.target.checked)}
               disabled={create.isPending}
-              className="accent-[var(--color-accent)]"
+              className="accent-[var(--color-working)]"
             />
             <span className="text-[13px] text-[var(--color-fg-1)]">
               run immediately after creating

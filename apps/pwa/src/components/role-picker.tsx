@@ -61,7 +61,7 @@ export function RolePicker({ projectId, role, onChanged }: Props) {
                 type="button"
                 onClick={() => setRole.mutate(r)}
                 className={`w-full text-left px-3 py-1.5 hover:bg-[var(--color-bg-2)] ${
-                  r === role ? "text-[var(--color-accent)]" : "text-[var(--color-fg-1)]"
+                  r === role ? "text-[var(--color-working)]" : "text-[var(--color-fg-1)]"
                 }`}
               >
                 {r}

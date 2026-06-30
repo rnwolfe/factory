@@ -289,9 +289,11 @@ export function ProjectDetail() {
   const archivedTasks = tasks.filter((t) => ARCHIVED_TASK_STATUSES.has(t.status));
   const visibleRuns = showAllRuns ? allRuns : allRuns.slice(0, RUNS_DEFAULT_VISIBLE);
   const hiddenRunCount = allRuns.length - visibleRuns.length;
-  // Overview vitals: queued = runs awaiting a worker; recently-merged = the most
-  // recent completed runs. Posture wording reads off the trust rung.
-  const queuedRunCount = allRuns.filter((r) => r.status === "queued").length;
+  // Overview vitals: "ready" = tasks waiting to be worked (the number the operator
+  // actually scans for), not queued RUNS — runs only sit `queued` for the moment
+  // they wait on a worker slot, so that count is ~always 0 and reads as misleading
+  // next to a backlog of ready tasks. recently-merged = the most recent completed runs.
+  const readyTaskCount = tasks.filter((t) => t.status === "ready").length;
   const recentlyMerged = allRuns.filter((r) => r.status === "completed").slice(0, 5);
   const postureLine =
     trust.rung === "autonomous"
@@ -519,10 +521,10 @@ export function ProjectDetail() {
         <div className="grid grid-cols-3 gap-2">
           <div className="surface-2 p-3">
             <div className="display text-[22px] leading-none text-[var(--color-fg)] tabular-nums">
-              {queuedRunCount}
+              {readyTaskCount}
             </div>
             <div className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-fg-3)] mt-1.5">
-              queued
+              ready
             </div>
           </div>
           <div className="surface-2 p-3">

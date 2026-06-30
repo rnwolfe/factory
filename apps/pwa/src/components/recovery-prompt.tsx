@@ -99,7 +99,7 @@ function PromptBlock({ entry }: { entry: InterventionContextView }) {
   return (
     <div className="surface px-3 py-3 space-y-2">
       <div className="flex items-center gap-2">
-        <LifeBuoy size={13} className="text-[var(--color-accent)] shrink-0" />
+        <LifeBuoy size={13} className="text-[var(--color-fg-2)] shrink-0" />
         <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
           recovery prompt
         </span>
