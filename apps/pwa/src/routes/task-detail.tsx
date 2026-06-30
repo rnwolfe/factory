@@ -129,8 +129,28 @@ export function TaskDetail() {
     },
   });
 
+  // Sibling tasks — the candidate pool for the dependency editor.
+  const projectTasks = useQuery({
+    queryKey: ["projects.tasks.list", id],
+    queryFn: () => trpc.projects.tasks.list.query({ projectId: id }),
+    enabled: id.length > 0,
+  });
+
+  const setBlockedBy = useMutation({
+    mutationFn: (blockedBy: string[]) =>
+      trpc.projects.tasks.setBlockedBy.mutate({ projectId: id, taskId, blockedBy }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+      qc.invalidateQueries({ queryKey: ["projects.tasks.list", id] });
+      setEditingDeps(false);
+    },
+  });
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [editingDeps, setEditingDeps] = useState(false);
+  const [depDraft, setDepDraft] = useState<string[]>([]);
 
   useEffect(() => {
     if (!editing && task.data) {
@@ -157,6 +177,23 @@ export function TaskDetail() {
   const isDone = fm.status === "done";
   const isDropped = fm.status === "dropped";
   const canDrop = !activeRun && !isDropped && !isDone;
+
+  // Dependency edges: blockedBy from frontmatter; openBlockers/blocks derived
+  // by the daemon. openBlockers ⊆ blockedBy (only the still-unsatisfied deps).
+  const blockedBy = (fm.blockedBy as string[] | undefined) ?? [];
+  const openBlockers = (task.data.openBlockers as string[] | undefined) ?? [];
+  const blocks = (task.data.blocks as string[] | undefined) ?? [];
+  const hasDeps = blockedBy.length > 0 || blocks.length > 0;
+  const depCandidates = (projectTasks.data ?? []).filter(
+    (t) => t.id !== taskId && t.status !== "done" && t.status !== "dropped",
+  );
+  const startEditingDeps = () => {
+    setDepDraft(blockedBy);
+    setEditingDeps(true);
+  };
+  const toggleDep = (depId: string) => {
+    setDepDraft((cur) => (cur.includes(depId) ? cur.filter((x) => x !== depId) : [...cur, depId]));
+  };
 
   return (
     <div className="space-y-4 md:max-w-3xl md:mx-auto">
@@ -356,6 +393,129 @@ export function TaskDetail() {
             </p>
           ) : null}
         </div>
+      </section>
+
+      <section>
+        <div className="flex items-center gap-2 px-1 mb-1.5">
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            dependencies
+          </span>
+          <div className="hairline flex-1" />
+          {editingDeps ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setEditingDeps(false)}
+                className="btn btn-ghost text-[11px] !h-7 !px-2"
+                disabled={setBlockedBy.isPending}
+              >
+                <X size={11} />
+                cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setBlockedBy.mutate(depDraft)}
+                className="btn btn-bright text-[11px] !h-7 !px-2"
+                disabled={setBlockedBy.isPending}
+              >
+                {setBlockedBy.isPending ? "saving…" : "save"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={startEditingDeps}
+              className="btn btn-ghost text-[11px] !h-7 !px-2"
+            >
+              <Pencil size={11} />
+              edit
+            </button>
+          )}
+        </div>
+        {editingDeps ? (
+          <div className="surface p-3 space-y-2">
+            <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+              tasks this one waits on — it stays off the board until they're done or dropped.
+            </p>
+            {depCandidates.length === 0 ? (
+              <p className="text-[13px] text-[var(--color-fg-3)]">
+                no other open tasks to depend on.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {depCandidates.map((t) => {
+                  const sel = depDraft.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => toggleDep(t.id)}
+                      className={`chip mono text-[10.5px] ${sel ? "chip-working" : ""}`}
+                      title={t.title}
+                      disabled={setBlockedBy.isPending}
+                    >
+                      {t.id}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {setBlockedBy.isError ? (
+              <p className="text-xs text-[var(--color-verdict-trashed)]">
+                {(setBlockedBy.error as Error).message}
+              </p>
+            ) : null}
+          </div>
+        ) : hasDeps ? (
+          <div className="surface p-3 space-y-2.5">
+            {blockedBy.length > 0 ? (
+              <div>
+                <div className="mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-fg-3)] mb-1">
+                  blocked by
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {blockedBy.map((depId) => {
+                    const open = openBlockers.includes(depId);
+                    return (
+                      <Link
+                        key={depId}
+                        to={`/projects/${id}/tasks/${depId}`}
+                        className="mono text-[12px] inline-flex items-center gap-1.5 text-[var(--color-fg-1)] hover:text-[var(--color-accent)] underline"
+                      >
+                        {open ? (
+                          <span
+                            className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ background: "var(--color-verdict-parked)" }}
+                            title="still open"
+                          />
+                        ) : null}
+                        {depId}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {blocks.length > 0 ? (
+              <div>
+                <div className="mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-fg-3)] mb-1">
+                  blocks
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {blocks.map((bid) => (
+                    <Link
+                      key={bid}
+                      to={`/projects/${id}/tasks/${bid}`}
+                      className="mono text-[12px] text-[var(--color-fg-1)] hover:text-[var(--color-accent)] underline"
+                    >
+                      {bid}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section>

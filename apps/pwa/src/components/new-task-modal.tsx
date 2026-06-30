@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -35,6 +35,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
   const [model, setModel] = useState<string | null>(null);
   const [agent, setAgent] = useState<AgentName | null>(null);
   const [runNow, setRunNow] = useState(false);
+  const [blockedBy, setBlockedBy] = useState<string[]>([]);
   const titleRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -42,6 +43,17 @@ export function NewTaskModal({ projectId, onClose }: Props) {
   useEffect(() => {
     titleRef.current?.focus();
   }, []);
+
+  // Open sibling tasks — the optional "blocked by" pool. Done/dropped tasks
+  // can't gate (they're already satisfied), so they're filtered out.
+  const tasks = useQuery({
+    queryKey: ["projects.tasks.list", projectId],
+    queryFn: () => trpc.projects.tasks.list.query({ projectId }),
+    enabled: projectId.length > 0,
+  });
+  const depCandidates = (tasks.data ?? []).filter(
+    (t) => t.status !== "done" && t.status !== "dropped",
+  );
 
   const create = useMutation({
     mutationFn: async () => {
@@ -53,6 +65,7 @@ export function NewTaskModal({ projectId, onClose }: Props) {
         body: body.trim() || undefined,
         model: model ?? undefined,
         agent: agent ?? undefined,
+        blockedBy: blockedBy.length > 0 ? blockedBy : undefined,
       });
       const taskId = created.task.frontmatter.id;
       if (runNow) {
@@ -199,6 +212,38 @@ export function NewTaskModal({ projectId, onClose }: Props) {
               empty = inherit project default
             </p>
           </div>
+
+          {depCandidates.length > 0 ? (
+            <div>
+              <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] block mb-1">
+                blocked by <span className="normal-case text-[var(--color-fg-3)]">(optional)</span>
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {depCandidates.map((t) => {
+                  const sel = blockedBy.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() =>
+                        setBlockedBy((cur) =>
+                          cur.includes(t.id) ? cur.filter((x) => x !== t.id) : [...cur, t.id],
+                        )
+                      }
+                      className={cn("chip mono text-[10.5px]", sel ? "chip-working" : "")}
+                      title={t.title}
+                      disabled={create.isPending}
+                    >
+                      {t.id}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-1">
+                waits until selected tasks are done — stays off the board, not the inbox
+              </p>
+            </div>
+          ) : null}
 
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input

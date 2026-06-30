@@ -263,6 +263,10 @@ export function ProjectDetail() {
       estimate: string | null;
       model?: string | null;
       sourceLinks?: ProvenanceLink[];
+      startable?: boolean;
+      openBlockers?: string[];
+      blocks?: string[];
+      blockedBy?: string[];
     }>;
     trust: {
       rung: "supervised" | "collaborative" | "autonomous";
@@ -283,7 +287,9 @@ export function ProjectDetail() {
     if (r.taskId && !activeRunByTask.has(r.taskId)) activeRunByTask.set(r.taskId, r);
   }
   const headerActiveRun = activeRuns[0] ?? null;
-  const nextStartableTask = tasks.find((t) => t.status === "ready" && !activeRunByTask.has(t.id));
+  const nextStartableTask = tasks.find(
+    (t) => t.status === "ready" && t.startable !== false && !activeRunByTask.has(t.id),
+  );
 
   const activeTasks = tasks.filter((t) => !ARCHIVED_TASK_STATUSES.has(t.status));
   const archivedTasks = tasks.filter((t) => ARCHIVED_TASK_STATUSES.has(t.status));
@@ -293,7 +299,7 @@ export function ProjectDetail() {
   // actually scans for), not queued RUNS — runs only sit `queued` for the moment
   // they wait on a worker slot, so that count is ~always 0 and reads as misleading
   // next to a backlog of ready tasks. recently-merged = the most recent completed runs.
-  const readyTaskCount = tasks.filter((t) => t.status === "ready").length;
+  const readyTaskCount = tasks.filter((t) => t.status === "ready" && t.startable !== false).length;
   const recentlyMerged = allRuns.filter((r) => r.status === "completed").slice(0, 5);
   const postureLine =
     trust.rung === "autonomous"
@@ -1120,12 +1126,19 @@ function TaskRow({
     estimate: string | null;
     model?: string | null;
     sourceLinks?: ProvenanceLink[];
+    startable?: boolean;
+    openBlockers?: string[];
+    blocks?: string[];
+    blockedBy?: string[];
   };
   activeRun: RunRow | null;
   onStart: () => void;
   startDisabled: boolean;
 }) {
-  const canStart = !activeRun && task.status !== "done" && task.status !== "in_progress";
+  const isGated =
+    task.status === "ready" && task.startable === false && (task.openBlockers?.length ?? 0) > 0;
+  const canStart =
+    !activeRun && task.status !== "done" && task.status !== "in_progress" && !isGated;
   const modelShort = shortModelLabel(task.model);
   return (
     <div className="flex items-stretch">
@@ -1146,6 +1159,11 @@ function TaskRow({
               {task.id} · {String(task.estimate ?? "—")}
             </Link>
             <ProvenanceLinks links={task.sourceLinks} />
+            {isGated ? (
+              <span className="chip chip-parked mono text-[10px]">
+                blocked · waiting on {(task.openBlockers ?? []).join(", ")}
+              </span>
+            ) : null}
           </div>
         </div>
         {modelShort ? (

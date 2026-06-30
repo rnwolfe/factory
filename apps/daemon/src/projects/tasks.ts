@@ -25,6 +25,14 @@ export interface TaskFrontmatter {
   created?: string;
   updated?: string;
   parent?: string;
+  /**
+   * Task dependency edges (ADR-019): the ids of tasks this one is *blocked by*.
+   * Many-to-many; the inverse (`blocks`) is derived, never stored. A task is
+   * startable only once every `blockedBy` dep is `done`/`dropped`. Maps onto
+   * GitHub's native issue-dependency relation on the GitHub-Issues backend.
+   * Default/absent = no edges = parallel (today's behavior).
+   */
+  blockedBy?: string[];
   labels?: string[];
   estimate?: "small" | "medium" | "large";
   /**
@@ -105,13 +113,100 @@ export function pickNextReadyTask(
   tasks: TaskFile[],
   justFinishedId: string | null | undefined,
 ): TaskFile | null {
+  // Respect dependency edges: a task whose `blockedBy` deps aren't all done is
+  // ready-but-gated, not startable (ADR-019). The whole pool is needed to resolve
+  // dep statuses, so build the index once.
+  const byId = tasksById(tasks);
   if (justFinishedId) {
     const idx = tasks.findIndex((t) => t.id === justFinishedId);
     if (idx >= 0) {
-      return tasks.slice(idx + 1).find((t) => t.frontmatter.status === "ready") ?? null;
+      return tasks.slice(idx + 1).find((t) => isStartable(t, byId)) ?? null;
     }
   }
-  return tasks.find((t) => t.frontmatter.status === "ready") ?? null;
+  return tasks.find((t) => isStartable(t, byId)) ?? null;
+}
+
+// --- Task dependencies (ADR-019) ------------------------------------------
+
+/** A dependency is satisfied once the upstream task is terminal. */
+const DEP_SATISFIED = new Set<TaskFrontmatter["status"]>(["done", "dropped"]);
+/** Matches GitHub's per-relationship ceiling; also bounds the cycle/scan cost. */
+export const MAX_BLOCKED_BY = 50;
+
+/** Index a task list by id for O(1) dependency lookups. */
+export function tasksById(tasks: TaskFile[]): Map<string, TaskFile> {
+  return new Map(tasks.map((t) => [t.id, t]));
+}
+
+/**
+ * Clean a caller-supplied `blockedBy` list: trim, drop empties + self, dedupe,
+ * cap. Applied centrally at the `createTask` seam and the edit mutation so every
+ * creation point handles dependencies identically — no caller can persist a
+ * malformed edge set.
+ */
+export function normalizeBlockedBy(ids: string[] | undefined | null, selfId?: string): string[] {
+  if (!ids || ids.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of ids) {
+    if (typeof raw !== "string") continue;
+    const id = raw.trim();
+    if (!id || id === selfId || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= MAX_BLOCKED_BY) break;
+  }
+  return out;
+}
+
+/**
+ * A task is startable iff it is `ready` AND every `blockedBy` dependency is
+ * terminal (`done`/`dropped`). An unknown dep id is treated as satisfied (a
+ * stale edge must never deadlock the pool). The blocked-by-an-open-dep state is
+ * derived here, never stored — so a dependency completing makes its dependents
+ * startable with no status write.
+ */
+export function isStartable(task: TaskFile, byId: Map<string, TaskFile>): boolean {
+  if (task.frontmatter.status !== "ready") return false;
+  const deps = task.frontmatter.blockedBy ?? [];
+  for (const id of deps) {
+    const dep = byId.get(id);
+    if (dep && !DEP_SATISFIED.has(dep.frontmatter.status)) return false;
+  }
+  return true;
+}
+
+/** The open (non-terminal) subset of a task's dependencies — for UI ("waiting on …"). */
+export function openBlockers(task: TaskFile, byId: Map<string, TaskFile>): string[] {
+  return (task.frontmatter.blockedBy ?? []).filter((id) => {
+    const dep = byId.get(id);
+    return dep ? !DEP_SATISFIED.has(dep.frontmatter.status) : false;
+  });
+}
+
+/**
+ * Would setting `taskId.blockedBy = proposedDeps` introduce a cycle? Walks the
+ * existing `blockedBy` graph from each proposed dep; a path back to `taskId`
+ * means the edge closes a loop (and would deadlock the gate). Used by the edit
+ * mutation before persisting.
+ */
+export function dependencyCycleExists(
+  byId: Map<string, TaskFile>,
+  taskId: string,
+  proposedDeps: string[],
+): boolean {
+  const seen = new Set<string>();
+  const stack = [...proposedDeps];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (cur === undefined) continue;
+    if (cur === taskId) return true;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    const dep = byId.get(cur);
+    if (dep) stack.push(...(dep.frontmatter.blockedBy ?? []));
+  }
+  return false;
 }
 
 export interface CreateTaskInput {
@@ -123,6 +218,8 @@ export interface CreateTaskInput {
   estimate?: TaskFrontmatter["estimate"];
   labels?: string[];
   parent?: string;
+  /** Task ids this task is blocked by (ADR-019). Normalized at the createTask seam. */
+  blockedBy?: string[];
   /** Spec milestone this task belongs to (e.g. `"M1"`). See ADR-009. */
   milestone?: string;
   /** Provenance: the milestone whose decomposition created this task. */
@@ -161,6 +258,8 @@ export interface TaskStore {
   updateModel(id: string, model: string): Promise<TaskFile | null>;
   updateAgent(id: string, agent: string): Promise<TaskFile | null>;
   updateBody(id: string, body: string): Promise<TaskFile | null>;
+  /** Replace the task's `blockedBy` dependency edges (ADR-019). Empty clears them. */
+  updateBlockedBy(id: string, blockedBy: string[]): Promise<TaskFile | null>;
 
   // --- Remote-discussion / adoption ops. ---------------------------------
   // The issue-backed backend implements these against the GitHub issue's
@@ -278,6 +377,21 @@ export class FileTaskStore implements TaskStore {
     return updated;
   }
 
+  async updateBlockedBy(taskId: string, blockedBy: string[]): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    const next = normalizeBlockedBy(blockedBy, taskId);
+    const nextFrontmatter: TaskFrontmatter = {
+      ...t.frontmatter,
+      updated: new Date().toISOString(),
+    };
+    if (next.length > 0) nextFrontmatter.blockedBy = next;
+    else delete nextFrontmatter.blockedBy;
+    const updated: TaskFile = { ...t, frontmatter: nextFrontmatter };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
   async updateBody(taskId: string, body: string): Promise<TaskFile | null> {
     const t = await this.read(taskId);
     if (!t) return null;
@@ -311,6 +425,7 @@ export class FileTaskStore implements TaskStore {
     };
     if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
     if (input.parent) frontmatter.parent = input.parent;
+    if (input.blockedBy && input.blockedBy.length > 0) frontmatter.blockedBy = input.blockedBy;
     if (input.milestone && input.milestone.trim().length > 0) {
       frontmatter.milestone = input.milestone.trim();
     }
@@ -446,10 +561,24 @@ export function readTaskFile(target: TaskTarget, taskId: string): Promise<TaskFi
 }
 
 export function createTask(target: TaskTarget, input: CreateTaskInput): Promise<TaskFile> {
-  // Every task must carry an `## Acceptance` section so the verifier's acceptance
-  // signal is never permanently absent (which would hold autonomous runs). The
-  // single creation seam enforces it for every backend and every caller.
-  return taskStoreFor(target).create({ ...input, body: ensureAcceptanceSection(input.body) });
+  // The single creation seam normalizes EVERY task the same way, so no caller can
+  // diverge: (1) guarantee an `## Acceptance` section so the verifier's acceptance
+  // signal is never permanently absent (which would hold autonomous runs); (2)
+  // clean the `blockedBy` dependency edges (ADR-019) — trim/dedupe/cap.
+  return taskStoreFor(target).create({
+    ...input,
+    body: ensureAcceptanceSection(input.body),
+    blockedBy: normalizeBlockedBy(input.blockedBy),
+  });
+}
+
+/** Set/replace a task's dependency edges. Normalized; rejects self + cycles upstream. */
+export function updateTaskBlockedBy(
+  target: TaskTarget,
+  taskId: string,
+  blockedBy: string[],
+): Promise<TaskFile | null> {
+  return taskStoreFor(target).updateBlockedBy(taskId, normalizeBlockedBy(blockedBy, taskId));
 }
 
 export function updateTaskStatus(

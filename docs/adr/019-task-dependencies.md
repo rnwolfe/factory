@@ -1,6 +1,11 @@
 # ADR-019 · Task dependencies — `blocked-by` edges for ordered multi-step work
 
-**Status:** proposed (2026-06-29)
+**Status:** accepted (2026-06-30) — core shipped: the `blockedBy` edge, the
+`isStartable` gate wired into `pickNextReadyTask` (so auto-advance respects it),
+both task backends (file frontmatter + GitHub meta block), the `setBlockedBy`
+mutation with cycle rejection, and the board UI. **Follow-up slices** (not yet
+built): decomposition auto-chaining (§5), and mapping onto GitHub's native
+dependency API instead of the meta-block mirror (§4).
 **Scope:** the task model gains a dependency edge; the ready-pool gate and every
 work-pick path respect it; the GitHub-Issues backend maps it onto GitHub's native
 issue-dependency + sub-issue relations.

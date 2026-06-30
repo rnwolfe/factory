@@ -32,11 +32,17 @@ import {
 import { confirmMilestone, proposeMilestone } from "../projects/milestone-decompose.ts";
 import {
   createTask,
+  dependencyCycleExists,
+  isStartable,
   listTasks,
-  readTaskFile,
+  MAX_BLOCKED_BY,
+  normalizeBlockedBy,
+  openBlockers,
   renderAcceptanceBlock,
   type TaskFile,
+  tasksById,
   updateTaskAgent,
+  updateTaskBlockedBy,
   updateTaskBody,
   updateTaskModel,
   updateTaskStatus,
@@ -135,6 +141,30 @@ function taskSummary(projectId: string, task: TaskFile) {
 }
 
 /**
+ * Summarize a project's whole task set with derived dependency state (ADR-019):
+ * `startable` (ready + all deps terminal), `openBlockers` (the unsatisfied dep
+ * ids, for a "waiting on …" chip), and `blocks` (the inverse edge — task ids that
+ * depend on this one). Derived from the full pool, so it needs every task.
+ */
+function summarizeTasksWithDeps(projectId: string, tasks: TaskFile[]) {
+  const byId = tasksById(tasks);
+  const blocksOf = new Map<string, string[]>();
+  for (const t of tasks) {
+    for (const dep of t.frontmatter.blockedBy ?? []) {
+      const arr = blocksOf.get(dep) ?? [];
+      arr.push(t.id);
+      blocksOf.set(dep, arr);
+    }
+  }
+  return tasks.map((t) => ({
+    ...taskSummary(projectId, t),
+    startable: isStartable(t, byId),
+    openBlockers: openBlockers(t, byId),
+    blocks: blocksOf.get(t.id) ?? [],
+  }));
+}
+
+/**
  * Terminal task statuses. Everything else (`ready`, `in_progress`, `review`,
  * `blocked`) is "open" — the same open/closed split the GitHub-Issues backend
  * uses (see `github-task-store.ts`). Kept as one predicate so the cross-project
@@ -157,7 +187,7 @@ const tasksRouter = router({
         .get();
       if (!project) return [];
       const tasks = await listTasks(project);
-      return tasks.map((t) => taskSummary(project.id, t));
+      return summarizeTasksWithDeps(project.id, tasks);
     }),
   get: protectedProcedure
     .input(z.object({ projectId: z.string(), taskId: z.string() }))
@@ -168,11 +198,19 @@ const tasksRouter = router({
         .where(eq(schema.projects.id, input.projectId))
         .get();
       if (!project) return null;
-      const task = await readTaskFile(project, input.taskId);
+      // The whole pool resolves this task's dependency state (startable / blocks).
+      const tasks = await listTasks(project);
+      const task = tasks.find((t) => t.id === input.taskId);
       if (!task) return null;
+      const byId = tasksById(tasks);
       return {
         frontmatter: task.frontmatter,
         body: task.body,
+        startable: isStartable(task, byId),
+        openBlockers: openBlockers(task, byId),
+        blocks: tasks
+          .filter((o) => (o.frontmatter.blockedBy ?? []).includes(task.id))
+          .map((o) => o.id),
         projectAgent: project.agent,
         sourceLinks: taskSourceLinks(project.id, task),
       };
@@ -327,6 +365,7 @@ const tasksRouter = router({
         model: z.string().max(120).optional(),
         agent: AGENT_NAME_ENUM.optional(),
         acceptance: z.array(z.string().max(500)).max(50).optional(),
+        blockedBy: z.array(z.string().max(60)).max(MAX_BLOCKED_BY).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -348,6 +387,7 @@ const tasksRouter = router({
         priority: input.priority,
         model: input.model,
         agent: input.agent,
+        blockedBy: input.blockedBy,
       });
       await commitAllChanges(
         project.workdirPath,
@@ -360,6 +400,47 @@ const tasksRouter = router({
         .set({ lastActivityAt: Date.now() })
         .where(eq(schema.projects.id, project.id));
       return { task: { frontmatter: created.frontmatter, body: created.body } };
+    }),
+
+  /**
+   * Replace a task's dependency edges (ADR-019). Validates against cycles over
+   * the current pool before persisting (a cycle would deadlock the startable
+   * gate). Commits on main so the next run's worktree starts clean — same
+   * discipline as updateStatus.
+   */
+  setBlockedBy: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        taskId: z.string(),
+        blockedBy: z.array(z.string().max(60)).max(MAX_BLOCKED_BY),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const tasks = await listTasks(project);
+      const byId = tasksById(tasks);
+      if (!byId.has(input.taskId)) throw new Error("task not found");
+      const next = normalizeBlockedBy(input.blockedBy, input.taskId);
+      if (dependencyCycleExists(byId, input.taskId, next)) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "those dependencies would create a cycle",
+        });
+      }
+      const updated = await updateTaskBlockedBy(project, input.taskId, next);
+      if (!updated) throw new Error("task not found");
+      await commitAllChanges(
+        project.workdirPath,
+        `chore: ${input.taskId} dependencies -> [${next.join(", ")}]`,
+        ctx.config.gitAuthor,
+      );
+      return { frontmatter: updated.frontmatter };
     }),
 
   /** Issue comment thread for a github-backed task (read). Empty for file-backed. */
@@ -517,7 +598,7 @@ export const projectsRouter = router({
     const hasSpec = existsSync(path.join(project.workdirPath, "docs", "internal", "SPEC.md"));
     return {
       project: reconciled,
-      tasks: tasks.map((t) => taskSummary(project.id, t)),
+      tasks: summarizeTasksWithDeps(project.id, tasks),
       hasSpec,
       // Heimdall dashboard signals — posture (trust ladder) + today's vitals.
       trust: projectTrustState(ctx.db, reconciled),

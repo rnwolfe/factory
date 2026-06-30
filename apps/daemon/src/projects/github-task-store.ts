@@ -28,6 +28,10 @@ const META_KEYS = [
   "model",
   "agent",
   "parent",
+  // Dependency edges (ADR-019). Persisted in the meta block so they round-trip on
+  // the GitHub backend today; mapping onto GitHub's native issue-dependency API
+  // (`/issues/{n}/dependencies/blocked_by`) is the ADR's next slice.
+  "blockedBy",
   "legacy_id",
   "milestone",
   "sourcePlanId",
@@ -46,6 +50,7 @@ interface IssueMeta {
   model?: string;
   agent?: string;
   parent?: string;
+  blockedBy?: string[];
   legacy_id?: string;
   milestone?: string;
   sourcePlanId?: string;
@@ -144,6 +149,7 @@ function issueToTaskFile(owner: string, repo: string, issue: IssueApi): TaskFile
   if (meta.model) frontmatter.model = meta.model;
   if (meta.agent) frontmatter.agent = meta.agent;
   if (meta.parent) frontmatter.parent = meta.parent;
+  if (meta.blockedBy && meta.blockedBy.length > 0) frontmatter.blockedBy = meta.blockedBy;
   if (meta.legacy_id) frontmatter.legacy_id = meta.legacy_id;
   if (meta.milestone) frontmatter.milestone = meta.milestone;
   if (meta.sourcePlanId) frontmatter.sourcePlanId = meta.sourcePlanId;
@@ -253,6 +259,7 @@ export class GithubIssuesStore implements TaskStore {
       model: fm.model,
       agent: fm.agent,
       parent: fm.parent,
+      blockedBy: fm.blockedBy && fm.blockedBy.length > 0 ? fm.blockedBy : undefined,
       legacy_id: fm.id,
     };
     const { state } = statusToGithub(fm.status);
@@ -291,6 +298,7 @@ export class GithubIssuesStore implements TaskStore {
       model: input.model,
       agent: input.agent,
       parent: input.parent,
+      blockedBy: input.blockedBy && input.blockedBy.length > 0 ? input.blockedBy : undefined,
       milestone: input.milestone,
       sourcePlanId: input.sourcePlanId,
       sourceAuditId: input.sourceAuditId,
@@ -341,6 +349,12 @@ export class GithubIssuesStore implements TaskStore {
     const trimmed = agent.trim();
     if (trimmed) meta.agent = trimmed;
     else meta.agent = undefined;
+    return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
+  }
+
+  async updateBlockedBy(taskId: string, blockedBy: string[]): Promise<TaskFile | null> {
+    const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
+    meta.blockedBy = blockedBy.length > 0 ? blockedBy : undefined;
     return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
   }
 
