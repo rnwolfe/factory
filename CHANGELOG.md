@@ -28,6 +28,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
   decision is yours" everywhere; the agent's tool calls, running status, and selections read teal.
 - The "ship feature" goal field accepts up to 2000 characters (was 280).
 
+### Changed
+- **Softer corners across the app** — cards round to ~10px (from 4px) and controls to 7px, matching
+  the design refresh; chips stay sharp. The active-run "breathe" glow is now subtler (swells out of
+  nothing to a soft halo), and the inbox's in-flight / triaging rows use an inset rounded accent rail.
+
 ## v0.40.1 — 2026-06-29
 
 ### Fixed

@@ -615,10 +615,12 @@ function InFlightRow({ run }: { run: AmbientRun }) {
   return (
     <Link
       to={`/runs/${run.runId}`}
-      className="block relative overflow-hidden surface drop-in active:bg-[var(--color-bg-2)] border-l-2 border-[var(--color-working)] breathe"
+      className="flex gap-3 surface drop-in breathe px-3.5 py-3 active:bg-[var(--color-bg-2)]"
     >
-      <div className="px-4 py-3">
-        <div className="flex items-center gap-2 mb-1">
+      {/* inset rounded accent rail — softer than a hard border-left */}
+      <span className="w-[3px] rounded-[2px] bg-[var(--color-working)] shrink-0" aria-hidden />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-working)] pulse-dot" />
           <span className="mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-working)]">
             running
@@ -630,17 +632,17 @@ function InFlightRow({ run }: { run: AmbientRun }) {
             {elapsedLabel}
           </span>
         </div>
-        <p className="display text-[15px] text-[var(--color-fg)] leading-snug truncate">
+        <p className="text-[15px] text-[var(--color-fg-1)] leading-snug truncate mt-1.5">
           {run.projectName ?? run.projectSlug ?? "run"}
         </p>
-        <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-0.5 truncate">
+        {/* indeterminate progress — the run is working, ETA unknown */}
+        <div className="mt-2 h-[3px] rounded-full bg-[var(--color-working-soft)] overflow-hidden">
+          <div className="h-full w-1/3 bg-[var(--color-working)] indeterminate" />
+        </div>
+        <p className="mono text-[10.5px] text-[var(--color-fg-3)] mt-2 truncate">
           {run.taskId ? `${run.taskId} · ` : ""}
           {run.agentName} · {run.runId.slice(0, 8)}
         </p>
-      </div>
-      {/* indeterminate progress — the run is working, ETA unknown */}
-      <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-[var(--color-working-soft)] overflow-hidden">
-        <div className="h-full w-1/3 bg-[var(--color-working)] indeterminate" />
       </div>
     </Link>
   );
@@ -875,21 +877,24 @@ function TriagingRow({ idea }: { idea: TriagingIdea }) {
   const elapsed = Math.max(0, Math.floor((Date.now() - idea.createdAt) / 1000));
   const elapsedLabel = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m`;
   return (
-    <div className="surface drop-in px-4 py-3 border-l-2 border-[var(--color-working)]">
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className="chip chip-working flex items-center gap-1.5">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-working)] pulse-dot" />
-          triaging
-        </span>
-        {idea.intentRole ? <span className="chip">{idea.intentRole}</span> : null}
-        {idea.intentCeremony ? <span className="chip">{idea.intentCeremony}</span> : null}
-        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
-          {elapsedLabel} ago
-        </span>
+    <div className="flex gap-3 surface drop-in px-3.5 py-3">
+      <span className="w-[3px] rounded-[2px] bg-[var(--color-working)] shrink-0" aria-hidden />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="chip chip-working flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-working)] pulse-dot" />
+            triaging
+          </span>
+          {idea.intentRole ? <span className="chip">{idea.intentRole}</span> : null}
+          {idea.intentCeremony ? <span className="chip">{idea.intentCeremony}</span> : null}
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+            {elapsedLabel} ago
+          </span>
+        </div>
+        <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)] line-clamp-3">
+          {idea.rawText}
+        </p>
       </div>
-      <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)] line-clamp-3">
-        {idea.rawText}
-      </p>
     </div>
   );
 }

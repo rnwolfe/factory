@@ -112,17 +112,17 @@ body {
 }
 .hairline-strong { background: var(--color-line-bright); }
 
-/* card surface — flat, no rounded-glassmorphism */
+/* card surface — softened corners (phone-card radius), still flat (no glassmorphism) */
 .surface {
   background: var(--color-bg-1);
   border: 1px solid var(--color-line);
-  border-radius: 4px;
+  border-radius: 10px;
   box-shadow: var(--shadow-card);
 }
 .surface-2 {
   background: var(--color-bg-2);
   border: 1px solid var(--color-line);
-  border-radius: 4px;
+  border-radius: 9px;
 }
 
 /* small caps chip */
@@ -238,7 +238,7 @@ body {
   border: 1px solid var(--color-line);
   background: var(--color-bg-2);
   color: var(--color-fg);
-  border-radius: 3px;
+  border-radius: 7px;
   font-family: var(--font-sans);
   font-size: 13px;
   letter-spacing: 0.01em;
@@ -293,7 +293,7 @@ body {
   border: 1px solid var(--color-line);
   background: var(--color-bg-1);
   color: var(--color-fg);
-  border-radius: 3px;
+  border-radius: 7px;
   font-family: var(--font-sans);
   font-size: 14px;
 }
@@ -305,7 +305,7 @@ body {
   border: 1px solid var(--color-line);
   background: var(--color-bg-1);
   color: var(--color-fg);
-  border-radius: 3px;
+  border-radius: 7px;
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.45;
@@ -344,9 +344,11 @@ body {
   50% { opacity: 0.35; }
 }
 .pulse-dot { animation: pulse-dot 1.7s ease-in-out infinite; }
+/* breathe — a soft teal halo that swells out of nothing and recedes (negative
+   spread keeps it a contained glow, not a bleed). Subtle by design. */
 @keyframes breathe {
-  0%, 100% { box-shadow: 0 0 8px hsl(190 45% 50% / 0.25); }
-  50% { box-shadow: 0 0 16px hsl(190 45% 50% / 0.55); }
+  0%, 100% { box-shadow: 0 0 0 0 hsl(190 45% 45% / 0); }
+  50% { box-shadow: 0 0 18px -3px hsl(190 45% 45% / 0.32); }
 }
 .breathe { animation: breathe 3.6s ease-in-out infinite; }
 /* static teal edge — non-animated working surfaces (auto rows). */
@@ -364,7 +366,7 @@ body {
   .skel { animation: none; }
   .drop-in { animation: none; }
   .pulse-dot { animation: none; opacity: 0.85; }
-  .breathe { animation: none; box-shadow: 0 0 12px hsl(190 45% 50% / 0.35); }
+  .breathe { animation: none; box-shadow: 0 0 14px -3px hsl(190 45% 45% / 0.3); }
   .indeterminate { animation: none; width: 100%; opacity: 0.5; }
 }
 

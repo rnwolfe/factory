@@ -321,7 +321,9 @@ export function DecisionCard({
   return (
     <div
       className="relative overflow-hidden surface drop-in"
-      style={{ animationDelay: `${index * 40}ms` }}
+      // needs-you rows carry a faint amber-tinted border — the whole group reads as
+      // "yours" without spending a full amber element per card.
+      style={{ animationDelay: `${index * 40}ms`, borderColor: "hsl(22 65% 50% / 0.24)" }}
     >
       {/* swipe trays */}
       <div
