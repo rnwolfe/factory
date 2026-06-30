@@ -895,7 +895,7 @@ function ProjectTabStrip({
 }) {
   return (
     <nav
-      className="flex items-center gap-4 border-b border-[var(--color-line)] overflow-x-auto whitespace-nowrap"
+      className="flex items-center gap-4 border-b border-[var(--color-line)] overflow-x-auto overflow-y-hidden whitespace-nowrap no-scrollbar touch-pan-x"
       aria-label="project sections"
     >
       {PROJECT_TABS.map((tab) => {
@@ -914,7 +914,7 @@ function ProjectTabStrip({
           >
             {tab.label}
             {isActive ? (
-              <span className="absolute -bottom-px left-0 right-0 h-0.5 bg-[var(--color-fg-1)]" />
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--color-fg-1)]" />
             ) : null}
           </button>
         );

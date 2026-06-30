@@ -112,6 +112,11 @@ body {
 }
 .hairline-strong { background: var(--color-line-bright); }
 
+/* hide the scrollbar on horizontally-scrollable strips (tab bars, chip rows)
+   while keeping them scrollable — the bar itself is visual noise here. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* card surface — softened corners (phone-card radius), still flat (no glassmorphism) */
 .surface {
   background: var(--color-bg-1);
