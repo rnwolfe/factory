@@ -20,6 +20,7 @@ import { AutonomyPanel } from "../components/autonomy-panel.tsx";
 import { type Ceremony, CeremonyPicker } from "../components/ceremony-picker.tsx";
 import { FeaturePlanLaunch } from "../components/feature-plan-launch.tsx";
 import { InstantiateTemplateModal } from "../components/instantiate-template-modal.tsx";
+import { MetricChart } from "../components/metric-chart.tsx";
 import { ProjectMetricsChip } from "../components/metrics-chip.tsx";
 import { AgentModelPicker, type AgentName } from "../components/model-picker.tsx";
 import { NewTaskModal } from "../components/new-task-modal.tsx";
@@ -35,6 +36,7 @@ import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { TrustLadder } from "../components/trust-ladder.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
 import { cn } from "../lib/cn.ts";
+import type { ChartRow } from "../lib/metric-series.ts";
 import { fmtCost } from "../lib/metrics-format.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -1255,56 +1257,6 @@ function timeAgo(ts: number): string {
 
 // ---- Spend sparkline strip ----
 
-const SPARK_W = 400;
-const SPARK_H = 36;
-
-function Sparkline({
-  days,
-  buckets,
-}: {
-  days: string[];
-  buckets: Array<{ totalCostUsd: number }>;
-}) {
-  const n = days.length;
-  if (n === 0) return null;
-  const maxVal = Math.max(...buckets.map((b) => b.totalCostUsd), 1e-9);
-  const slotW = SPARK_W / n;
-  const barW = Math.max(1.5, slotW * 0.8);
-  return (
-    <svg
-      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-      className="w-full h-auto"
-      aria-label="30-day spend sparkline"
-    >
-      {/* Baseline */}
-      <line
-        x1={0}
-        y1={SPARK_H - 0.5}
-        x2={SPARK_W}
-        y2={SPARK_H - 0.5}
-        stroke="hsl(30 5% 22%)"
-        strokeWidth={0.75}
-      />
-      {days.map((day, di) => {
-        const val = buckets[di]?.totalCostUsd ?? 0;
-        if (val <= 0) return null;
-        const barH = Math.max(2, (val / maxVal) * (SPARK_H - 3));
-        return (
-          <rect
-            key={day}
-            x={di * slotW + (slotW - barW) / 2}
-            y={SPARK_H - barH - 1}
-            width={barW}
-            height={barH}
-            fill="var(--color-working)"
-            opacity={0.82}
-          />
-        );
-      })}
-    </svg>
-  );
-}
-
 function SpendStrip({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
 
@@ -1328,6 +1280,10 @@ function SpendStrip({ projectId }: { projectId: string }) {
   const buckets = dailyQ.data?.series?.[0]?.buckets ?? [];
   const days = dailyQ.data?.days ?? [];
   const totalCost = buckets.reduce((sum, b) => sum + b.totalCostUsd, 0);
+  const sparkRows: ChartRow[] = days.map((day, di) => ({
+    date: day,
+    cost: buckets[di]?.totalCostUsd ?? 0,
+  }));
 
   if (dailyQ.data && totalCost <= 0) return null;
   if (!dailyQ.data && !dailyQ.isLoading) return null;
@@ -1362,7 +1318,20 @@ function SpendStrip({ projectId }: { projectId: string }) {
           className="block mt-2 group/spark hover:opacity-90 transition-opacity"
           title="view full metrics"
         >
-          <Sparkline days={days} buckets={buckets} />
+          <MetricChart
+            data={sparkRows}
+            series={[
+              {
+                key: "cost",
+                label: "cost",
+                color: "var(--color-working)",
+                kind: "bar",
+                fillOpacity: 0.82,
+              },
+            ]}
+            height={36}
+            bare
+          />
           <span className="mt-1.5 flex items-center justify-end gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] group-hover/spark:text-[var(--color-accent)] transition-colors">
             full metrics
             <ChevronRight size={11} />

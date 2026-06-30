@@ -7,13 +7,18 @@
  * minimal mono, and the tooltip is a dark `surface-2` card. Swap a color or
  * tweak the grid here and every chart follows.
  *
- * A `ComposedChart` underneath lets one chart mix filled areas and plain lines
- * (e.g. a ratio line over a count area) without a second component. Phone-first:
- * `ResponsiveContainer` fills its parent, so charts shrink to a 390px column.
+ * A `ComposedChart` underneath lets one chart mix filled areas, plain lines, and
+ * solid bars (e.g. a ratio line over a count area, or a diverging stacked-bar
+ * token chart) without a second component. Diverging bars come for free: feed
+ * one half of a stacked pair negated values and `stackOffset="sign"` splits the
+ * stack across the zero baseline (input up, output down). Phone-first:
+ * `ResponsiveContainer` fills its parent, so charts shrink to a 390px column;
+ * `bare` strips the axes/grid/tooltip down to an inline sparkline.
  */
 
 import {
   Area,
+  Bar,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -31,10 +36,12 @@ export interface ChartSeries {
   label: string;
   /** Any CSS color — pass a palette var, e.g. `var(--color-accent)`. */
   color: string;
-  /** `area` (default) draws a gradient fill; `line` is a bare stroke. */
-  kind?: "area" | "line";
-  /** Stack this area with other stacked areas (autonomy mix). */
+  /** `area` (default) draws a gradient fill; `line` is a bare stroke; `bar` a solid column. */
+  kind?: "area" | "line" | "bar";
+  /** Stack with sibling series of the same kind (autonomy mix; diverging tokens). */
   stacked?: boolean;
+  /** Override the bar fill opacity (e.g. dim the output half of a diverging pair). */
+  fillOpacity?: number;
 }
 
 interface MetricChartProps {
@@ -50,6 +57,8 @@ interface MetricChartProps {
   /** Render the empty placeholder instead of a chart. */
   empty?: boolean;
   emptyLabel?: string;
+  /** Strip axes / grid / tooltip down to an inline sparkline. */
+  bare?: boolean;
 }
 
 const GRID = "var(--color-line)";
@@ -119,6 +128,7 @@ export function MetricChart({
   formatValue,
   empty,
   emptyLabel = "no data in this range yet",
+  bare = false,
 }: MetricChartProps) {
   if (empty || data.length === 0) {
     return (
@@ -133,10 +143,16 @@ export function MetricChart({
   const tooltipValue = formatValue ?? formatY;
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
+      <ComposedChart
+        data={data}
+        stackOffset="sign"
+        margin={
+          bare ? { top: 1, right: 0, bottom: 0, left: 0 } : { top: 6, right: 6, bottom: 0, left: 0 }
+        }
+      >
         <defs>
           {series
-            .filter((s) => s.kind !== "line")
+            .filter((s) => (s.kind ?? "area") === "area")
             .map((s) => (
               <linearGradient key={s.key} id={`mc-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={s.color} stopOpacity={0.32} />
@@ -144,9 +160,12 @@ export function MetricChart({
               </linearGradient>
             ))}
         </defs>
-        <CartesianGrid stroke={GRID} strokeDasharray="2 3" vertical={false} strokeOpacity={0.6} />
+        {!bare ? (
+          <CartesianGrid stroke={GRID} strokeDasharray="2 3" vertical={false} strokeOpacity={0.6} />
+        ) : null}
         <XAxis
           dataKey="date"
+          hide={bare}
           tickFormatter={formatX}
           tick={AXIS_TICK}
           tickLine={false}
@@ -155,6 +174,7 @@ export function MetricChart({
           interval="preserveStartEnd"
         />
         <YAxis
+          hide={bare}
           tickFormatter={formatY}
           tick={AXIS_TICK}
           tickLine={false}
@@ -162,30 +182,48 @@ export function MetricChart({
           width={32}
           allowDecimals={false}
         />
-        <Tooltip
-          cursor={{ stroke: "var(--color-line-bright)", strokeWidth: 1 }}
-          content={(props) => (
-            <ChartTooltip
-              {...(props as unknown as TooltipInner)}
-              formatX={formatX}
-              formatValue={tooltipValue}
-            />
-          )}
-        />
-        {series.map((s) =>
-          s.kind === "line" ? (
-            <Line
-              key={s.key}
-              type="monotone"
-              dataKey={s.key}
-              name={s.label}
-              stroke={s.color}
-              strokeWidth={1.75}
-              dot={false}
-              activeDot={{ r: 2.5, fill: s.color }}
-              isAnimationActive={false}
-            />
-          ) : (
+        {!bare ? (
+          <Tooltip
+            cursor={{ stroke: "var(--color-line-bright)", strokeWidth: 1 }}
+            content={(props) => (
+              <ChartTooltip
+                {...(props as unknown as TooltipInner)}
+                formatX={formatX}
+                formatValue={tooltipValue}
+              />
+            )}
+          />
+        ) : null}
+        {series.map((s) => {
+          if (s.kind === "line") {
+            return (
+              <Line
+                key={s.key}
+                type="monotone"
+                dataKey={s.key}
+                name={s.label}
+                stroke={s.color}
+                strokeWidth={1.75}
+                dot={false}
+                activeDot={{ r: 2.5, fill: s.color }}
+                isAnimationActive={false}
+              />
+            );
+          }
+          if (s.kind === "bar") {
+            return (
+              <Bar
+                key={s.key}
+                dataKey={s.key}
+                name={s.label}
+                fill={s.color}
+                fillOpacity={s.fillOpacity ?? 0.85}
+                stackId={s.stacked ? "stack" : undefined}
+                isAnimationActive={false}
+              />
+            );
+          }
+          return (
             <Area
               key={s.key}
               type="monotone"
@@ -199,8 +237,8 @@ export function MetricChart({
               activeDot={{ r: 2.5, fill: s.color }}
               isAnimationActive={false}
             />
-          ),
-        )}
+          );
+        })}
       </ComposedChart>
     </ResponsiveContainer>
   );

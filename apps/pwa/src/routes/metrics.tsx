@@ -3,7 +3,9 @@ import { ArrowLeft, TrendingUp } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AutonomyMetrics } from "../components/autonomy-metrics.tsx";
+import { type ChartSeries, MetricChart } from "../components/metric-chart.tsx";
 import { WatchPanel } from "../components/watch-panel.tsx";
+import type { ChartRow } from "../lib/metric-series.ts";
 import { chipLabel, fmtCost, fmtTokens, type MetricsAggregate } from "../lib/metrics-format.ts";
 import { trpc } from "../lib/trpc.ts";
 
@@ -94,11 +96,7 @@ const SERIES_COLORS = [
 
 // ---- Chart helpers ----
 
-const SVG_W = 400;
-const SVG_H = 150;
-const PAD = { l: 36, r: 4, t: 8, b: 22 };
-const CHART_W = SVG_W - PAD.l - PAD.r;
-const CHART_H = SVG_H - PAD.t - PAD.b;
+const CHART_H = 150;
 
 function computeRange(period: RangePeriod): { startIso: string; endIso: string } {
   const now = Date.now();
@@ -107,23 +105,6 @@ function computeRange(period: RangePeriod): { startIso: string; endIso: string }
     startIso: new Date(now - daysBack * 86_400_000).toISOString(),
     endIso: new Date(now).toISOString(),
   };
-}
-
-function computeYTicks(max: number): number[] {
-  if (max <= 0) return [];
-  const exp = Math.floor(Math.log10(max));
-  const base = 10 ** exp;
-  let step = base;
-  let iter = 0;
-  while (Math.floor(max / step) < 3 && iter++ < 20) step /= 2;
-  while (Math.floor(max / step) > 6 && iter++ < 40) step *= 2;
-  const ticks: number[] = [];
-  let t = step;
-  while (t <= max * 1.001 && ticks.length < 5) {
-    ticks.push(Number.parseFloat(t.toPrecision(2)));
-    t += step;
-  }
-  return ticks;
 }
 
 function fmtAxisTokens(tokens: number): string {
@@ -166,167 +147,71 @@ function seriesLabel(
     .slice(0, 20);
 }
 
-// ---- SVG diverging stacked-bar chart (tokens: input ↑ / output ↓) ----
+// ---- Diverging stacked-bar token chart (input ↑ / output ↓) ----
 
-// Each day is a diverging bar: input tokens stack upward from a center
-// baseline, output tokens stack downward, both grouped by series. One shared
-// token→pixel scale keeps the two directions comparable, and the baseline is
-// placed proportional to each direction's peak so the full height is used.
+// Each day is a diverging bar: input tokens stack upward from the zero
+// baseline, output tokens stack downward, grouped by series. Both halves of a
+// series share one color (input full-opacity, output dimmed) so the legend
+// stays one swatch per series. The diverging split is free: output values are
+// negated and `MetricChart`'s `stackOffset="sign"` pushes them below the axis.
 // Tokens — not dollars — drive the chart: codex on a ChatGPT subscription
 // reports $0, so a cost axis would render every codex day as empty.
-function SpendChart({ days, series }: { days: string[]; series: DailySeries[] }) {
-  const n = days.length;
-  if (n === 0) return null;
+function SpendChart({
+  days,
+  series,
+  groupBy,
+  projectName,
+}: {
+  days: string[];
+  series: DailySeries[];
+  groupBy: GroupByMode;
+  projectName: Map<string, string>;
+}) {
+  const { rows, chartSeries } = useMemo(() => {
+    const rows: ChartRow[] = days.map((day, di) => {
+      const row: ChartRow = { date: day };
+      series.forEach((ser, si) => {
+        row[`s${si}_in`] = ser.buckets[di]?.inputTokens ?? 0;
+        row[`s${si}_out`] = -(ser.buckets[di]?.outputTokens ?? 0);
+      });
+      return row;
+    });
+    const chartSeries: ChartSeries[] = series.flatMap((ser, si) => {
+      const color = SERIES_COLORS[si % SERIES_COLORS.length] ?? "hsl(22 88% 60%)";
+      const label = seriesLabel(ser.key, groupBy, projectName);
+      return [
+        {
+          key: `s${si}_in`,
+          label: `${label} · in`,
+          color,
+          kind: "bar" as const,
+          stacked: true,
+          fillOpacity: 0.9,
+        },
+        {
+          key: `s${si}_out`,
+          label: `${label} · out`,
+          color,
+          kind: "bar" as const,
+          stacked: true,
+          fillOpacity: 0.5,
+        },
+      ];
+    });
+    return { rows, chartSeries };
+  }, [days, series, groupBy, projectName]);
 
-  const slotW = CHART_W / n;
-  const barW = Math.max(1.5, slotW * 0.82);
-
-  const inTotals = days.map((_, di) =>
-    series.reduce((s, ser) => s + (ser.buckets[di]?.inputTokens ?? 0), 0),
-  );
-  const outTotals = days.map((_, di) =>
-    series.reduce((s, ser) => s + (ser.buckets[di]?.outputTokens ?? 0), 0),
-  );
-  const maxIn = Math.max(...inTotals, 0);
-  const maxOut = Math.max(...outTotals, 0);
-  const span = Math.max(maxIn + maxOut, 1e-9);
-  const baselineY = PAD.t + (maxIn / span) * CHART_H;
-  const scale = CHART_H / span; // px per token, shared across both directions
-
-  const inTicks = computeYTicks(maxIn);
-  const outTicks = computeYTicks(maxOut);
-  const labelEvery = n <= 7 ? 1 : n <= 31 ? 5 : 15;
+  if (days.length === 0) return null;
 
   return (
-    <svg
-      viewBox={`0 0 ${SVG_W} ${SVG_H}`}
-      className="w-full h-auto"
-      aria-label="Daily token throughput chart (input up, output down)"
-      style={{ fontFamily: "Geist Mono, monospace" }}
-    >
-      {/* Grid lines + y-axis labels: input above the baseline, output below */}
-      {inTicks.map((tick) => {
-        const y = baselineY - tick * scale;
-        return (
-          <g key={`in-${tick}`}>
-            <line
-              x1={PAD.l}
-              y1={y}
-              x2={SVG_W - PAD.r}
-              y2={y}
-              stroke="hsl(30 5% 22%)"
-              strokeWidth={0.5}
-              strokeDasharray="2 3"
-            />
-            <text x={PAD.l - 3} y={y + 3.5} textAnchor="end" fontSize={9} fill="hsl(30 8% 42%)">
-              {fmtAxisTokens(tick)}
-            </text>
-          </g>
-        );
-      })}
-      {outTicks.map((tick) => {
-        const y = baselineY + tick * scale;
-        return (
-          <g key={`out-${tick}`}>
-            <line
-              x1={PAD.l}
-              y1={y}
-              x2={SVG_W - PAD.r}
-              y2={y}
-              stroke="hsl(30 5% 22%)"
-              strokeWidth={0.5}
-              strokeDasharray="2 3"
-            />
-            <text x={PAD.l - 3} y={y + 3.5} textAnchor="end" fontSize={9} fill="hsl(30 8% 42%)">
-              {fmtAxisTokens(tick)}
-            </text>
-          </g>
-        );
-      })}
-
-      {/* Center baseline (input / output divide) */}
-      <line
-        x1={PAD.l}
-        y1={baselineY}
-        x2={SVG_W - PAD.r}
-        y2={baselineY}
-        stroke="hsl(30 5% 28%)"
-        strokeWidth={0.75}
-      />
-      {/* Direction hints */}
-      <text x={PAD.l - 3} y={PAD.t + 7} textAnchor="end" fontSize={8} fill="hsl(30 8% 50%)">
-        ↑in
-      </text>
-      <text x={PAD.l - 3} y={PAD.t + CHART_H} textAnchor="end" fontSize={8} fill="hsl(30 8% 50%)">
-        ↓out
-      </text>
-
-      {/* Diverging stacked bars */}
-      {days.map((day, di) => {
-        const x = PAD.l + di * slotW + (slotW - barW) / 2;
-        const upSegs: Array<{ si: number; barH: number; barY: number }> = [];
-        const downSegs: Array<{ si: number; barH: number; barY: number }> = [];
-        let upOff = 0;
-        let downOff = 0;
-        for (let si = 0; si < series.length; si++) {
-          const inVal = series[si]?.buckets[di]?.inputTokens ?? 0;
-          if (inVal > 0) {
-            const barH = inVal * scale;
-            upSegs.push({ si, barH, barY: baselineY - upOff - barH });
-            upOff += barH;
-          }
-          const outVal = series[si]?.buckets[di]?.outputTokens ?? 0;
-          if (outVal > 0) {
-            const barH = outVal * scale;
-            downSegs.push({ si, barH, barY: baselineY + downOff });
-            downOff += barH;
-          }
-        }
-        return (
-          <g key={day}>
-            {upSegs.map(({ si, barH, barY }) => (
-              <rect
-                key={`in-${series[si]?.key ?? "_null"}`}
-                x={x}
-                y={barY}
-                width={barW}
-                height={barH}
-                fill={SERIES_COLORS[si % SERIES_COLORS.length]}
-                opacity={0.9}
-              />
-            ))}
-            {downSegs.map(({ si, barH, barY }) => (
-              <rect
-                key={`out-${series[si]?.key ?? "_null"}`}
-                x={x}
-                y={barY}
-                width={barW}
-                height={barH}
-                fill={SERIES_COLORS[si % SERIES_COLORS.length]}
-                opacity={0.55}
-              />
-            ))}
-          </g>
-        );
-      })}
-
-      {/* X-axis labels */}
-      {days.map((day, di) => {
-        if (di % labelEvery !== 0) return null;
-        return (
-          <text
-            key={day}
-            x={PAD.l + di * slotW + slotW / 2}
-            y={SVG_H - 5}
-            textAnchor="middle"
-            fontSize={9}
-            fill="hsl(30 8% 42%)"
-          >
-            {fmtAxisDate(day)}
-          </text>
-        );
-      })}
-    </svg>
+    <MetricChart
+      data={rows}
+      series={chartSeries}
+      height={CHART_H}
+      formatX={fmtAxisDate}
+      formatY={(v) => fmtAxisTokens(Math.abs(v))}
+      formatValue={(v) => `${fmtAxisTokens(Math.abs(v))} tok`}
+    />
   );
 }
 
@@ -680,7 +565,7 @@ export function Metrics() {
         {/* Chart area */}
         <div className="surface mt-2 p-3 overflow-hidden">
           {chartState === "loading" ? (
-            <div className="skel rounded" style={{ height: SVG_H }} />
+            <div className="skel rounded" style={{ height: CHART_H }} />
           ) : chartState === "empty" ? (
             <div className="flex flex-col items-center justify-center py-8 gap-2">
               <TrendingUp size={24} className="text-[var(--color-fg-3)]" />
@@ -701,7 +586,12 @@ export function Metrics() {
             </div>
           ) : chartQ.data ? (
             <>
-              <SpendChart days={chartQ.data.days} series={chartQ.data.series} />
+              <SpendChart
+                days={chartQ.data.days}
+                series={chartQ.data.series}
+                groupBy={groupBy}
+                projectName={projectName}
+              />
               <ChartLegend
                 series={chartQ.data.series}
                 groupBy={groupBy}
