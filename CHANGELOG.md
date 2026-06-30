@@ -18,6 +18,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - All metrics/spend charts now render through one themed Recharts component, so they share the
   warm-dark/teal palette consistently (two hand-rolled SVG charts retired).
+- **Scrollbars are themed to the dark scheme** — a thin, warm-neutral thumb instead of the
+  high-contrast OS default, on the page and every scroll-overflow area.
 
 ## v0.41.0 — 2026-06-30
 

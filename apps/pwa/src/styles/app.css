@@ -94,6 +94,24 @@ body {
   color: var(--color-fg);
 }
 
+/* themed scrollbars — the OS default is high-contrast against the warm-dark
+   scheme. A thin, warm-neutral thumb on a transparent track; brightens on hover.
+   (`.no-scrollbar` still wins where a strip should have no bar at all.) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-bright) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-bright);
+  border-radius: 8px;
+  border: 3px solid transparent; /* clip → a slimmer, floating thumb */
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: hsl(30 5% 42%); }
+::-webkit-scrollbar-corner { background: transparent; }
+
 /* tighten focus visibility — keyboard-only ring */
 :focus-visible {
   outline: 2px solid var(--color-accent);
