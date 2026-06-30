@@ -1281,3 +1281,18 @@ export type NewMetricDailyRow = typeof metricsDaily.$inferInsert;
 
 /** Sentinel `projectId` for portfolio-wide (cross-project) metric rows. */
 export const METRICS_PORTFOLIO = "*";
+
+/**
+ * Durable last-run for the Watch scheduler's time-cadence jobs. The scheduler
+ * tracks due-ness in-memory, which reset to boot time on every daemon restart —
+ * so a `daily` job never fired on a host that restarts more than once a day (the
+ * Watch never synthesized in prod). Persisting last-run here makes "due" survive
+ * restarts: a job fires once a full cadence has elapsed since its real last run,
+ * regardless of restart churn. One row per job id.
+ */
+export const schedulerRuns = sqliteTable("scheduler_runs", {
+  jobId: text("job_id").primaryKey(),
+  lastRun: integer("last_run").notNull(),
+});
+
+export type SchedulerRunRow = typeof schedulerRuns.$inferSelect;

@@ -46,6 +46,51 @@ describe("startScheduler", () => {
     }
   });
 
+  test("durable store: due-ness survives a restart (the prod-restart bug)", async () => {
+    const t0 = 1_700_000_000_000;
+    const DAY = 24 * HOUR;
+    const mem = new Map<string, number>();
+    const store = {
+      load: () => new Map(mem),
+      save: (id: string, at: number) => void mem.set(id, at),
+    };
+    let calls = 0;
+    const job = { id: "synth", cadence: () => "daily" as const, run: async () => void calls++ };
+
+    // boot 1 at t0 — seeds + persists lastRun = t0.
+    const s1 = startScheduler({
+      events: new EventBus(),
+      jobs: [job],
+      now: () => t0,
+      tickMs: 1e9,
+      store,
+    });
+    s1.runDue(t0 + 6 * HOUR);
+    await flush();
+    expect(calls).toBe(0);
+    s1.stop();
+    expect(mem.get("synth")).toBe(t0); // boot seed persisted
+
+    // Restart 6h later (prod restarts many times a day). WITHOUT a durable store
+    // this re-seeds lastRun to the new boot and the daily job never comes due.
+    const s2 = startScheduler({
+      events: new EventBus(),
+      jobs: [job],
+      now: () => t0 + 6 * HOUR,
+      tickMs: 1e9,
+      store,
+    });
+    s2.runDue(t0 + 6 * HOUR); // only 6h since the original seed → still not due
+    await flush();
+    expect(calls).toBe(0);
+    // A full day after the ORIGINAL seed → fires, despite the intervening restart.
+    s2.runDue(t0 + DAY + 1000);
+    await flush();
+    expect(calls).toBe(1);
+    expect(mem.get("synth")).toBe(t0 + DAY + 1000);
+    s2.stop();
+  });
+
   test('cadence "off" never runs', async () => {
     const t0 = 1_700_000_000_000;
     let calls = 0;

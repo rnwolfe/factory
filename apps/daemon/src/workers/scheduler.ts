@@ -41,6 +41,19 @@ export interface ScheduledJob {
   run(): Promise<void>;
 }
 
+/**
+ * Durable last-run store so due-ness survives daemon restarts. Without it the
+ * scheduler reset every job to boot time on each start, and a `daily` job never
+ * fired on a host that restarts more than once a day. Optional — tests run
+ * in-memory.
+ */
+export interface SchedulerStore {
+  /** All persisted job last-run timestamps (jobId → epoch ms). */
+  load(): Map<string, number>;
+  /** Persist a job's last-run. */
+  save(jobId: string, at: number): void;
+}
+
 export interface SchedulerDeps {
   events: EventBus;
   jobs: ScheduledJob[];
@@ -48,6 +61,8 @@ export interface SchedulerDeps {
   now?: () => number;
   /** Tick interval. Defaults to 60s. */
   tickMs?: number;
+  /** Durable last-run persistence (production); omit for in-memory tests. */
+  store?: SchedulerStore;
 }
 
 export interface SchedulerHandle {
@@ -61,19 +76,33 @@ const DEFAULT_TICK_MS = 60_000;
 export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
   const now = deps.now ?? Date.now;
   const tickMs = deps.tickMs ?? DEFAULT_TICK_MS;
+  const store = deps.store;
   const lastRun = new Map<string, number>();
   const inflight = new Set<string>();
 
-  // Seed time-cadence jobs to "now" so they first fire one full interval after
-  // boot — not on every restart (synthesis is token-intensive). Durable last-run
-  // that survives restarts lands with `watch_cursors` in slice 3.
+  // Seed time-cadence jobs: prefer a persisted last-run (so due-ness survives
+  // restarts), else seed to boot and PERSIST that seed — otherwise a host that
+  // restarts more often than the cadence would reset the clock every boot and
+  // the job would never become due (the prod bug this store fixes). The seed
+  // still defers the first fire by one full interval after first deploy.
+  const persisted = store?.load() ?? new Map<string, number>();
   const start = now();
-  for (const job of deps.jobs) if (job.cadence) lastRun.set(job.id, start);
+  for (const job of deps.jobs) {
+    if (!job.cadence) continue;
+    const prior = persisted.get(job.id);
+    if (prior != null) {
+      lastRun.set(job.id, prior);
+    } else {
+      lastRun.set(job.id, start);
+      store?.save(job.id, start);
+    }
+  }
 
   function runJob(job: ScheduledJob, at: number): void {
     if (inflight.has(job.id)) return; // skip-if-inflight
     inflight.add(job.id);
     lastRun.set(job.id, at);
+    store?.save(job.id, at);
     void job
       .run()
       .catch((err) => {

@@ -39,6 +39,7 @@ import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
 import { RunRegistry } from "./workers/registry.ts";
 import { startScheduler } from "./workers/scheduler.ts";
+import { createDbSchedulerStore } from "./workers/scheduler-store.ts";
 import { startUsageCapResumer } from "./workers/usage-cap.ts";
 import { attachWsChannel, detachWsChannel, planWsUpgrade, type WsClientData } from "./ws/hub.ts";
 
@@ -237,6 +238,9 @@ export async function startDaemon(): Promise<DaemonHandle> {
 
   const scheduler = startScheduler({
     events,
+    // Durable last-run so cadence survives the daemon's frequent restarts —
+    // without this the Watch's daily synthesis never reached its first fire.
+    store: createDbSchedulerStore(db),
     jobs: [
       createSynthesisJob({
         cadence: () => readWatchSynthesisCadence(db),
