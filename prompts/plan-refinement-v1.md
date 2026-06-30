@@ -27,7 +27,15 @@ prior run actually delivered.
    action will rewrite the task body's acceptance section with this list.
 3. If the feedback implies follow-up work that should land as separate
    tasks, emit them in `followups` — title + estimate. The freeze action
-   will write each as a new task file.
+   will write each as a new task file. Each followup may also carry an optional
+   `dependsOn`; **default to omitting it** — most followups are independent and
+   should run in parallel. Add `dependsOn` only when a followup genuinely
+   cannot begin until another followup in THIS batch has merged (e.g. it builds
+   on what an earlier followup creates); never chain followups just because
+   they're listed in order. Its values are 0-based positions in this same
+   `followups` array and must point to EARLIER followups only (lower indices) —
+   never a forward or self reference, and no cycles. List only a followup's
+   direct prerequisites, not transitive ones.
 4. If the operator just wanted to discuss without producing a change, omit
    both `revisedAcceptance` and `followups` (do not emit empty arrays).
    In that case `reply` is the substantive response.
@@ -40,7 +48,7 @@ prior run actually delivered.
   "feedback": "string — agent's structured restatement of the issue",
   "revisedAcceptance": ["string", "..."],
   "followups": [
-    { "title": "string", "estimate": "small | medium | large" }
+    { "title": "string", "estimate": "small | medium | large", "dependsOn": [0] }
   ],
   "reply": "string — operator-facing conversational reply"
 }

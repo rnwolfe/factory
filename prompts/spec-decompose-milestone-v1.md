@@ -48,6 +48,15 @@ creates task files in the **existing** project. It does not bootstrap anything.
    - **Encode the kill-gate.** If the target milestone names an exit/advance
      criterion, add a final validation task whose acceptance is that gate
      (mirroring how the first milestone carried its kill-gate).
+   - **`dependsOn` is optional; default to OMITTING it** — most tasks are
+     independent and should run in parallel. Add `dependsOn` only when a
+     task genuinely cannot begin until another task in THIS batch has
+     merged (e.g. a validation/kill-gate task that builds on what the
+     earlier tasks create); never chain tasks just because they're listed
+     in order. Its values are 0-based positions in this same `tasks` array
+     and must point to EARLIER tasks only (lower indices) — never a forward
+     or self reference, and no cycles. List only a task's direct
+     prerequisites, not transitive ones.
 4. Surface `unknowns` — where the spec is silent or ambiguous for this milestone
    and a defensible default isn't obvious.
 5. Surface `risks` — architectural choices, library picks, or scope edges in
@@ -68,7 +77,8 @@ character of your response must be `{`.
     {
       "title": "string",
       "estimate": "small | medium | large",
-      "acceptance": ["string", "..."]
+      "acceptance": ["string", "..."],
+      "dependsOn": [0]
     }
   ],
   "unknowns": ["string", "..."],

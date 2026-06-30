@@ -57,6 +57,8 @@ export interface TriageDecisionPayload {
       title: string;
       estimate?: "small" | "medium" | "large";
       acceptance?: string[];
+      /** Draft-local indices of earlier tasks this one depends on (ADR-019 §5). */
+      dependsOn?: number[];
     }>;
   };
   /**

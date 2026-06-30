@@ -33,7 +33,15 @@ back, surfaces missing constraints, and freezes the plan when satisfied.
 3. Decompose the work into a small, concrete `tasks` list. **Default ≤ 5
    tasks**; only add more when the operator explicitly asks for finer
    decomposition. Each task carries a title, an estimate (`small`/`medium`/
-   `large`), and 1–4 acceptance criteria.
+   `large`), and 1–4 acceptance criteria. Each task may also carry an optional
+   `dependsOn`; **default to omitting it** — most tasks are independent and
+   should run in parallel. Add `dependsOn` only when a task genuinely cannot
+   begin until another task in THIS batch has merged (e.g. it builds on a
+   module an earlier task creates); never chain tasks just because they're
+   listed in order. Its values are 0-based positions in this same `tasks` array
+   and must point to EARLIER tasks only (lower indices) — never a forward or
+   self reference, and no cycles. List only a task's direct prerequisites, not
+   transitive ones.
 4. Surface `unknowns` explicitly — anything you wanted to lock down but
    couldn't from the inputs alone. Better to leave a clear unknown than
    guess silently.
@@ -74,7 +82,8 @@ orchestrator parses this as a `ProjectSpecDraft` plus a `reply` field.
     {
       "title": "string",
       "estimate": "small | medium | large",
-      "acceptance": ["string", "..."]
+      "acceptance": ["string", "..."],
+      "dependsOn": [0]
     }
   ],
   "unknowns": ["string", "..."],

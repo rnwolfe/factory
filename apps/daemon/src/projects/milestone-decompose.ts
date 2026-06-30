@@ -18,6 +18,7 @@ import {
   type SpecDecompositionTask,
 } from "./import-spec.ts";
 import {
+  applyDependsOnEdges,
   type CreateTaskInput,
   createTask,
   listTasks,
@@ -201,9 +202,9 @@ export async function confirmMilestone(
   input: ConfirmMilestoneInput,
 ): Promise<ConfirmMilestoneResult> {
   const milestone = input.milestone.trim();
-  const taskIds: string[] = [];
-  for (const t of input.tasks) {
-    if (!t) continue;
+  const tasks = input.tasks.filter(Boolean);
+  const createdTasks: TaskFile[] = [];
+  for (const t of tasks) {
     const create: CreateTaskInput = {
       title: t.title || "Untitled",
       body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\n(agent-maintained)\n`,
@@ -212,9 +213,15 @@ export async function confirmMilestone(
       labels: ["milestone-task"],
       ...(milestone ? { milestone, sourceMilestone: milestone } : {}),
     };
-    const created = await createTask(project, create);
-    taskIds.push(created.id);
+    createdTasks.push(await createTask(project, create));
   }
+  // Resolve model-declared intra-batch ordering into blockedBy edges (ADR-019 §5).
+  await applyDependsOnEdges(
+    project,
+    createdTasks,
+    tasks.map((t) => t.dependsOn),
+  );
+  const taskIds = createdTasks.map((c) => c.id);
 
   await commitAllChanges(
     project.workdirPath,

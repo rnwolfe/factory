@@ -21,7 +21,7 @@ import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { readAgentInstructions } from "../projects/agents-md.ts";
-import { readTaskFile } from "../projects/tasks.ts";
+import { coerceDependsOnIndices, readTaskFile } from "../projects/tasks.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { agentSupportsResume, type InvokeClaudeResult, invokeClaudeJson } from "./invoke-claude.ts";
 import { extractJsonObject } from "./json-extract.ts";
@@ -169,6 +169,7 @@ function coerceDraft(kind: PlanKind, raw: unknown): PlanDraft | null {
           acceptance: Array.isArray(t.acceptance)
             ? t.acceptance.filter((a): a is string => typeof a === "string")
             : [],
+          dependsOn: coerceDependsOnIndices(t.dependsOn),
         })),
       unknowns: Array.isArray(obj.unknowns)
         ? obj.unknowns.filter((u): u is string => typeof u === "string")
@@ -226,6 +227,7 @@ function coerceDraft(kind: PlanKind, raw: unknown): PlanDraft | null {
                   f.estimate === "small" || f.estimate === "medium" || f.estimate === "large"
                     ? f.estimate
                     : "small",
+                dependsOn: coerceDependsOnIndices(f.dependsOn),
               }))
           : undefined,
     };
@@ -257,6 +259,7 @@ function coerceDraft(kind: PlanKind, raw: unknown): PlanDraft | null {
           acceptance: Array.isArray(t.acceptance)
             ? t.acceptance.filter((a): a is string => typeof a === "string")
             : [],
+          dependsOn: coerceDependsOnIndices(t.dependsOn),
         })),
       unknowns: Array.isArray(obj.unknowns)
         ? obj.unknowns.filter((u): u is string => typeof u === "string")

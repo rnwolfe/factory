@@ -149,6 +149,8 @@ export interface ProjectSpecDraft {
     title: string;
     estimate: "small" | "medium" | "large";
     acceptance: string[];
+    /** Draft-local indices of earlier tasks this one depends on (ADR-019 §5). */
+    dependsOn?: number[];
   }>;
   unknowns: string[];
   risks: string[];
@@ -169,7 +171,12 @@ export interface RefinementDraft {
   targetTaskId: string;
   feedback: string;
   revisedAcceptance?: string[];
-  followups?: Array<{ title: string; estimate: "small" | "medium" | "large" }>;
+  followups?: Array<{
+    title: string;
+    estimate: "small" | "medium" | "large";
+    /** Draft-local indices of earlier followups this one depends on (ADR-019 §5). */
+    dependsOn?: number[];
+  }>;
 }
 
 export interface FeaturePlanVisionFilterTest {
@@ -186,6 +193,8 @@ export interface FeaturePlanDraft {
     title: string;
     estimate: "small" | "medium" | "large";
     acceptance: string[];
+    /** Draft-local indices of earlier tasks this one depends on (ADR-019 §5). */
+    dependsOn?: number[];
   }>;
   unknowns: string[];
   risks: string[];

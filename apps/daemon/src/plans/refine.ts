@@ -4,9 +4,11 @@ import { commitAllChanges } from "@factory/runtime";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import {
+  applyDependsOnEdges,
   createTask,
   readTaskFile,
   renderAcceptanceBlock,
+  type TaskFile,
   type TaskFrontmatter,
   updateTaskBody,
   updateTaskStatus,
@@ -73,18 +75,27 @@ export async function applyRefinementFreeze(
   }
 
   if (refinement.followups && refinement.followups.length > 0) {
+    const createdFollowups: TaskFile[] = [];
     for (const f of refinement.followups) {
-      const created = await createTask(project, {
-        title: f.title,
-        body: `## Acceptance\n\n${renderAcceptanceBlock(null)}\n\n## Notes\n\nFollow-up emitted by refinement plan against ${taskId}.${refinement.feedback ? ` Operator note: ${refinement.feedback}` : ""}\n`,
-        estimate: f.estimate,
-        priority: "med",
-        parent: taskId,
-        labels: ["refinement-followup"],
-        sourcePlanId: planId,
-      });
-      followupTaskIds.push(created.id);
+      createdFollowups.push(
+        await createTask(project, {
+          title: f.title,
+          body: `## Acceptance\n\n${renderAcceptanceBlock(null)}\n\n## Notes\n\nFollow-up emitted by refinement plan against ${taskId}.${refinement.feedback ? ` Operator note: ${refinement.feedback}` : ""}\n`,
+          estimate: f.estimate,
+          priority: "med",
+          parent: taskId,
+          labels: ["refinement-followup"],
+          sourcePlanId: planId,
+        }),
+      );
     }
+    // Resolve model-declared intra-batch ordering among followups (ADR-019 §5).
+    await applyDependsOnEdges(
+      project,
+      createdFollowups,
+      refinement.followups.map((f) => f.dependsOn),
+    );
+    followupTaskIds.push(...createdFollowups.map((c) => c.id));
   }
 
   if (rewroteAcceptance || followupTaskIds.length > 0) {

@@ -3,7 +3,12 @@ import { schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { eq } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
-import { createTask, renderAcceptanceBlock } from "../projects/tasks.ts";
+import {
+  applyDependsOnEdges,
+  createTask,
+  renderAcceptanceBlock,
+  type TaskFile,
+} from "../projects/tasks.ts";
 
 export interface ApplyFeaturePlanInput {
   config: FactoryConfig;
@@ -40,18 +45,27 @@ export async function applyFeaturePlanFreeze(
     .get();
   if (!project) throw new Error(`project ${projectId} not found`);
 
-  const taskIds: string[] = [];
+  const created: TaskFile[] = [];
   for (const t of draft.tasks) {
-    const created = await createTask(project, {
-      title: t.title || "Untitled",
-      body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\nEmitted by feature plan ${planId.slice(0, 8)}: "${draft.goal}"\n`,
-      estimate: t.estimate ?? "small",
-      priority: "med",
-      labels: ["feature-plan-task"],
-      sourcePlanId: planId,
-    });
-    taskIds.push(created.id);
+    created.push(
+      await createTask(project, {
+        title: t.title || "Untitled",
+        body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\nEmitted by feature plan ${planId.slice(0, 8)}: "${draft.goal}"\n`,
+        estimate: t.estimate ?? "small",
+        priority: "med",
+        labels: ["feature-plan-task"],
+        sourcePlanId: planId,
+      }),
+    );
   }
+  // Resolve any model-declared intra-batch ordering into blockedBy edges (ADR-019 §5)
+  // before the commit, so the edges ship with the tasks. Parallel when unset.
+  await applyDependsOnEdges(
+    project,
+    created,
+    draft.tasks.map((t) => t.dependsOn),
+  );
+  const taskIds = created.map((c) => c.id);
 
   if (taskIds.length > 0) {
     await commitAllChanges(

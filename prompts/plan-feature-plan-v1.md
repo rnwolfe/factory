@@ -34,7 +34,15 @@ on personal+ projects.
    `title`, `estimate` (`small`/`medium`/`large`), and **1–4 verifiable
    acceptance criteria — every task MUST have at least one.** A run is held for
    review until its acceptance is met, so a task with no criteria can never
-   land. Tasks are emitted into the project on freeze.
+   land. Tasks are emitted into the project on freeze. Each task may also
+   carry an optional `dependsOn`; **default to omitting it** — most tasks are
+   independent and should run in parallel. Add `dependsOn` only when a task
+   genuinely cannot begin until another task in THIS batch has merged (e.g. it
+   builds on a module an earlier task creates); never chain tasks just because
+   they're listed in order. Its values are 0-based positions in this same
+   `tasks` array and must point to EARLIER tasks only (lower indices) — never a
+   forward or self reference, and no cycles. List only a task's direct
+   prerequisites, not transitive ones.
 5. Populate `visionFilter` — four tests, each `passes` (boolean) +
    `reasoning` (one sentence).
    - **identity**: does this make the project more completely what it's
@@ -76,7 +84,8 @@ Emit one JSON object on stdout — no preamble, no fences.
     {
       "title": "string",
       "estimate": "small | medium | large",
-      "acceptance": ["string", "..."]
+      "acceptance": ["string", "..."],
+      "dependsOn": [0]
     }
   ],
   "unknowns": ["string", "..."],

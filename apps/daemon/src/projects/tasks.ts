@@ -209,6 +209,55 @@ export function dependencyCycleExists(
   return false;
 }
 
+/**
+ * Coerce a model-emitted `dependsOn` into clean, draft-local task indices
+ * (non-negative integers). Used by every decomposition coercer so a draft can
+ * carry intra-batch ordering. Absent/empty → undefined (parallel — the default).
+ */
+export function coerceDependsOnIndices(raw: unknown): number[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.filter(
+    (n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0,
+  );
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Resolve a decomposition's intra-batch `dependsOn` (draft-local indices) into
+ * real `blockedBy` edges, after the batch's tasks have been created (ADR-019 §5).
+ * Two-pass — tasks have no ids until created — so freeze paths create everything
+ * first, then call this with `created` in draft order and the parallel
+ * `dependsOn` arrays. Cyclic edge sets are skipped (logged), never persisted.
+ * A draft with no `dependsOn` anywhere is a no-op (parallel-by-default).
+ */
+export async function applyDependsOnEdges(
+  target: TaskTarget,
+  created: TaskFile[],
+  dependsOn: Array<number[] | undefined>,
+): Promise<void> {
+  const idByIndex = created.map((t) => t.id);
+  // Clone frontmatter so incremental cycle tracking doesn't mutate the caller's tasks.
+  const byId = tasksById(created.map((t) => ({ ...t, frontmatter: { ...t.frontmatter } })));
+  for (let i = 0; i < created.length; i += 1) {
+    const deps = dependsOn[i];
+    if (!deps || deps.length === 0) continue;
+    const depIds = normalizeBlockedBy(
+      deps.map((idx) => idByIndex[idx]).filter((x): x is string => typeof x === "string"),
+      created[i]?.id,
+    );
+    if (depIds.length === 0) continue;
+    const selfId = created[i]?.id;
+    if (!selfId) continue;
+    if (dependencyCycleExists(byId, selfId, depIds)) {
+      console.warn(`[deps] skipped cyclic dependsOn for ${selfId}`);
+      continue;
+    }
+    const node = byId.get(selfId);
+    if (node) node.frontmatter.blockedBy = depIds;
+    await updateTaskBlockedBy(target, selfId, depIds);
+  }
+}
+
 export interface CreateTaskInput {
   title: string;
   /** Full markdown body. Caller controls section structure. */

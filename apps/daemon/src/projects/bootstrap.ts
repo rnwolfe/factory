@@ -9,7 +9,7 @@ import YAML from "yaml";
 import type { FactoryConfig } from "../config.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { DEFAULT_MAKEFILE, DEFAULT_QUALITY_YAML } from "./quality-config.ts";
-import { createTask, renderAcceptanceBlock } from "./tasks.ts";
+import { applyDependsOnEdges, createTask, renderAcceptanceBlock, type TaskFile } from "./tasks.ts";
 
 export interface BootstrapInput {
   ideaId: string;
@@ -147,22 +147,30 @@ export async function bootstrapProject(
 
     // Initial task files from the spec_stub. Routes through tasks.createTask
     // so the storage seam stays single-pointed (per ADR-003 §10.1).
-    const taskIds: string[] = [];
     const initialTasks = input.payload.spec_stub?.initial_tasks ?? [];
+    const createdTasks: TaskFile[] = [];
     for (const t of initialTasks) {
       if (!t) continue;
-      const created = await createTask(
-        { workdirPath },
-        {
-          title: t.title || "Untitled",
-          body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\n(agent-maintained)\n`,
-          estimate: t.estimate ?? "small",
-          priority: "med",
-          ...(input.milestone ? { milestone: input.milestone } : {}),
-        },
+      createdTasks.push(
+        await createTask(
+          { workdirPath },
+          {
+            title: t.title || "Untitled",
+            body: `## Acceptance\n\n${renderAcceptanceBlock(t.acceptance)}\n\n## Notes\n\n(agent-maintained)\n`,
+            estimate: t.estimate ?? "small",
+            priority: "med",
+            ...(input.milestone ? { milestone: input.milestone } : {}),
+          },
+        ),
       );
-      taskIds.push(created.id);
     }
+    // Resolve model-declared intra-batch ordering into blockedBy edges (ADR-019 §5).
+    await applyDependsOnEdges(
+      { workdirPath },
+      createdTasks,
+      initialTasks.filter(Boolean).map((t) => t?.dependsOn),
+    );
+    const taskIds = createdTasks.map((c) => c.id);
 
     // README seed.
     await writeFile(

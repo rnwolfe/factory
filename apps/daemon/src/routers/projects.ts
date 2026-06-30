@@ -841,6 +841,7 @@ export const projectsRouter = router({
                 title: z.string().min(1).max(200),
                 estimate: TaskEstimateEnum,
                 acceptance: z.array(z.string().max(500)).max(20),
+                dependsOn: z.array(z.number().int().min(0)).max(MAX_BLOCKED_BY).optional(),
               }),
             )
             .min(1)
@@ -925,6 +926,7 @@ export const projectsRouter = router({
               title: z.string().min(1).max(200),
               estimate: TaskEstimateEnum,
               acceptance: z.array(z.string().max(500)).max(20),
+              dependsOn: z.array(z.number().int().min(0)).max(MAX_BLOCKED_BY).optional(),
             }),
           )
           .min(1)

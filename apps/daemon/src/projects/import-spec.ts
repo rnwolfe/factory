@@ -14,6 +14,7 @@ import { extractJsonObject } from "../plans/json-extract.ts";
 import type { TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { agentsMdPath, ensureClaudeMdSymlink } from "./agents-md.ts";
 import { type BootstrapResult, bootstrapProject } from "./bootstrap.ts";
+import { coerceDependsOnIndices } from "./tasks.ts";
 
 export type Ceremony = "tinker" | "personal" | "shared" | "production";
 export type Role = "owner" | "contributor";
@@ -24,6 +25,8 @@ export interface SpecDecompositionTask {
   title: string;
   estimate: "small" | "medium" | "large";
   acceptance: string[];
+  /** Draft-local indices of earlier tasks this one depends on (ADR-019 §5). */
+  dependsOn?: number[];
 }
 
 /**
@@ -165,6 +168,7 @@ export function coerceTasks(raw: unknown): SpecDecompositionTask[] {
       acceptance: Array.isArray(t.acceptance)
         ? t.acceptance.filter((a): a is string => typeof a === "string")
         : [],
+      dependsOn: coerceDependsOnIndices(t.dependsOn),
     }));
 }
 
@@ -285,6 +289,7 @@ export async function confirmImportSpec(
         title: t.title,
         estimate: t.estimate,
         acceptance: t.acceptance,
+        dependsOn: t.dependsOn,
       })),
     },
   };

@@ -57,6 +57,15 @@ emitted, edit, or refine) and then bootstraps a fresh project.
    - Estimates: `small` = a few hours of work, `medium` = a session,
      `large` = multi-session. Match to ceremony — a `tinker` project's
      "large" is a `shared` project's "medium."
+   - **`dependsOn` is optional; default to OMITTING it** — most tasks are
+     independent and should run in parallel. Add `dependsOn` only when a
+     task genuinely cannot begin until another task in THIS batch has
+     merged (e.g. it builds on a module an earlier task creates); never
+     chain tasks just because they're listed in order. Its values are
+     0-based positions in this same `tasks` array and must point to
+     EARLIER tasks only (lower indices) — never a forward or self
+     reference, and no cycles. List only a task's direct prerequisites,
+     not transitive ones.
 4. Surface `unknowns` — places the spec is genuinely silent or
    ambiguous and a defensible default isn't obvious. Better to leave
    a clear unknown than guess silently.
@@ -98,7 +107,8 @@ first character of your response must be `{`.
     {
       "title": "string",
       "estimate": "small | medium | large",
-      "acceptance": ["string", "..."]
+      "acceptance": ["string", "..."],
+      "dependsOn": [0]
     }
   ],
   "unknowns": ["string", "..."],
