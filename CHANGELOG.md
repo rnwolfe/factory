@@ -4,6 +4,21 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.41.1 — 2026-06-30
+
+### Fixed
+- **The Watch now actually runs.** Its daily synthesis job had never fired in production: the
+  scheduler tracked last-run in memory and reset it to boot time on every restart, so a host that
+  restarts several times a day never reached the 24h mark and the job never came due (zero
+  observations, ever). Last-run is now durable (survives restarts), so the Watch synthesizes on
+  cadence — observations and `record-as-convention` proposals will start appearing in the inbox.
+- **Project tabs no longer scroll vertically.** The tab strip could be dragged up/down on mobile
+  and showed a stray scrollbar on desktop; it's now fixed vertically and scrolls only horizontally.
+
+### Changed
+- All metrics/spend charts now render through one themed Recharts component, so they share the
+  warm-dark/teal palette consistently (two hand-rolled SVG charts retired).
+
 ## v0.41.0 — 2026-06-30
 
 ### Added
