@@ -4,6 +4,12 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.41.2 — 2026-06-30
+
+### Changed
+- **Scrollbars are themed to the dark scheme** — a thin, warm-neutral thumb instead of the
+  high-contrast OS default, on the page and every scroll-overflow area.
+
 ## v0.41.1 — 2026-06-30
 
 ### Fixed
@@ -18,8 +24,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - All metrics/spend charts now render through one themed Recharts component, so they share the
   warm-dark/teal palette consistently (two hand-rolled SVG charts retired).
-- **Scrollbars are themed to the dark scheme** — a thin, warm-neutral thumb instead of the
-  high-contrast OS default, on the page and every scroll-overflow area.
 
 ## v0.41.0 — 2026-06-30
 
