@@ -446,7 +446,10 @@ export function readTaskFile(target: TaskTarget, taskId: string): Promise<TaskFi
 }
 
 export function createTask(target: TaskTarget, input: CreateTaskInput): Promise<TaskFile> {
-  return taskStoreFor(target).create(input);
+  // Every task must carry an `## Acceptance` section so the verifier's acceptance
+  // signal is never permanently absent (which would hold autonomous runs). The
+  // single creation seam enforces it for every backend and every caller.
+  return taskStoreFor(target).create({ ...input, body: ensureAcceptanceSection(input.body) });
 }
 
 export function updateTaskStatus(
@@ -508,4 +511,21 @@ function slugify(input: string): string {
 export function renderAcceptanceBlock(criteria: string[] | undefined | null): string {
   if (!criteria || criteria.length === 0) return "- [ ] (TBD)";
   return criteria.map((c) => `- [ ] ${c}`).join("\n");
+}
+
+/**
+ * Guarantee a task body carries an `## Acceptance` section. The verifier's
+ * acceptance signal is read against this section (the completion footer asks the
+ * agent to report acceptance against the task's own `## Acceptance`); a task
+ * created without it leaves that signal permanently *absent*, so autonomous runs
+ * are held forever. Plan-freeze paths already emit the heading; promote paths
+ * (audit-finding → task, watch-insight adopt-as-task, release-proposal) did not.
+ * Applying this at the single `createTask` seam means no caller can omit it.
+ * Idempotent: a body that already has an Acceptance heading is returned as-is.
+ */
+export function ensureAcceptanceSection(body: string | undefined | null): string {
+  const b = (body ?? "").replace(/\s+$/, "");
+  if (/^#{1,6}\s+acceptance\b/im.test(b)) return body ?? "";
+  const lead = b.length > 0 ? `${b}\n\n` : "";
+  return `${lead}## Acceptance\n\n${renderAcceptanceBlock(null)}\n`;
 }
