@@ -4,6 +4,15 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.42.0 — 2026-06-30
+
+### Added
+- **Claude Sonnet 5.** The Sonnet option in the model picker is now Sonnet 5 (`claude-sonnet-5`) — Anthropic's new best-speed-and-intelligence tier, with adaptive thinking. Projects still pinned to Sonnet 4.6 keep working unchanged.
+
+### Fixed
+- **Doubled agent output in template-rendered work.** Release and task prose, changelog bodies, and model-resolved versions could render twice (a version came out as `v0.9.0v0.9.0`) because the agent's final message was counted a second time from the result envelope. Agent text is now deduplicated at the source.
+- **Stranded releases from a "dirty" working tree.** Approving a release proposal (or a Watch-insight task) left its task file uncommitted, so the run's own merge back to `main` was refused as "working tree has uncommitted changes" — the release was built and tagged but never landed. The task file is now committed before the run starts.
+
 ## v0.41.2 — 2026-06-30
 
 ### Changed
