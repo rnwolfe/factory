@@ -1,5 +1,5 @@
 import { schema } from "@factory/db";
-import { mergeIntoMain } from "@factory/runtime";
+import { commitAllChanges, mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
@@ -27,6 +27,25 @@ import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
 import { autoContract } from "../workers/trust-ladder.ts";
 import { renderVerifierFindings, type VerifierReport } from "../workers/verifier.ts";
+
+/**
+ * Commit a freshly-created task file onto the project's `main` so a subsequent
+ * (or immediate) run sees it and, crucially, doesn't leave the working tree
+ * dirty. `mergeIntoMain` refuses to merge a run branch back when
+ * `git status --porcelain` is non-empty, so an uncommitted task file would
+ * silently fail the run's merge with `reason: "dirty"` (this is what stranded
+ * an early backbar release). `createTask` only writes the file — the apply-plan
+ * paths (`apply-feature-plan`, `refine`) commit; these decision-router paths
+ * must too. No-op for the github-issues backend, which has no local file.
+ */
+async function commitNewTaskFile(
+  project: { workdirPath: string; taskBackend: string },
+  config: { gitAuthor: { name: string; email: string } },
+  message: string,
+): Promise<void> {
+  if (project.taskBackend === "github-issues") return;
+  await commitAllChanges(project.workdirPath, message, config.gitAuthor);
+}
 
 interface ReleaseProposalPayload {
   templateSlug: string;
@@ -585,6 +604,9 @@ export const decisionsRouter = router({
           priority: payload.priority ?? "med",
           estimate: payload.estimate ?? "small",
         });
+        // Commit the task file before the run — otherwise it dirties main and
+        // the release run's merge-back fails the `mergeIntoMain` clean-tree gate.
+        await commitNewTaskFile(project, ctx.config, `chore: add release task ${created.id}`);
         const result = await submitRun(
           {
             config: ctx.config,
@@ -629,13 +651,16 @@ export const decisionsRouter = router({
               const provenance = sessions
                 ? `\n\n_From The Watch — observed across ${payload.evidence.length} out-of-band session(s): ${sessions}._`
                 : "\n\n_From The Watch._";
-              await createTask(project, {
+              const adopted = await createTask(project, {
                 title: payload.title,
                 body: `${payload.detail}${provenance}`,
                 labels: ["watch", payload.observationKind],
                 priority: "med",
                 estimate: "small",
               });
+              // Commit so the new task file doesn't leave main dirty and fail
+              // the next run's merge-back (mergeIntoMain clean-tree gate).
+              await commitNewTaskFile(project, ctx.config, `chore: add watch task ${adopted.id}`);
               projectId = project.id;
             }
           } else if (payload.proposal === "record-as-convention") {
