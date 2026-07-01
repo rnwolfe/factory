@@ -50,7 +50,7 @@ export const SETTING_KEYS = [
   "notify-on-queue-empty",
   // Ops dashboard + model defaults — display-side, not wired through FactoryConfig.
   "landing-route", // "inbox" | "ops"
-  // System-level default Claude model id (e.g. "claude-sonnet-4-6"). Empty/null
+  // System-level default Claude model id (e.g. "claude-sonnet-5"). Empty/null
   // falls through to the CLI's own default. Sits at the bottom of the
   // inheritance chain: task model → project model → this → CLI default.
   "default-model",

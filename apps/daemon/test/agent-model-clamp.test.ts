@@ -12,7 +12,7 @@ import { agentForModel, clampModelToAgent } from "../src/agents/registry.ts";
 describe("agentForModel", () => {
   test("claude model ids resolve to claude-code", () => {
     expect(agentForModel("claude-opus-4-8")).toBe("claude-code");
-    expect(agentForModel("claude-sonnet-4-6")).toBe("claude-code");
+    expect(agentForModel("claude-sonnet-5")).toBe("claude-code");
   });
 
   test("gpt model ids resolve to codex", () => {
@@ -29,7 +29,7 @@ describe("agentForModel", () => {
 describe("clampModelToAgent", () => {
   test("drops a claude model resolved onto codex (the incident)", () => {
     expect(clampModelToAgent("codex", "claude-opus-4-8")).toBeNull();
-    expect(clampModelToAgent("codex", "claude-sonnet-4-6")).toBeNull();
+    expect(clampModelToAgent("codex", "claude-sonnet-5")).toBeNull();
   });
 
   test("drops a gpt model resolved onto claude-code", () => {
