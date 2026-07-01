@@ -33,7 +33,15 @@ export interface AgentMetrics {
 }
 
 export type StreamEvent =
-  | { kind: "text"; text: string }
+  /**
+   * A chunk of assistant text. `final: true` marks the copy re-emitted by the
+   * CLI's terminal `result` envelope, which duplicates the streamed assistant
+   * text. Accumulating consumers must prefer the streamed (non-final) text and
+   * only fall back to the final copy when nothing streamed — otherwise the text
+   * is counted twice (e.g. a version resolved to "v0.9.0v0.9.0"). See
+   * `agents/claude-code.ts` and `plans/invoke-claude.ts`.
+   */
+  | { kind: "text"; text: string; final?: boolean }
   | { kind: "tool"; name: string; argSummary: string }
   | { kind: "session"; id: string }
   | { kind: "iteration_start"; iteration: number; ts: number }

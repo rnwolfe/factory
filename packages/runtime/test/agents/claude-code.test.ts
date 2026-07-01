@@ -110,9 +110,12 @@ describe("claudeCodeAgent.parseLine", () => {
       session_id: "sess_xyz",
     });
     const events = claudeCodeAgent.parseLine(line);
+    // The result envelope's text is marked `final` so accumulating consumers
+    // treat it as a fallback for the streamed assistant text, not an addition.
     expect(events.find((e) => e.kind === "text")).toEqual({
       kind: "text",
       text: "final answer",
+      final: true,
     });
     const exit = events.find((e) => e.kind === "agent_exit");
     expect(exit).toBeDefined();

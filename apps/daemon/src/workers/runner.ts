@@ -429,7 +429,11 @@ export async function executeRun(
           });
           return;
         }
-        if (e.kind === "text") {
+        if (e.kind === "text" && (!e.final || agentText.length === 0)) {
+          // Streamed assistant text already carries the answer; the result
+          // envelope re-emits it as a `final` copy, so fold that in only when
+          // nothing streamed. Otherwise the factory-status footer and decision
+          // blocks would be parsed against doubled text.
           agentText += e.text;
           // Streaming parse for `factory-decision` blocks. Fire-and-forget
           // — failures shouldn't disturb the run, and the parser is

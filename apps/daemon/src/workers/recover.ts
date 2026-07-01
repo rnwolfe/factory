@@ -85,12 +85,20 @@ async function recoverFactoryStatusFromLog(
   // events. parseLine tolerates non-JSON lines (the log is shared with raw pane
   // bytes via pipe-pane), so no manual JSON guard is needed.
   const spec = getAgentDescriptor(agentName)?.runtimeSpec ?? claudeCodeAgent;
-  let text = "";
+  // Prefer streamed assistant text; the `result` envelope's `final` copy
+  // duplicates it, so only fall back to it when nothing streamed (otherwise the
+  // factory-status footer is parsed against doubled text).
+  let streamed = "";
+  let final = "";
   for (const line of raw.split("\n")) {
     for (const ev of spec.parseLine(line)) {
-      if (ev.kind === "text") text += ev.text;
+      if (ev.kind === "text") {
+        if (ev.final) final += ev.text;
+        else streamed += ev.text;
+      }
     }
   }
+  const text = streamed || final;
   if (text.length === 0) return null;
 
   const parsed = parseFactoryStatus(text);

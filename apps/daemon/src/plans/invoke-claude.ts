@@ -142,7 +142,12 @@ export async function invokeClaudeJson(
     await proc.stdin.end();
   }
 
-  let resultText = "";
+  // Streamed assistant text vs. the `result` envelope's `final` copy of it.
+  // The two duplicate each other, so we keep them apart and return the streamed
+  // text, falling back to the final copy only when nothing streamed. Folding
+  // both in concatenates the answer with itself (the "v0.9.0v0.9.0" bug).
+  let streamedText = "";
+  let finalText = "";
   let sessionId: string | null = null;
   let metrics: AgentMetrics | null = null;
   const reader = proc.stdout.getReader();
@@ -150,8 +155,10 @@ export async function invokeClaudeJson(
   let buf = "";
   const handleEvents = (events: readonly StreamEvent[]) => {
     for (const e of events) {
-      if (e.kind === "text") resultText += e.text;
-      else if (e.kind === "session") sessionId = e.id;
+      if (e.kind === "text") {
+        if (e.final) finalText += e.text;
+        else streamedText += e.text;
+      } else if (e.kind === "session") sessionId = e.id;
       else if (e.kind === "metrics") metrics = e.metrics;
     }
   };
@@ -176,10 +183,11 @@ export async function invokeClaudeJson(
     reader.releaseLock();
   }
 
+  const text = streamedText || finalText;
   const exitCode = await proc.exited;
-  if (exitCode !== 0 && !resultText) {
+  if (exitCode !== 0 && !text) {
     const stderr = await new Response(proc.stderr).text();
     throw new Error(`${agentName} exited ${exitCode}: ${stderr.trim().slice(0, 200)}`);
   }
-  return { text: resultText, sessionId, metrics };
+  return { text, sessionId, metrics };
 }

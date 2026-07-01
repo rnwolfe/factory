@@ -212,10 +212,13 @@ export function createClaudeCodeAgent(worktreeRoot?: string): AgentSpec {
       }
 
       if (parsed.type === "result") {
-        // Surface the final assistant text once if present (some flows skip the
-        // assistant turn and only delivers text via the result envelope).
+        // The result envelope re-emits the final assistant text, which the
+        // `assistant` events above already streamed. Mark it `final: true` so
+        // accumulating consumers fold it in only as a fallback (for the rare
+        // flow that skips the assistant turn and delivers text only here) —
+        // otherwise the text is double-counted. See StreamEvent.kind="text".
         if (typeof parsed.result === "string" && parsed.result.length > 0) {
-          events.push({ kind: "text", text: parsed.result });
+          events.push({ kind: "text", text: parsed.result, final: true });
           // A usage-cap exit is an external quota stop, not a failure — surface
           // it as a distinct signal so the runner can resume rather than fail.
           if (parsed.is_error === true && USAGE_LIMIT_RE.test(parsed.result)) {
