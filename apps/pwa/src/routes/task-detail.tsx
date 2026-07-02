@@ -190,6 +190,7 @@ export function TaskDetail() {
   const isDropped = fm.status === "dropped";
   const isNeedsTriage = fm.status === "needs_triage";
   const isBacklog = fm.status === "backlog";
+  const isReady = fm.status === "ready";
   const isPrePipeline = isNeedsTriage || isBacklog; // not yet ready to run
   const canDrop = !activeRun && !isDropped && !isDone;
 
@@ -302,6 +303,34 @@ export function TaskDetail() {
                   : `run task · ${fm.id}`}
           </button>
         )}
+        {isReady && !activeRun ? (
+          // Demote a queued task back down the pipeline (ADR-021). A `ready`
+          // task is startable and auto-advance can pick it up; demoting to
+          // `backlog` (vetted, not queued) or `needs_triage` pulls it out of
+          // isStartable so it won't run until re-promoted. If a run starts
+          // first (auto-advance race), activeRun flips and this whole block is
+          // replaced by the "view active run" affordance above.
+          <div className="mt-2 flex flex-wrap gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => setStatus.mutate("backlog")}
+              disabled={setStatus.isPending}
+              className="btn btn-ghost text-[12px]"
+              title="move back to the backlog — vetted, but no longer queued to run"
+            >
+              {setStatus.isPending ? "moving…" : "move to backlog"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatus.mutate("needs_triage")}
+              disabled={setStatus.isPending}
+              className="btn btn-ghost text-[12px]"
+              title="send back to triage"
+            >
+              back to triage
+            </button>
+          </div>
+        ) : null}
         {setStatus.isError ? (
           <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
             {(setStatus.error as Error).message}
