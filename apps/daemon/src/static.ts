@@ -53,6 +53,22 @@ export function makeStaticHandler(distRoot: string): (req: Request) => Response 
       });
     }
 
+    // iOS probes these well-known root paths when adding a PWA to the home
+    // screen (in addition to the <link rel="apple-touch-icon">). Alias them to
+    // the real icon so the home-screen icon always resolves — otherwise they
+    // fall into the asset branch as missing files. A 180x180 opaque PNG.
+    if (
+      url.pathname === "/apple-touch-icon.png" ||
+      url.pathname === "/apple-touch-icon-precomposed.png"
+    ) {
+      const iconPath = path.join(distRoot, "icons", "apple-touch-icon.png");
+      if (existsSync(iconPath)) {
+        return new Response(Bun.file(iconPath), {
+          headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
+        });
+      }
+    }
+
     const candidate = path.join(distRoot, decodeURIComponent(url.pathname));
     const safeRoot = path.resolve(distRoot);
     const resolved = path.resolve(candidate);
@@ -65,6 +81,15 @@ export function makeStaticHandler(distRoot: string): (req: Request) => Response 
     const isAsset = ext.length > 0 && TYPES[ext] !== undefined;
 
     if (isAsset) {
+      // A missing asset must 404 — NOT stream a nonexistent Bun.file (which
+      // 500s on read) and NOT SPA-fallback to index.html (which would serve
+      // HTML for a .png/.js and break icon/asset probes like iOS's).
+      if (!existsSync(resolved)) {
+        return new Response("Not found", {
+          status: 404,
+          headers: { "cache-control": "no-cache" },
+        });
+      }
       const headers: Record<string, string> = {
         "content-type": TYPES[ext] ?? "application/octet-stream",
       };
