@@ -152,24 +152,29 @@ describe("classifyBlastRadius", () => {
   });
 
   test("Factory's own .factory/ task files don't count toward blast radius", () => {
-    // A task file whose slug contains "schema" must NOT trip the risky-path
+    // A risky-named task file (e.g. "…-auth-…") must NOT trip the risky-path
     // filter — it's Factory bookkeeping, not shipped project code.
-    const diff = `diff --git a/.factory/work/task-012-define-drizzle-schema-x.md b/.factory/work/task-012-define-drizzle-schema-x.md
+    const diff = `diff --git a/.factory/work/task-012-add-auth-guard.md b/.factory/work/task-012-add-auth-guard.md
 +status: done`;
     const b = classifyBlastRadius(diff);
     expect(b.files).toBe(0);
     expect(b.radius).toBe("contained");
   });
 
-  test("a real schema.ts change is still broad even alongside a .factory task file", () => {
-    const diff = `diff --git a/.factory/work/task-012-schema.md b/.factory/work/task-012-schema.md
-+status: done
-diff --git a/src/server/db/schema.ts b/src/server/db/schema.ts
+  test("a schema DEFINITION change is contained (not risky) — only applied migrations are", () => {
+    // schema.ts is code, not an applied change — a schema edit alone must not
+    // hold an autonomous run (the greenfield-schema hold this fixes).
+    const defOnly = `diff --git a/src/server/db/schema.ts b/src/server/db/schema.ts
 +export const households = sqliteTable("households", {});`;
-    const b = classifyBlastRadius(diff);
-    expect(b.files).toBe(1); // only schema.ts counts
+    expect(classifyBlastRadius(defOnly).radius).toBe("contained");
+
+    // But if the change generates an applied migration, THAT is broad.
+    const withMigration = `${defOnly}
+diff --git a/drizzle/migrations/0001_add_households.sql b/drizzle/migrations/0001_add_households.sql
++CREATE TABLE households (id text primary key);`;
+    const b = classifyBlastRadius(withMigration);
     expect(b.radius).toBe("broad");
-    expect(b.reasons.join(" ")).toContain("schema.ts");
+    expect(b.reasons.join(" ")).toContain("migrations");
   });
 });
 

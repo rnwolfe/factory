@@ -164,9 +164,16 @@ export interface BlastClassification {
   reasons: string[];
 }
 
-/** Paths where a change is high-consequence / hard to reverse. */
+/**
+ * Paths where a change is high-consequence / hard to reverse. NOTE: a schema
+ * *definition* file (e.g. `schema.ts`) is deliberately NOT here — editing a
+ * schema is ordinary, reversible code. The genuinely risky artifact is an
+ * *applied* `migrations/` file, which is listed separately; a schema change that
+ * generates a migration still trips that, so we hold only when a change is
+ * actually disruptive, not merely schema-adjacent.
+ */
 const RISKY_PATH =
-  /(^|\/)(migrations?\/|.*schema|.*auth|secrets?|Dockerfile|\.env|package(-lock)?\.json|bun\.lock|\.github\/workflows\/)/i;
+  /(^|\/)(migrations?\/|.*auth|secrets?|Dockerfile|\.env|package(-lock)?\.json|bun\.lock|\.github\/workflows\/)/i;
 const CHURN_LIMIT = 400;
 const FILE_LIMIT = 15;
 
@@ -181,7 +188,7 @@ export function classifyBlastRadius(diff: string): BlastClassification {
       const m = l.match(/ b\/(.+)$/);
       // Exclude Factory's own bookkeeping (`.factory/work/*.md` task files, etc.)
       // from blast classification — it's metadata, not shipped project code, and
-      // a task slug like "…-schema-…" would otherwise trip the risky-path filter.
+      // a task slug like "…-add-auth-…" would otherwise trip the risky-path filter.
       if (m?.[1] && !m[1].startsWith(".factory/")) files.add(m[1]);
       continue;
     }
