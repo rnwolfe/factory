@@ -4,6 +4,13 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.45.0 — 2026-07-02
+
+### Added
+- **Task lifecycle lanes + a backlog state.** The project task board is now organized into lifecycle lanes — triage · backlog · ready · in progress · in review · blocked — instead of a flat list. A new **backlog** state sits between triage and ready for work you've accepted but aren't ready to queue; the *in progress* and *in review* lanes are derived from the active run. Phone-first (lanes stack). (ADR-021)
+- **Operator queue ordering.** Tasks now carry an order rank, and the ready queue is sorted by (priority, rank) — so **priority finally affects what auto-advance runs next**, and you can hand-order the queue with up/down controls on the ready lane. (ADR-021)
+- **Imported issues arrive organized.** When you adopt pre-existing GitHub issues, Factory now reads each one and infers its **dependencies and priority from the description**, applying them so you inherit an organized backlog instead of a flat one. Best-effort and safe (scoped to the imported set, cycle-checked); adopted work still lands in triage for your review.
+
 ## v0.44.0 — 2026-07-01
 
 ### Added
