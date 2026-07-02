@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.50.0 — 2026-07-02
+
+### Changed
+- **`max blast radius` is now a working knob.** Setting a project's gate max-blast-radius to `broad` (autonomy panel) now actually lets risk-sensitive/large diffs auto-land on that project (still requiring high verifier coverage) — previously the setting existed but did nothing. Default stays `contained`.
+
 ## v0.49.4 — 2026-07-02
 
 ### Fixed
