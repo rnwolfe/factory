@@ -409,3 +409,16 @@ unreachable but the process is healthy, check the proxy/ingress layer before the
 app route names (`/metrics`, `/debug`, `/graphql`) collide with anti-scanner proxy filters —
 exempt them per-site at the proxy, don't rename the app route; (3) a TCP `abort` leaves no proxy
 error log, so probe routes end-to-end rather than trusting "no errors."
+
+## Verify "shipped?" against code, not ADR status lines or todo.md (2026-07-01)
+
+During a repo-wide audit I reported the GitHub Issue backend (ADR-007) as "design accepted,
+implementation pending" — sourced from the ADR's status line and a stale tasks/todo.md entry.
+The operator challenged it; the code says fully shipped: `GithubTaskStore`
+(apps/daemon/src/projects/github-task-store.ts, 27KB), registered at tasks.ts:568, activated at
+boot (index.ts:135 `configureGithubTaskBackend`), webhook live at /webhooks/github, plus
+app-auth/issue-triage/enable-github-backend. Lesson: docs in this repo trail the code — ADR
+status lines and todo.md are written at design time and rarely updated after the merge train.
+When mapping promised-vs-shipped, ground every "not shipped" claim in a code-level check
+(grep for the registration/boot seam), not in planning docs. Cheap check: registrations,
+`index.ts` boot wiring, and route tables are the truth for "is it live."
