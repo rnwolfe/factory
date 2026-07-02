@@ -91,7 +91,7 @@ Per-package: `bun --filter '@factory/<name>' <script>`. DB scripts: `bun run db:
 
 - Single operator. The decisions inbox is the only attention sink. If you're tempted to add another one, ask why first.
 - Phone-first. Every screen must work on a 390px viewport before desktop polish.
-- Auto-advance is on by default — runs chain through ready tasks until one fails or the queue empties. Per-project toggle.
+- Auto-advance is on by default — runs chain through ready tasks until one fails or the queue empties. Per-project toggle. Post-merge chaining alone leaves an *idle* autonomous project's ready queue un-started (after a restart / merge hold / never-kicked-off); **ADR-022's `idle-advance.ts` tick cold-starts the next ready task** for `autonomous` + `auto_advance` + active projects with no run in flight (honoring the `autorun.emergencyStop` kill-switch). It is *not* gated on `autorun.classes` — those gate Watch-*proposal* auto-run (ADR-017), a separate mechanism.
 - Per-project Claude model is selected on the project (and at decision-approve time). `null` lets the CLI pick its own default.
 
 ## What v0.1 promised vs. what's deferred

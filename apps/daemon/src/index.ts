@@ -35,6 +35,7 @@ import { surfaceObservations } from "./watch/observation-inbox.ts";
 import { persistObservations } from "./watch/observation-store.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
 import { type RawObservation, synthesizeObservations } from "./watch/synthesize.ts";
+import { startIdleAutoAdvancer } from "./workers/idle-advance.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
 import { RunRegistry } from "./workers/registry.ts";
@@ -201,6 +202,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
 
   // Auto-resume runs halted by a usage cap once their reset time passes.
   const stopUsageCapResumer = startUsageCapResumer({ config, db, events, runs, pool });
+
+  // Cold-start / resume auto-advance for idle autonomous projects (ADR-022):
+  // post-merge chaining alone leaves an interrupted autonomous project's ready
+  // queue un-started; this tick submits the next ready task when idle.
+  const stopIdleAutoAdvancer = startIdleAutoAdvancer({ config, db, events, runs, pool });
 
   // Timed inbox snoozes are daemon-owned. The inbox queries already treat
   // expired timestamps as active; this loop makes expiry proactive by clearing
@@ -431,6 +437,7 @@ export async function startDaemon(): Promise<DaemonHandle> {
     scripts.killAll();
     stopPushDispatcher();
     stopUsageCapResumer();
+    stopIdleAutoAdvancer();
     stopInboxSnoozeResurfacer();
     scheduler.stop();
     await pool.drain();
