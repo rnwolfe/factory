@@ -28,6 +28,7 @@ import {
   deleteProject,
   LifecycleError,
   previewDelete,
+  renameProject,
   unarchiveProject,
 } from "../projects/lifecycle.ts";
 import { confirmMilestone, proposeMilestone } from "../projects/milestone-decompose.ts";
@@ -1082,6 +1083,31 @@ export const projectsRouter = router({
       } catch (err) {
         if (err instanceof LifecycleError) {
           const code = err.code === "running_run" ? "PRECONDITION_FAILED" : "NOT_FOUND";
+          throw new TRPCError({ code, message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  /**
+   * Rename a project (name + slug), moving its on-disk directory for
+   * factory-managed projects. Refuses while a run is active or worktrees exist
+   * on disk (see renameProject). Returns the new slug/workdir so the client can
+   * update its view.
+   */
+  rename: protectedProcedure
+    .input(z.object({ id: z.string(), name: z.string().min(1).max(120) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await renameProject(ctx.config, ctx.db, input.id, input.name);
+      } catch (err) {
+        if (err instanceof LifecycleError) {
+          const code =
+            err.code === "not_found"
+              ? "NOT_FOUND"
+              : err.code === "invalid_name" || err.code === "slug_taken"
+                ? "BAD_REQUEST"
+                : "PRECONDITION_FAILED";
           throw new TRPCError({ code, message: err.message });
         }
         throw err;

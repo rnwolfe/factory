@@ -1,10 +1,20 @@
 import { existsSync } from "node:fs";
-import { readdir, rm } from "node:fs/promises";
+import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type Db, schema } from "@factory/db";
 import { spawn as bunSpawn } from "bun";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
+import YAML from "yaml";
 import type { FactoryConfig } from "../config.ts";
+
+/** Slug derivation — identical rules to bootstrap/import (kebab, ≤48 chars). */
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
 
 async function git(args: string[], cwd: string): Promise<{ exitCode: number; stdout: string }> {
   try {
@@ -19,12 +29,151 @@ async function git(args: string[], cwd: string): Promise<{ exitCode: number; std
 
 export class LifecycleError extends Error {
   constructor(
-    public readonly code: "not_found" | "running_run" | "no_workdir",
+    public readonly code:
+      | "not_found"
+      | "running_run"
+      | "no_workdir"
+      | "has_worktrees"
+      | "slug_taken"
+      | "invalid_name",
     message: string,
   ) {
     super(message);
     this.name = "LifecycleError";
   }
+}
+
+export interface RenameResult {
+  name: string;
+  slug: string;
+  workdirPath: string;
+  /** True when the on-disk directory was moved (factory-managed projects only). */
+  movedDir: boolean;
+}
+
+/**
+ * Rename a project: update `name` + `slug`, and — for factory-managed projects
+ * (workdir under the factory root) — move the on-disk directory to match the new
+ * slug. `workdirPath` is the single source of truth for the project's location
+ * (nothing re-derives it from slug at runtime), so the DB update + dir move is
+ * sufficient for the project dir; the on-disk `.factory/meta.yaml` slug and any
+ * Watch-observation `targetProjectSlug` soft-references are updated to match.
+ *
+ * Refuses when a run is active OR when the project has worktrees on disk
+ * (`<worktreesRoot>/<slug>/…`): worktrees embed the slug in their path and their
+ * git admin links, and relocating them safely is out of scope for v1 — the
+ * operator runs `factory prune` (or finishes/aborts runs) first. Imported
+ * projects (external workdir) get the name/slug change but the external dir is
+ * left in place.
+ */
+export async function renameProject(
+  config: FactoryConfig,
+  db: Db,
+  projectId: string,
+  newName: string,
+): Promise<RenameResult> {
+  const project = db.select().from(schema.projects).where(eq(schema.projects.id, projectId)).get();
+  if (!project) throw new LifecycleError("not_found", `project ${projectId} not found`);
+
+  const trimmed = newName.trim();
+  const newSlug = slugify(trimmed);
+  if (!trimmed || !newSlug) {
+    throw new LifecycleError("invalid_name", "name must contain at least one letter or digit");
+  }
+
+  const slugChanged = newSlug !== project.slug;
+
+  // Refuse while a run is in flight (would strand its live worktree + tmux).
+  const runs = db
+    .select({ id: schema.runs.id, status: schema.runs.status })
+    .from(schema.runs)
+    .where(eq(schema.runs.projectId, projectId))
+    .all();
+  const stuck = runs.find((r) => r.status === "running" || r.status === "queued");
+  if (stuck) {
+    throw new LifecycleError(
+      "running_run",
+      `run ${stuck.id} is ${stuck.status} — abort it before renaming the project`,
+    );
+  }
+
+  // Refuse if worktrees exist on disk under the current slug (v1 scope).
+  if (slugChanged) {
+    const wtDir = path.join(config.worktreesRoot, project.slug);
+    if (existsSync(wtDir)) {
+      let entries: string[] = [];
+      try {
+        entries = await readdir(wtDir);
+      } catch {
+        // ignore
+      }
+      if (entries.length > 0) {
+        throw new LifecycleError(
+          "has_worktrees",
+          `project has ${entries.length} worktree(s) on disk — run \`factory prune\` before renaming`,
+        );
+      }
+    }
+  }
+
+  // Slug uniqueness (mirror the DB unique constraint with a clean error).
+  if (slugChanged) {
+    const clash = db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.slug, newSlug), ne(schema.projects.id, projectId)))
+      .get();
+    if (clash) {
+      throw new LifecycleError("slug_taken", `another project already uses the slug "${newSlug}"`);
+    }
+  }
+
+  // Move the on-disk dir for factory-managed projects only.
+  const factoryRoot = path.resolve(config.workdir);
+  const workdirAbs = path.resolve(project.workdirPath);
+  const insideRoot =
+    workdirAbs === factoryRoot || workdirAbs.startsWith(`${factoryRoot}${path.sep}`);
+  let newWorkdirPath = project.workdirPath;
+  let movedDir = false;
+  if (slugChanged && insideRoot) {
+    newWorkdirPath = path.join(factoryRoot, "projects", newSlug);
+    if (existsSync(newWorkdirPath)) {
+      throw new LifecycleError("slug_taken", `directory already exists: ${newWorkdirPath}`);
+    }
+    if (existsSync(workdirAbs)) {
+      await rename(workdirAbs, newWorkdirPath);
+      movedDir = true;
+    }
+  }
+
+  db.update(schema.projects)
+    .set({ name: trimmed, slug: newSlug, workdirPath: newWorkdirPath, lastActivityAt: Date.now() })
+    .where(eq(schema.projects.id, projectId))
+    .run();
+
+  // Keep the on-disk meta.yaml slug in sync (best-effort).
+  if (slugChanged) {
+    const metaPath = path.join(newWorkdirPath, ".factory", "meta.yaml");
+    if (existsSync(metaPath)) {
+      try {
+        const meta = (YAML.parse(await readFile(metaPath, "utf8")) ?? {}) as Record<
+          string,
+          unknown
+        >;
+        meta.slug = newSlug;
+        await writeFile(metaPath, YAML.stringify(meta), "utf8");
+      } catch {
+        // best-effort — the DB slug is authoritative
+      }
+    }
+    // Re-point Watch observations' soft slug FK so they still resolve.
+    db.update(schema.watchObservations)
+      .set({ targetProjectSlug: newSlug })
+      .where(eq(schema.watchObservations.targetProjectSlug, project.slug))
+      .run();
+  }
+
+  return { name: trimmed, slug: newSlug, workdirPath: newWorkdirPath, movedDir };
 }
 
 export interface DeletePreview {

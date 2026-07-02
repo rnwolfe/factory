@@ -28,6 +28,7 @@ import { NewTaskModal } from "../components/new-task-modal.tsx";
 import type { PlanRow } from "../components/plan-card.tsx";
 import { ProjectOverflowMenu } from "../components/project-overflow-menu.tsx";
 import { PublishGithubModal } from "../components/publish-github-modal.tsx";
+import { RenameControl } from "../components/rename-control.tsx";
 import { type ProjectRole, RolePicker } from "../components/role-picker.tsx";
 import { ScriptsSection } from "../components/scripts-section.tsx";
 import { SessionsList } from "../components/sessions-list.tsx";
@@ -415,9 +416,7 @@ export function ProjectDetail() {
             >
               <ArrowLeft size={11} /> projects
             </Link>
-            <h1 className="display text-[22px] leading-tight text-[var(--color-fg)] truncate">
-              {p.name}
-            </h1>
+            <RenameControl projectId={p.id} name={p.name} />
             <div className="mono text-[11px] text-[var(--color-fg-3)] mt-1 flex items-center gap-2 flex-wrap">
               <span>{p.slug}</span>
               <span>·</span>

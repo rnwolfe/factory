@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
@@ -10,6 +10,7 @@ import {
   archiveProject,
   deleteProject,
   LifecycleError,
+  renameProject,
   unarchiveProject,
 } from "../src/projects/lifecycle.ts";
 
@@ -111,6 +112,93 @@ describe("project lifecycle", () => {
     } finally {
       h.cleanup();
     }
+  });
+
+  describe("renameProject", () => {
+    test("moves the managed dir and updates name/slug/workdirPath/meta.yaml", async () => {
+      const h = setupHarness();
+      try {
+        const oldDir = path.join(h.root, "projects", "refine-project-spec");
+        mkdirSync(path.join(oldDir, ".factory"), { recursive: true });
+        writeFileSync(path.join(oldDir, ".factory", "meta.yaml"), "slug: refine-project-spec\n");
+        const id = seedProject(h.db, oldDir, "refine-project-spec");
+
+        const res = await renameProject(h.config, h.db, id, "Dwell Refresh");
+        expect(res.slug).toBe("dwell-refresh");
+        expect(res.movedDir).toBe(true);
+
+        const newDir = path.join(h.root, "projects", "dwell-refresh");
+        expect(existsSync(oldDir)).toBe(false);
+        expect(existsSync(newDir)).toBe(true);
+
+        const row = h.db.select().from(schema.projects).where(eq(schema.projects.id, id)).get();
+        expect(row?.name).toBe("Dwell Refresh");
+        expect(row?.slug).toBe("dwell-refresh");
+        expect(row?.workdirPath).toBe(newDir);
+        const meta = readFileSync(path.join(newDir, ".factory", "meta.yaml"), "utf8");
+        expect(meta).toContain("slug: dwell-refresh");
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    test("name-only change (same slug) updates name, leaves dir", async () => {
+      const h = setupHarness();
+      try {
+        const dir = path.join(h.root, "projects", "demo");
+        mkdirSync(dir, { recursive: true });
+        const id = seedProject(h.db, dir, "demo");
+        const res = await renameProject(h.config, h.db, id, "  demo  ");
+        expect(res.slug).toBe("demo");
+        expect(res.movedDir).toBe(false);
+        const row = h.db.select().from(schema.projects).where(eq(schema.projects.id, id)).get();
+        expect(row?.name).toBe("demo");
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    test("refuses a slug that collides with another project", async () => {
+      const h = setupHarness();
+      try {
+        seedProject(h.db, path.join(h.root, "projects", "taken"), "taken");
+        const dir = path.join(h.root, "projects", "demo");
+        mkdirSync(dir, { recursive: true });
+        const id = seedProject(h.db, dir, "demo");
+        await expect(renameProject(h.config, h.db, id, "Taken")).rejects.toMatchObject({
+          code: "slug_taken",
+        });
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    test("refuses when worktrees exist on disk", async () => {
+      const h = setupHarness();
+      try {
+        const dir = path.join(h.root, "projects", "demo");
+        mkdirSync(dir, { recursive: true });
+        mkdirSync(path.join(h.config.worktreesRoot, "demo", "run-1"), { recursive: true });
+        const id = seedProject(h.db, dir, "demo");
+        await expect(renameProject(h.config, h.db, id, "New Name")).rejects.toMatchObject({
+          code: "has_worktrees",
+        });
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    test("refuses an empty/punctuation-only name", async () => {
+      const h = setupHarness();
+      try {
+        const id = seedProject(h.db, path.join(h.root, "projects", "demo"), "demo");
+        await expect(renameProject(h.config, h.db, id, "!!!")).rejects.toMatchObject({
+          code: "invalid_name",
+        });
+      } finally {
+        h.cleanup();
+      }
+    });
   });
 
   test("archiveProject on missing id throws LifecycleError", () => {
