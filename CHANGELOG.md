@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.49.3 — 2026-07-02
+
+### Fixed
+- **Cold-start loop fix, done right.** v0.49.2 stopped the held-run re-run loop but keyed on run history, which would have permanently blocked a project from cold-starting after its first review hold. It now keys on a *pending* held-for-review decision (which clears when you resolve it), so cold-start pauses while you have work to review and resumes cleanly afterward.
+
 ## v0.49.2 — 2026-07-02
 
 ### Fixed
