@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.47.2 — 2026-07-02
+
+### Fixed
+- **Inbox no longer dead-ends on a transient blip.** Previously any failed `decisions.inbox` fetch — including the brief moment while a `factory upgrade` restarts the daemon — replaced the whole page with a "something is wrong" error. Now the inbox keeps showing your last-good items with a subtle "reconnecting…" pill and auto-recovers on the next poll; a true first-load failure shows friendlier copy plus a retry button.
+
 ## v0.47.1 — 2026-07-02
 
 ### Fixed
