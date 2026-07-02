@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.49.1 — 2026-07-02
+
+### Fixed
+- **"Held for review" now names the real reason.** A run held by the verifier gate always claimed "coverage was below `high`", even when coverage was high and the actual reason was a **broad blast radius** (a risk-sensitive diff, e.g. a schema change). The hold now shows the gate's true reason. Also: Factory's own `.factory/work/*.md` task files no longer count toward blast radius, so a task whose name contains "schema" won't falsely trip the risk-sensitive-path check.
+
 ## v0.49.0 — 2026-07-02
 
 ### Added
