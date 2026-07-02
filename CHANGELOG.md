@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.48.0 — 2026-07-02
+
+### Changed
+- **Auto-run classes is now a multiselect.** The autonomy panel's "auto-run classes" allow-list (which Watch proposal kinds may auto-run) was a freeform comma-separated field where a typo or a blank silently disabled auto-run. It's now a checkbox list of the real classes — groom-backlog, adopt-as-task, draft-feature-plan, record-as-convention — with a clear "none selected — nothing auto-runs" hint.
+
 ## v0.47.2 — 2026-07-02
 
 ### Fixed
