@@ -227,6 +227,20 @@ export function ProjectDetail() {
     },
   });
 
+  // Bulk-promote the whole triage lane to ready (ADR-020): after an adopt()
+  // reap, vetting tasks one at a time is O(n) taps. Deliberate confirm below —
+  // needs_triage exists so adopted work is vetted before auto-advance runs it.
+  const markAllReady = useMutation({
+    mutationFn: () => trpc.projects.tasks.markAllReady.mutate({ projectId: id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.list", id] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+    onError: (err) => {
+      window.alert(`Couldn't promote the triage tasks: ${(err as Error).message}`);
+    },
+  });
+
   const organizeBacklog = useMutation({
     mutationFn: () => trpc.projects.organizeBacklog.mutate({ id }),
     onSuccess: (res) => {
@@ -757,6 +771,25 @@ export function ProjectDetail() {
                       <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
                         {laneTasks.length}
                       </span>
+                      {lane.id === "triage" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `Mark ${laneTasks.length} triage task${laneTasks.length === 1 ? "" : "s"} ready to run? They'll be eligible for auto-advance — set dependencies first if any must wait on other work.`,
+                              )
+                            ) {
+                              markAllReady.mutate();
+                            }
+                          }}
+                          disabled={markAllReady.isPending}
+                          className="btn btn-ghost text-[10.5px] !h-6 !px-2 ml-auto shrink-0"
+                          title="promote every triage task to ready in one step"
+                        >
+                          {markAllReady.isPending ? "promoting…" : "mark all ready"}
+                        </button>
+                      ) : null}
                     </div>
                     <div className="surface divide-y divide-[var(--color-line)]">
                       {laneTasks.map((t, i) => {
