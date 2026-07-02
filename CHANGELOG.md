@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.47.1 — 2026-07-02
+
+### Fixed
+- **PWA home-screen icon on iOS.** The daemon returned a 500 for missing asset paths (like the root `/apple-touch-icon.png` iOS probes when installing a PWA) instead of a clean 404, which could leave the installed app icon blank. Missing assets now 404, and the well-known `/apple-touch-icon.png` / `-precomposed.png` root paths are served from the real icon so iOS's fallback always resolves.
+
 ## v0.47.0 — 2026-07-02
 
 ### Added
