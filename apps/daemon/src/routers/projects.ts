@@ -16,6 +16,7 @@ import {
   importFromUrl,
   readGithubOriginRemote,
 } from "../projects/import.ts";
+import { organizeProjectBacklog } from "../projects/import-enrich.ts";
 import { raiseIssueImportDecision } from "../projects/import-issues.ts";
 import {
   type ConfirmImportSpecInput,
@@ -1154,6 +1155,23 @@ export const projectsRouter = router({
         { db: ctx.db, config: ctx.config, events: ctx.events },
         input.id,
       );
+    }),
+
+  /**
+   * Re-runnable "organize backlog": infer blockedBy edges + priority from the
+   * project's current open tasks and apply them in place (ADR-021). Awaited so
+   * the operator gets the counts; capped so a slow model call can't hang.
+   */
+  organizeBacklog: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.id))
+        .get();
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+      return organizeProjectBacklog({ db: ctx.db }, project, { budgetSeconds: 180 });
     }),
 
   /**

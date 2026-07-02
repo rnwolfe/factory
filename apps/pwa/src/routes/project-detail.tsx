@@ -12,6 +12,7 @@ import {
   ListTree,
   Play,
   Plus,
+  Sparkles,
   Upload,
 } from "lucide-react";
 import { useState } from "react";
@@ -223,6 +224,19 @@ export function ProjectDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects.tasks.list", id] });
       qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
+  const organizeBacklog = useMutation({
+    mutationFn: () => trpc.projects.organizeBacklog.mutate({ id }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+      qc.invalidateQueries({ queryKey: ["projects.tasks.list", id] });
+      window.alert(
+        res.inferenceFailed
+          ? "Couldn't organize the backlog — the inference pass failed. Nothing changed."
+          : `Organized ${res.taskCount} task${res.taskCount === 1 ? "" : "s"}: set ${res.edgesApplied} dependenc${res.edgesApplied === 1 ? "y" : "ies"} and ${res.prioritiesApplied} priorit${res.prioritiesApplied === 1 ? "y" : "ies"}.`,
+      );
     },
   });
 
@@ -704,7 +718,21 @@ export function ProjectDetail() {
 
       <ProjectTabPanel value="tasks" active={activeTab}>
         <section>
-          <SectionHeader title="tasks" count={activeTasks.length} />
+          <div className="flex items-center justify-between gap-2">
+            <SectionHeader title="tasks" count={activeTasks.length} />
+            {activeTasks.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => organizeBacklog.mutate()}
+                disabled={organizeBacklog.isPending}
+                className="btn btn-ghost text-[11px] shrink-0"
+                title="infer dependencies + priority for the open tasks from their descriptions"
+              >
+                <Sparkles size={12} />
+                {organizeBacklog.isPending ? "organizing…" : "organize"}
+              </button>
+            ) : null}
+          </div>
           {tasks.length === 0 ? (
             <div className="surface px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
               no tasks yet — first run will create them.

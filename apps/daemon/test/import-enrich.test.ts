@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Db } from "@factory/db";
-import { runImportEnrichment } from "../src/projects/import-enrich.ts";
-import { createTask, readTaskFile } from "../src/projects/tasks.ts";
+import { organizeProjectBacklog, runImportEnrichment } from "../src/projects/import-enrich.ts";
+import { createTask, readTaskFile, updateTaskStatus } from "../src/projects/tasks.ts";
 
 const db = {} as Db; // resolveAgent is never reached when agentInvoker is injected.
 const invoker = (text: string) => async () => ({ text, sessionId: null, metrics: null });
@@ -100,6 +100,33 @@ describe("runImportEnrichment", () => {
       expect(res.edgesApplied).toBe(0);
       const b = await readTaskFile(h.project, h.b.id);
       expect(b?.frontmatter.blockedBy).toBeUndefined();
+    } finally {
+      h.cleanup();
+    }
+  });
+});
+
+describe("organizeProjectBacklog", () => {
+  test("runs over open tasks only (excludes done/dropped) and applies inference", async () => {
+    const h = await setup();
+    try {
+      // Drop C — it must be excluded from the organizable backlog.
+      await updateTaskStatus(h.project, h.c.id, "dropped");
+      const json = JSON.stringify({
+        tasks: [
+          { id: h.a.id, priority: "high" },
+          { id: h.b.id, blockedBy: [h.a.id] },
+          { id: h.c.id, blockedBy: [h.a.id] }, // C is terminal → not in the set, ignored
+        ],
+      });
+      const res = await organizeProjectBacklog({ db }, h.project, {
+        agentInvoker: invoker(`\`\`\`json\n${json}\n\`\`\``),
+      });
+      expect(res.taskCount).toBe(2); // A + B open; C dropped
+      expect(res.edgesApplied).toBe(1);
+      expect(res.prioritiesApplied).toBe(1);
+      const b = await readTaskFile(h.project, h.b.id);
+      expect(b?.frontmatter.blockedBy).toEqual([h.a.id]);
     } finally {
       h.cleanup();
     }

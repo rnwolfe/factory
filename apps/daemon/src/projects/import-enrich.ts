@@ -5,6 +5,7 @@ import { type InvokeClaudeResult, invokeClaudeJson } from "../plans/invoke-claud
 import { extractJsonObject } from "../plans/json-extract.ts";
 import {
   dependencyCycleExists,
+  listTasks,
   normalizeBlockedBy,
   readTaskFile,
   type TaskFile,
@@ -14,6 +15,9 @@ import {
   updateTaskBlockedBy,
   updateTaskPriority,
 } from "./tasks.ts";
+
+/** Terminal task statuses — excluded from the organizable backlog. */
+const TERMINAL_STATUSES = new Set<TaskFrontmatter["status"]>(["done", "dropped"]);
 
 /**
  * Import-time enrichment (ADR-021 companion to the reap flow): after adopting a
@@ -187,4 +191,28 @@ export async function runImportEnrichment(
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+export interface OrganizeBacklogResult extends ImportEnrichmentResult {
+  /** Open tasks fed to inference (non-terminal). */
+  taskCount: number;
+}
+
+/**
+ * Re-runnable "organize backlog": run import-style inference over a project's
+ * CURRENT open tasks (not just a fresh import) — inferring `blockedBy` edges +
+ * `priority` from each task's body and applying them. Operator-triggered; lets
+ * an already-adopted or hand-built backlog be organized in place. Same safety as
+ * `runImportEnrichment` (scoped, cycle-safe, best-effort). Terminal tasks
+ * (done/dropped) are excluded.
+ */
+export async function organizeProjectBacklog(
+  deps: ImportEnrichmentDeps,
+  project: TaskTarget & { id?: string; agent?: string | null },
+  opts: ImportEnrichmentOptions = {},
+): Promise<OrganizeBacklogResult> {
+  const tasks = await listTasks(project);
+  const ids = tasks.filter((t) => !TERMINAL_STATUSES.has(t.frontmatter.status)).map((t) => t.id);
+  const result = await runImportEnrichment(deps, project, ids, opts);
+  return { ...result, taskCount: ids.length };
 }
