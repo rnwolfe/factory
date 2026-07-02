@@ -256,6 +256,42 @@ const tasksRouter = router({
       return updated.frontmatter;
     }),
   /**
+   * Bulk-promote every `needs_triage` task to `ready` in one shot. Kills the
+   * O(n)-taps papercut after an adopt() reap (ADR-020): adopted work lands as
+   * `needs_triage`, and vetting it one task at a time via `updateStatus` is
+   * tedious. Server-side (not a client fan-out) so it's a single commit and
+   * avoids N concurrent git commits racing on the same workdir. The deliberate
+   * confirm (operator judgment in the loop) lives in the UI — this verb just
+   * flips the whole set. Does NOT change `adopt()` semantics: work still lands
+   * as `needs_triage`; this is the explicit promotion step.
+   */
+  markAllReady: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const tasks = await listTasks(project);
+      const pending = tasks.filter((t) => t.frontmatter.status === "needs_triage");
+      let promoted = 0;
+      for (const t of pending) {
+        const updated = await updateTaskStatus(project, t.id, "ready");
+        if (updated) promoted += 1;
+      }
+      // One commit for the whole batch (see updateStatus for why we commit).
+      if (promoted > 0) {
+        await commitAllChanges(
+          project.workdirPath,
+          `chore: mark ${promoted} triage task${promoted === 1 ? "" : "s"} ready`,
+          ctx.config.gitAuthor,
+        );
+      }
+      return { promoted };
+    }),
+  /**
    * Drop a task — backend-appropriate removal. The store dispatch makes this
    * terminal in the right way for each backend: a file task's frontmatter
    * flips to `dropped` (archived off the active board, audit trail intact),
