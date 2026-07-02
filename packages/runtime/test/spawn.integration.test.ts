@@ -1,8 +1,8 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawn as bunSpawn } from "bun";
+import { spawn as bunSpawn, spawnSync as bunSpawnSync } from "bun";
 import { runtime } from "../src/runtime.ts";
 import { hostSandbox } from "../src/sandboxes/host.ts";
 import type { AgentSpec, RuntimeEvent, StreamEvent } from "../src/types.ts";
@@ -69,8 +69,40 @@ async function gitInitProject(): Promise<string> {
   return root;
 }
 
+// Isolate this suite's tmux onto a private server. `runtime.spawn` (via the
+// real host sandbox) creates and tears down REAL tmux sessions; that churn on a
+// SHARED default tmux server destabilizes it and kills co-tenant panes —
+// including the parent `claude --print` pane when this suite runs inside a
+// Factory self-hosting run (`bun run test`), which then dies before emitting a
+// factory-status footer (the "wide bun test kills the run" bug). Setting
+// FACTORY_TMUX_SOCKET makes every tmux command the runtime issues pass
+// `-L <socket>` (see tmuxSocketArgs), landing on a throwaway server. This
+// mirrors the daemon's orchestrate integration suites — this file was the one
+// real-tmux suite the original fix missed. It must be a CLI flag, not an env
+// tweak: Bun snapshots a child's env at spawn, so mutating $TMUX / TMUX_TMPDIR
+// here would NOT reach the spawned tmux process.
+const tmuxSocket = `factory-runtime-test-${process.pid}`;
+let prevTmuxSocket: string | undefined;
+beforeAll(() => {
+  prevTmuxSocket = process.env.FACTORY_TMUX_SOCKET;
+  process.env.FACTORY_TMUX_SOCKET = tmuxSocket;
+});
+
 const cleanup: string[] = [];
 afterAll(() => {
+  try {
+    // Tear down this suite's private tmux server by its explicit socket —
+    // never touches a shared/default server.
+    bunSpawnSync({
+      cmd: ["tmux", "-L", tmuxSocket, "kill-server"],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+  } catch {
+    // ignore — server may already be gone
+  }
+  if (prevTmuxSocket === undefined) delete process.env.FACTORY_TMUX_SOCKET;
+  else process.env.FACTORY_TMUX_SOCKET = prevTmuxSocket;
   for (const dir of cleanup) {
     try {
       rmSync(dir, { recursive: true, force: true });
