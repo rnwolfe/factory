@@ -64,6 +64,10 @@ describe("isStartable", () => {
     const t = task("task-1", "needs_triage");
     expect(isStartable(t, tasksById([t]))).toBe(false);
   });
+  test("backlog is never startable — vetted-but-not-queued work waits (ADR-021)", () => {
+    const t = task("task-1", "backlog");
+    expect(isStartable(t, tasksById([t]))).toBe(false);
+  });
 });
 
 describe("pickNextReadyTask skips needs_triage", () => {
@@ -81,6 +85,14 @@ describe("pickNextReadyTask skips needs_triage", () => {
   test("a backlog of only needs_triage tasks yields nothing to run", () => {
     const pool = [task("task-1", "needs_triage"), task("task-2", "needs_triage")];
     expect(pickNextReadyTask(pool, null)).toBeNull();
+  });
+  test("backlog + needs_triage relics are skipped; only the ready task is picked", () => {
+    const pool = [
+      task("task-1", "needs_triage"),
+      task("task-2", "backlog"),
+      task("task-3", "ready"),
+    ];
+    expect(pickNextReadyTask(pool, null)?.id).toBe("task-3");
   });
 });
 

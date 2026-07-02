@@ -63,7 +63,13 @@ export const runStatusEnum = [
   // rather than discarded as `failed`. See runStatusFor in workers/runner.ts.
   "needs_review",
 ] as const;
+// The task lifecycle (ADR-021). Kept in sync with the TaskFrontmatter.status
+// union in apps/daemon/src/projects/tasks.ts. `needs_triage`/`backlog` are
+// pre-ready holding states; `in_progress`/`review` are derived from the active
+// run (not written by the pipeline) but retained here for read tolerance.
 export const taskStatusEnum = [
+  "needs_triage",
+  "backlog",
   "ready",
   "in_progress",
   "review",

@@ -66,6 +66,32 @@ const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
 // list doesn't grow into a wall as projects accumulate completed work.
 const ARCHIVED_TASK_STATUSES = new Set(["done", "dropped"]);
 
+// Task summary as returned by projects.tasks.list (with derived dep state).
+type TaskSummary = {
+  id: string;
+  status: string;
+  title: string;
+  estimate: string | null;
+  model?: string | null;
+  sourceLinks?: ProvenanceLink[];
+  startable?: boolean;
+  openBlockers?: string[];
+  blocks?: string[];
+  blockedBy?: string[];
+};
+
+// Lifecycle lanes for the active-task board (ADR-021), in pipeline order.
+// `in_progress`/`review` are derived from the active/latest run, not persisted.
+type TaskLane = "triage" | "backlog" | "ready" | "in_progress" | "review" | "blocked";
+const TASK_LANES: Array<{ id: TaskLane; label: string }> = [
+  { id: "triage", label: "triage" },
+  { id: "backlog", label: "backlog" },
+  { id: "ready", label: "ready" },
+  { id: "in_progress", label: "in progress" },
+  { id: "review", label: "in review" },
+  { id: "blocked", label: "blocked" },
+];
+
 // Cap the runs list at this length on first paint; an explicit "show all"
 // reveals the rest. The server already caps at 100, so the absolute max
 // is bounded; this is purely a paint/readability cut.
@@ -270,18 +296,7 @@ export function ProjectDetail() {
       githubRemote: string | null;
       taskBackend: "file" | "github-issues";
     };
-    tasks: Array<{
-      id: string;
-      status: string;
-      title: string;
-      estimate: string | null;
-      model?: string | null;
-      sourceLinks?: ProvenanceLink[];
-      startable?: boolean;
-      openBlockers?: string[];
-      blocks?: string[];
-      blockedBy?: string[];
-    }>;
+    tasks: TaskSummary[];
     trust: {
       rung: "supervised" | "collaborative" | "autonomous";
       cleanStreak: number;
@@ -300,6 +315,13 @@ export function ProjectDetail() {
   for (const r of activeRuns) {
     if (r.taskId && !activeRunByTask.has(r.taskId)) activeRunByTask.set(r.taskId, r);
   }
+  // Latest run per task (runs arrive newest-first) — used to derive the "in
+  // review" lane: a task whose most recent run is held for review (ADR-021 D1
+  // — execution states are derived from runs, not persisted on the task).
+  const latestRunByTask = new Map<string, RunRow>();
+  for (const r of allRuns) {
+    if (r.taskId && !latestRunByTask.has(r.taskId)) latestRunByTask.set(r.taskId, r);
+  }
   const headerActiveRun = activeRuns[0] ?? null;
   const nextStartableTask = tasks.find(
     (t) => t.status === "ready" && t.startable !== false && !activeRunByTask.has(t.id),
@@ -307,6 +329,35 @@ export function ProjectDetail() {
 
   const activeTasks = tasks.filter((t) => !ARCHIVED_TASK_STATUSES.has(t.status));
   const archivedTasks = tasks.filter((t) => ARCHIVED_TASK_STATUSES.has(t.status));
+  // Group active tasks into lifecycle lanes (ADR-021). Persisted state drives
+  // most lanes; `in progress`/`in review` are derived from the active/latest
+  // run so the board reflects what's actually executing without the task file
+  // carrying transient run state.
+  const laneOf = (t: TaskSummary): TaskLane => {
+    if (activeRunByTask.has(t.id)) return "in_progress";
+    if (latestRunByTask.get(t.id)?.status === "needs_review") return "review";
+    switch (t.status) {
+      case "needs_triage":
+        return "triage";
+      case "backlog":
+        return "backlog";
+      case "blocked":
+        return "blocked";
+      case "in_progress":
+        return "in_progress";
+      case "review":
+        return "review";
+      default:
+        return "ready";
+    }
+  };
+  const tasksByLane = new Map<TaskLane, TaskSummary[]>();
+  for (const t of activeTasks) {
+    const lane = laneOf(t);
+    const arr = tasksByLane.get(lane);
+    if (arr) arr.push(t);
+    else tasksByLane.set(lane, [t]);
+  }
   const visibleRuns = showAllRuns ? allRuns : allRuns.slice(0, RUNS_DEFAULT_VISIBLE);
   const hiddenRunCount = allRuns.length - visibleRuns.length;
   // Overview vitals: "ready" = tasks waiting to be worked (the number the operator
@@ -643,28 +694,48 @@ export function ProjectDetail() {
       <ProjectTabPanel value="tasks" active={activeTab}>
         <section>
           <SectionHeader title="tasks" count={activeTasks.length} />
-          <div className="surface divide-y divide-[var(--color-line)]">
-            {tasks.length === 0 ? (
-              <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
-                no tasks yet — first run will create them.
-              </div>
-            ) : activeTasks.length === 0 ? (
-              <div className="px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
-                no active tasks — all {archivedTasks.length} done or dropped.
-              </div>
-            ) : (
-              activeTasks.map((t) => (
-                <TaskRow
-                  key={t.id}
-                  projectId={id}
-                  task={t}
-                  activeRun={activeRunByTask.get(t.id) ?? null}
-                  onStart={() => start.mutate({ taskId: t.id })}
-                  startDisabled={start.isPending}
-                />
-              ))
-            )}
-          </div>
+          {tasks.length === 0 ? (
+            <div className="surface px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
+              no tasks yet — first run will create them.
+            </div>
+          ) : activeTasks.length === 0 ? (
+            <div className="surface px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
+              no active tasks — all {archivedTasks.length} done or dropped.
+            </div>
+          ) : (
+            // Lifecycle lanes (ADR-021): one labeled group per non-empty lane, in
+            // pipeline order. Phone-first — lanes stack vertically at 390px.
+            <div className="space-y-3">
+              {TASK_LANES.map((lane) => {
+                const laneTasks = tasksByLane.get(lane.id) ?? [];
+                if (laneTasks.length === 0) return null;
+                return (
+                  <div key={lane.id}>
+                    <div className="flex items-center gap-2 px-1 pb-1">
+                      <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+                        {lane.label}
+                      </span>
+                      <span className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                        {laneTasks.length}
+                      </span>
+                    </div>
+                    <div className="surface divide-y divide-[var(--color-line)]">
+                      {laneTasks.map((t) => (
+                        <TaskRow
+                          key={t.id}
+                          projectId={id}
+                          task={t}
+                          activeRun={activeRunByTask.get(t.id) ?? null}
+                          onStart={() => start.mutate({ taskId: t.id })}
+                          startDisabled={start.isPending}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {archivedTasks.length > 0 ? (
             <div className="mt-2">

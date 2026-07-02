@@ -129,12 +129,12 @@ export function TaskDetail() {
     },
   });
 
-  // Promote an adopted `needs_triage` task to `ready` (ADR-020) — the operator's
-  // "I've vetted + ordered this, it can run now" gate. Set dependency edges
-  // first if it needs to wait on other work.
-  const markReady = useMutation({
-    mutationFn: () =>
-      trpc.projects.tasks.updateStatus.mutate({ projectId: id, taskId, status: "ready" }),
+  // Move a task along the lifecycle pipeline (ADR-021): triage → backlog → ready.
+  // Promoting into `ready` is the deliberate "vetted + ordered, it can run" gate
+  // (ADR-020) — set dependency edges / rank first if it must wait or be ordered.
+  const setStatus = useMutation({
+    mutationFn: (status: "needs_triage" | "backlog" | "ready") =>
+      trpc.projects.tasks.updateStatus.mutate({ projectId: id, taskId, status }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
       qc.invalidateQueries({ queryKey: ["projects.get", id] });
@@ -189,6 +189,8 @@ export function TaskDetail() {
   const isDone = fm.status === "done";
   const isDropped = fm.status === "dropped";
   const isNeedsTriage = fm.status === "needs_triage";
+  const isBacklog = fm.status === "backlog";
+  const isPrePipeline = isNeedsTriage || isBacklog; // not yet ready to run
   const canDrop = !activeRun && !isDropped && !isDone;
 
   // Dependency edges: blockedBy from frontmatter; openBlockers/blocks derived
@@ -239,18 +241,43 @@ export function TaskDetail() {
             <Play size={14} />
             view active run · {activeRun.id.slice(0, 8)}
           </Link>
-        ) : isNeedsTriage ? (
-          // Adopted-but-unvetted work (ADR-020): not runnable until promoted.
-          // The operator vets/orders it (set deps if needed) then marks it ready.
-          <button
-            type="button"
-            onClick={() => markReady.mutate()}
-            disabled={markReady.isPending}
-            className="btn btn-primary w-full mt-4"
-            title="promote this adopted task to ready so it can run (set dependencies first if it must wait on other work)"
-          >
-            {markReady.isPending ? "promoting…" : "mark ready to run"}
-          </button>
+        ) : isPrePipeline ? (
+          // Pre-ready pipeline (ADR-021): triage → backlog → ready. Promoting
+          // into `ready` is the deliberate "vetted + ordered, can run" gate
+          // (ADR-020) — set deps/rank first. Triage also offers an intermediate
+          // "accept to backlog" (vetted but not yet queued).
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setStatus.mutate("ready")}
+              disabled={setStatus.isPending}
+              className="btn btn-primary flex-1 min-w-[140px]"
+              title="promote to ready so it can run (set dependencies first if it must wait on other work)"
+            >
+              {setStatus.isPending ? "promoting…" : "mark ready to run"}
+            </button>
+            {isNeedsTriage ? (
+              <button
+                type="button"
+                onClick={() => setStatus.mutate("backlog")}
+                disabled={setStatus.isPending}
+                className="btn"
+                title="accept into the backlog — vetted, but not yet queued to run"
+              >
+                accept to backlog
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setStatus.mutate("needs_triage")}
+                disabled={setStatus.isPending}
+                className="btn btn-ghost text-[12px]"
+                title="send back to triage"
+              >
+                back to triage
+              </button>
+            )}
+          </div>
         ) : (
           <button
             type="button"
@@ -275,9 +302,9 @@ export function TaskDetail() {
                   : `run task · ${fm.id}`}
           </button>
         )}
-        {markReady.isError ? (
+        {setStatus.isError ? (
           <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
-            {(markReady.error as Error).message}
+            {(setStatus.error as Error).message}
           </div>
         ) : null}
         {canDrop ? (

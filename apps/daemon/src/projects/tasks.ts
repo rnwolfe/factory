@@ -21,16 +21,32 @@ export interface TaskFrontmatter {
   id: string;
   title: string;
   /**
-   * `needs_triage` is the intake holding state (ADR-020): work Factory adopted
-   * from an external source (issue-intake / bulk reap) that has NOT been vetted,
-   * ordered, or cleared to run. It is an *open* status but deliberately **not
-   * startable** — `isStartable` gates on `ready`, so auto-advance never picks a
-   * `needs_triage` task. The operator (or a triage pass) promotes it to `ready`
-   * — and sets any `blockedBy` edges — before it can run. Everything else is the
-   * ordinary lifecycle: `ready → in_progress → review → done` (+ `blocked` /
-   * `dropped`).
+   * The task lifecycle (ADR-021). Persisted states, in pipeline order:
+   * - `needs_triage` — adopted/unvetted intake (ADR-020); display "triage".
+   * - `backlog` — vetted/accepted, not yet queued to run.
+   * - `ready` — queued & pickable; the **only** startable status.
+   * - `blocked` — a run couldn't finish; needs operator attention.
+   * - `done` — shipped (terminal). `dropped` — canceled/won't-do (terminal).
+   *
+   * `needs_triage`, `backlog`, and `blocked` are *open* but **not startable** —
+   * `isStartable` gates on `ready`, so auto-advance only ever picks `ready`
+   * tasks. The operator promotes work along `needs_triage → backlog → ready`
+   * (setting `blockedBy` edges / `rank` as needed).
+   *
+   * `in_progress` and `review` are **derived from the active run**, not written
+   * by the pipeline (ADR-021 D1): the run row (`running` / `needs_review`) is the
+   * canonical in-flight/verify signal, and the board composes it into lanes. The
+   * two union members are retained for read tolerance / back-compat only.
    */
-  status: "needs_triage" | "ready" | "in_progress" | "review" | "done" | "blocked" | "dropped";
+  status:
+    | "needs_triage"
+    | "backlog"
+    | "ready"
+    | "in_progress"
+    | "review"
+    | "done"
+    | "blocked"
+    | "dropped";
   priority?: "low" | "med" | "high";
   created?: string;
   updated?: string;

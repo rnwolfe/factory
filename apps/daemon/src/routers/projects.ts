@@ -57,6 +57,7 @@ const CeremonyEnum = z.enum(["tinker", "personal", "shared", "production"]);
 const RoleEnum = z.enum(["owner", "contributor"]);
 const TaskStatusEnum = z.enum([
   "needs_triage",
+  "backlog",
   "ready",
   "in_progress",
   "review",
