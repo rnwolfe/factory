@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.49.4 — 2026-07-02
+
+### Fixed
+- **Schema changes no longer block autonomous runs.** The verifier gate treated any file path containing "schema" (e.g. a Drizzle `schema.ts`) as a risk-sensitive change and held the run for review. A schema *definition* is ordinary reversible code; only an *applied migration* is high-consequence (and still held). So autonomous projects now auto-land schema edits and pause only for genuinely disruptive changes.
+
 ## v0.49.3 — 2026-07-02
 
 ### Fixed
