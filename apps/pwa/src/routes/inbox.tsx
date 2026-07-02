@@ -291,16 +291,40 @@ export function Inbox() {
   if (inbox.isLoading && triagingRows.length === 0 && !planInbox.data) {
     return <InboxSkeleton />;
   }
-  if (inbox.isError) {
+  // Only dead-end on the INITIAL failure (nothing ever loaded). Once we have
+  // data, a transient failure — e.g. the ~3s blip during a daemon upgrade —
+  // keeps rendering the last-good inbox; the 6s poll auto-recovers, and the
+  // `reconnecting` pill (below) signals the stale state. This stops a routine
+  // restart from throwing the operator onto a hard error screen.
+  if (inbox.isError && !inbox.data) {
     return (
       <div className="surface p-4 text-sm">
-        <div className="display text-[var(--color-verdict-trashed)] mb-2">
-          something is wrong with Heimdall.
+        <div className="display text-[var(--color-fg)] mb-1">can't reach Heimdall</div>
+        <div className="text-[var(--color-fg-2)] mb-3">
+          {(inbox.error as Error).message}. Usually a brief blip (like a restart) — retrying
+          automatically.
         </div>
-        <div className="text-[var(--color-fg-2)]">{(inbox.error as Error).message}</div>
+        <button
+          type="button"
+          onClick={() => {
+            inbox.refetch();
+            planInbox.refetch();
+            auditInbox.refetch();
+            feedbackInbox.refetch();
+            ambient.refetch();
+          }}
+          disabled={inbox.isFetching}
+          className="btn btn-primary"
+        >
+          {inbox.isFetching ? "reconnecting…" : "retry"}
+        </button>
       </div>
     );
   }
+
+  // A background refetch failed but we still have last-good data — show a subtle,
+  // non-blocking pill instead of blanking the inbox.
+  const reconnecting = inbox.isError && !!inbox.data;
 
   const decisionRows = inbox.data ?? [];
   const planRows = planInbox.data ?? [];
@@ -513,6 +537,12 @@ export function Inbox() {
 
   return (
     <div className="md:grid md:grid-cols-[minmax(320px,400px)_minmax(0,640px)] md:gap-6 md:items-start md:max-w-[1080px] md:mx-auto">
+      {reconnecting ? (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50 chip mono text-[10.5px] bg-[var(--color-bg-1)] border border-[var(--color-line)] flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-verdict-parked)] animate-pulse" />
+          reconnecting…
+        </div>
+      ) : null}
       <div className="space-y-3">
         <WatchStrip
           running={opsSnap.data?.running.length ?? inFlight.length}
