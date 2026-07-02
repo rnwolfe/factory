@@ -1,30 +1,57 @@
 import { spawn as bunSpawn } from "bun";
 
 /**
- * Optional dedicated tmux socket flags (`-L <name>`). When `FACTORY_TMUX_SOCKET`
- * is set, every tmux command Factory issues targets a private tmux *server*,
- * isolating it from any ambient tmux server sharing the default socket.
+ * Dedicated tmux socket flags (`-L <name>`). Every tmux command Factory issues
+ * targets a *private* tmux server, never the ambient default socket.
  *
- * This exists for the daemon's tmux integration tests: those create and kill
- * real tmux sessions, and when the suite runs inside a Factory self-hosting run
- * (the agent's `claude --print` pane is itself a tmux session), churn on the
- * shared default server can kill that parent pane before it emits a
- * factory-status footer — the "wide `bun test` kills the run" bug. Each test
- * suite sets a unique `FACTORY_TMUX_SOCKET`, landing its tmux on a throwaway
- * server.
+ * Why this must never fall back to the default socket (the bug this prevents):
+ * a Factory run pane is a detached tmux session, created by the daemon via
+ * `tmux new-session`. With no `-L`, tmux connects to the default socket
+ * `/tmp/tmux-<uid>/default` — which is whatever tmux server already owns it,
+ * typically the **operator's own interactive/iTerm2 (`-CC`) session**. Every
+ * run pane then becomes a co-tenant of the operator's personal tmux server, and
+ * anything that disturbs that server — a self-hosting run's heavy `bun run test`
+ * load, control-mode churn, the operator attaching/detaching, or a stale
+ * worktree's pre-isolation test suite creating/killing sessions on the default
+ * socket — takes the run panes down with it. They die mid-run before emitting a
+ * `factory-status` footer and are marked `failed` ("ended without a status
+ * block"). This is the real "wide `bun test` kills the run" root cause; the
+ * earlier test-suite isolation was necessary but insufficient.
+ *
+ * Resolution order:
+ *   1. `FACTORY_TMUX_SOCKET` set to a non-empty value → use it verbatim. The
+ *      test suites set a unique per-suite socket so their real-tmux churn lands
+ *      on a throwaway server (see the *-orchestrate + spawn integration tests).
+ *   2. `FACTORY_TMUX_SOCKET=""` (explicit empty) → escape hatch: return `[]`
+ *      and use the ambient default server. For deliberate manual debugging only.
+ *   3. Unset (normal daemon/CLI operation) → a stable per-instance socket
+ *      derived from `FACTORY_HOME`, so prod (`~/.factory-live` → `factory-live`)
+ *      and dev (`~/.factory` → `factory`) daemons get distinct servers and
+ *      neither ever touches the operator's default socket.
  *
  * Crucially this is a *CLI argument* computed in-process, not an inherited env
  * var: Bun snapshots a child's environment at spawn and ignores later
  * `process.env` mutations, so an env-only approach (unset `$TMUX` /
  * `TMUX_TMPDIR`) does NOT reach the spawned tmux. `-L` does, because we read
  * `process.env` here in-JS and pass the flag explicitly.
- *
- * Unset in production → empty array → tmux invocations are byte-identical to
- * before.
  */
 export function tmuxSocketArgs(): string[] {
-  const socket = process.env.FACTORY_TMUX_SOCKET;
-  return socket ? ["-L", socket] : [];
+  const explicit = process.env.FACTORY_TMUX_SOCKET;
+  if (explicit === "") return []; // explicit opt-out → ambient default server
+  return ["-L", explicit ?? defaultTmuxSocket()];
+}
+
+/**
+ * Stable per-instance socket name for the ambient (unset) case. Derived from
+ * `FACTORY_HOME`'s basename so distinct daemons on one host don't collide, and
+ * so run panes never land on the operator's default tmux server. Falls back to
+ * `factory` when `FACTORY_HOME` is absent.
+ */
+function defaultTmuxSocket(): string {
+  const home = process.env.FACTORY_HOME;
+  const base = home ? (home.replace(/\/+$/, "").split("/").pop() ?? "") : "";
+  const name = base.replace(/^\.+/, "").replace(/[^a-zA-Z0-9_-]/g, "-");
+  return name || "factory";
 }
 
 async function tmux(
