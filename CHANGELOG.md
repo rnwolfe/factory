@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.43.0 — 2026-07-01
+
+### Added
+- **Import pre-existing GitHub issues.** A project on the GitHub Issues backend now has an **import existing issues** action that reaps issues already open in the upstream repo — the ones that predate Factory's integration and were previously invisible. It raises a single inbox decision listing the untracked issues; you multi-select which to adopt as tasks (approve adopts the chosen subset in place — no duplicate issues). Re-runnable anytime, and the file → GitHub Issues migration itself stays silent.
+
 ## v0.42.0 — 2026-06-30
 
 ### Added
