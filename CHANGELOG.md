@@ -4,6 +4,12 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.50.1 — 2026-07-02
+
+### Fixed
+- **Self-hosting runs no longer kill themselves — or concurrent runs — during `bun run test`.** The runtime spawn integration test drove real tmux sessions on the shared default tmux server; when a self-hosting run executed the test suite, that churn killed the parent agent pane and any runs active in other repos at the same instant. Those runs died before emitting a `factory-status` footer and were marked `failed` ("ended without a status block"). The test now isolates its tmux onto a throwaway server, matching the other real-tmux suites.
+- **Inbox run rows now open the real run pane.** Run rows in the inbox pointed at a nonexistent `/runs/:id` route (a dead tap target); they now route to the nested run pane, and triaging rows gained a proper tap target.
+
 ## v0.50.0 — 2026-07-02
 
 ### Changed
