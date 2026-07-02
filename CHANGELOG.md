@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.44.0 — 2026-07-01
+
+### Added
+- **Triage gate for adopted issues.** Issues brought in from GitHub — single intake *or* bulk import — now land in a new **needs triage** state instead of `ready`. They show on the board but are held back from auto-advance until you vet them, order them (set dependencies), and hit **mark ready to run** on the task. This stops an adopted backlog from auto-running in the wrong order — e.g. an "icebox / do not build" issue, an epic placeholder, or work whose prerequisite isn't built yet.
+
 ## v0.43.0 — 2026-07-01
 
 ### Added
