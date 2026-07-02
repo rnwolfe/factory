@@ -1167,13 +1167,21 @@ function TaskRow({
 }) {
   const isGated =
     task.status === "ready" && task.startable === false && (task.openBlockers?.length ?? 0) > 0;
+  // needs_triage is adopted-but-unvetted (ADR-020): not runnable from the board.
+  // The operator opens it and promotes it to ready (setting deps first if needed).
   const canStart =
-    !activeRun && task.status !== "done" && task.status !== "in_progress" && !isGated;
+    !activeRun &&
+    task.status !== "done" &&
+    task.status !== "in_progress" &&
+    task.status !== "needs_triage" &&
+    !isGated;
   const modelShort = shortModelLabel(task.model);
   return (
     <div className="flex items-stretch">
       <div className="flex-1 min-w-0 px-3 py-2.5 flex items-center gap-3 hover:bg-[var(--color-bg-2)]">
-        <span className={`chip status-${task.status}`}>{task.status}</span>
+        <span className={`chip status-${task.status}`}>
+          {task.status === "needs_triage" ? "needs triage" : task.status}
+        </span>
         <div className="min-w-0 flex-1">
           <Link
             to={`/projects/${projectId}/tasks/${task.id}`}

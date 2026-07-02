@@ -60,6 +60,28 @@ describe("isStartable", () => {
     const t = task("task-1", "in_progress");
     expect(isStartable(t, tasksById([t]))).toBe(false);
   });
+  test("needs_triage is never startable — adopted work stays off auto-advance (ADR-020)", () => {
+    const t = task("task-1", "needs_triage");
+    expect(isStartable(t, tasksById([t]))).toBe(false);
+  });
+});
+
+describe("pickNextReadyTask skips needs_triage", () => {
+  test("adopted (needs_triage) tasks are never auto-picked; only the ready one is", () => {
+    // A reaped backlog: several needs_triage relics + one readied task. Even
+    // though the relics sort first by id, auto-advance must skip them entirely.
+    const pool = [
+      task("task-1", "needs_triage"),
+      task("task-2", "needs_triage"),
+      task("task-3", "ready"),
+      task("task-4", "needs_triage"),
+    ];
+    expect(pickNextReadyTask(pool, null)?.id).toBe("task-3");
+  });
+  test("a backlog of only needs_triage tasks yields nothing to run", () => {
+    const pool = [task("task-1", "needs_triage"), task("task-2", "needs_triage")];
+    expect(pickNextReadyTask(pool, null)).toBeNull();
+  });
 });
 
 describe("openBlockers", () => {

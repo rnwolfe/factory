@@ -147,8 +147,9 @@ here.
 A `issues.opened` event for an issue Factory did **not** author (detected via
 the absence of the `factory` label / App authorship) creates an `issue_intake`
 decision in the inbox: *promote to task* / *dismiss*. Approving adopts the
-existing issue as a task (PATCH frontmatter + `factory` + `status:ready`
-labels). This preserves the "inbox is the only attention sink" contract and
+existing issue as a task (PATCH frontmatter + `factory` + `status:needs_triage`
+labels — adopted work lands in the `needs_triage` holding state, **not** `ready`;
+see ADR-020). This preserves the "inbox is the only attention sink" contract and
 prevents unattended external input from driving agent runs.
 
 The webhook path only covers issues opened **after** the App is installed. For

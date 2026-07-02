@@ -20,7 +20,17 @@ export interface TaskFile {
 export interface TaskFrontmatter {
   id: string;
   title: string;
-  status: "ready" | "in_progress" | "review" | "done" | "blocked" | "dropped";
+  /**
+   * `needs_triage` is the intake holding state (ADR-020): work Factory adopted
+   * from an external source (issue-intake / bulk reap) that has NOT been vetted,
+   * ordered, or cleared to run. It is an *open* status but deliberately **not
+   * startable** — `isStartable` gates on `ready`, so auto-advance never picks a
+   * `needs_triage` task. The operator (or a triage pass) promotes it to `ready`
+   * — and sets any `blockedBy` edges — before it can run. Everything else is the
+   * ordinary lifecycle: `ready → in_progress → review → done` (+ `blocked` /
+   * `dropped`).
+   */
+  status: "needs_triage" | "ready" | "in_progress" | "review" | "done" | "blocked" | "dropped";
   priority?: "low" | "med" | "high";
   created?: string;
   updated?: string;

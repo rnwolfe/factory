@@ -129,6 +129,18 @@ export function TaskDetail() {
     },
   });
 
+  // Promote an adopted `needs_triage` task to `ready` (ADR-020) — the operator's
+  // "I've vetted + ordered this, it can run now" gate. Set dependency edges
+  // first if it needs to wait on other work.
+  const markReady = useMutation({
+    mutationFn: () =>
+      trpc.projects.tasks.updateStatus.mutate({ projectId: id, taskId, status: "ready" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
+    },
+  });
+
   // Sibling tasks — the candidate pool for the dependency editor.
   const projectTasks = useQuery({
     queryKey: ["projects.tasks.list", id],
@@ -176,6 +188,7 @@ export function TaskDetail() {
     (typeof fm.agent === "string" ? (fm.agent as AgentName) : projectAgent) ?? "claude-code";
   const isDone = fm.status === "done";
   const isDropped = fm.status === "dropped";
+  const isNeedsTriage = fm.status === "needs_triage";
   const canDrop = !activeRun && !isDropped && !isDone;
 
   // Dependency edges: blockedBy from frontmatter; openBlockers/blocks derived
@@ -216,7 +229,9 @@ export function TaskDetail() {
               />
             </div>
           </div>
-          <span className={`chip status-${fm.status}`}>{fm.status}</span>
+          <span className={`chip status-${fm.status}`}>
+            {fm.status === "needs_triage" ? "needs triage" : fm.status}
+          </span>
         </div>
 
         {activeRun ? (
@@ -224,6 +239,18 @@ export function TaskDetail() {
             <Play size={14} />
             view active run · {activeRun.id.slice(0, 8)}
           </Link>
+        ) : isNeedsTriage ? (
+          // Adopted-but-unvetted work (ADR-020): not runnable until promoted.
+          // The operator vets/orders it (set deps if needed) then marks it ready.
+          <button
+            type="button"
+            onClick={() => markReady.mutate()}
+            disabled={markReady.isPending}
+            className="btn btn-primary w-full mt-4"
+            title="promote this adopted task to ready so it can run (set dependencies first if it must wait on other work)"
+          >
+            {markReady.isPending ? "promoting…" : "mark ready to run"}
+          </button>
         ) : (
           <button
             type="button"
@@ -248,6 +275,11 @@ export function TaskDetail() {
                   : `run task · ${fm.id}`}
           </button>
         )}
+        {markReady.isError ? (
+          <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+            {(markReady.error as Error).message}
+          </div>
+        ) : null}
         {canDrop ? (
           <div className="mt-2 flex justify-end">
             <button

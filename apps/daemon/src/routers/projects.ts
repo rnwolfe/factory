@@ -55,7 +55,15 @@ import { protectedProcedure, router } from "../trpc.ts";
 const TagEnum = z.enum(["active", "background", "past"]);
 const CeremonyEnum = z.enum(["tinker", "personal", "shared", "production"]);
 const RoleEnum = z.enum(["owner", "contributor"]);
-const TaskStatusEnum = z.enum(["ready", "in_progress", "review", "done", "blocked", "dropped"]);
+const TaskStatusEnum = z.enum([
+  "needs_triage",
+  "ready",
+  "in_progress",
+  "review",
+  "done",
+  "blocked",
+  "dropped",
+]);
 const TaskEstimateEnum = z.enum(["small", "medium", "large"]);
 const TaskPriorityEnum = z.enum(["low", "med", "high"]);
 const AutonomyModeEnum = z.enum(["collaborative", "autonomous"]);

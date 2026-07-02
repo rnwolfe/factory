@@ -450,16 +450,24 @@ export class GithubIssuesStore implements TaskStore {
 
   /**
    * Adopt an externally-authored issue as a Factory task: ensure the `factory`
-   * label, a `status:ready` label, and a factory:task frontmatter block. Used
-   * by issue-intake approval — the issue already exists, so this PATCHes it
-   * into Factory's shape rather than creating a new one.
+   * label, a `status:needs_triage` label, and a factory:task frontmatter block.
+   * Used by issue-intake approval and bulk reap — the issue already exists, so
+   * this PATCHes it into Factory's shape rather than creating a new one.
+   *
+   * Adopted work lands in `needs_triage`, NOT `ready` (ADR-020): an external
+   * issue carries no vetting, no ordering, and no `blockedBy` edges, so making
+   * it immediately startable would let auto-advance run unvetted/unordered work
+   * (e.g. an "icebox / do not build" issue, or a task whose prerequisite isn't
+   * built). It stays off the runnable board until the operator promotes it to
+   * `ready`. Only adopts a status when the issue has none (`?? "needs_triage"`)
+   * so re-adopting never downgrades a task already moved along its lifecycle.
    */
   async adopt(taskId: string): Promise<TaskFile | null> {
     const existing = await this.read(taskId);
     if (!existing) return null;
     const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
-    meta.status = meta.status ?? "ready";
-    const labels = await this.labelsWithStatus(taskId, "ready");
+    meta.status = meta.status ?? "needs_triage";
+    const labels = await this.labelsWithStatus(taskId, meta.status);
     return this.patch(taskId, { body: renderTaskIssueBody(meta, body), state: "open", labels });
   }
 

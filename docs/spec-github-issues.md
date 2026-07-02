@@ -248,7 +248,10 @@ predate the App install. Reaping closes that gap — an operator-triggered actio
 3. Operator multi-selects which to adopt; approve adopts the chosen subset via
    the same in-place `adopt()` primitive as single-issue intake (PATCH labels +
    frontmatter onto the existing issue — no duplicate issue created). Dismiss
-   adopts none.
+   adopts none. Adopted issues land in **`needs_triage`**, not `ready` — they are
+   inert (auto-advance can't pick them) until the operator vets + orders them and
+   marks them ready (ADR-020). This is what keeps a reaped backlog from
+   auto-running in the wrong order.
 4. Idempotent + re-runnable: re-running refreshes the pending decision's
    candidate list rather than stacking duplicates; running it when nothing is
    untracked clears any stale pending decision and reports "nothing to import".

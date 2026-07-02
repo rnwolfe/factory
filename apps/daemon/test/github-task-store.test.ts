@@ -490,7 +490,7 @@ describe("GithubIssuesStore.listComments", () => {
 });
 
 describe("GithubIssuesStore.adopt", () => {
-  test("adds factory + status:ready labels and frontmatter to an external issue", async () => {
+  test("lands an external issue as needs_triage (not ready), preserving labels", async () => {
     const issue = {
       number: 21,
       title: "Bug report",
@@ -516,11 +516,43 @@ describe("GithubIssuesStore.adopt", () => {
       throw new Error(`unexpected ${u}`);
     });
     const adopted = await store.adopt("21");
+    // ADR-020: adopted work is inert (needs_triage), never auto-runnable ready.
     expect(patched?.labels).toContain("factory");
-    expect(patched?.labels).toContain("status:ready");
+    expect(patched?.labels).toContain("status:needs_triage");
+    expect(patched?.labels).not.toContain("status:ready");
     expect(patched?.labels).toContain("bug"); // pre-existing label preserved
-    expect(String(patched?.body)).toContain("status: ready");
-    expect(adopted?.frontmatter.status).toBe("ready");
+    expect(String(patched?.body)).toContain("status: needs_triage");
+    expect(adopted?.frontmatter.status).toBe("needs_triage");
+  });
+
+  test("does not downgrade an issue that already carries a factory status", async () => {
+    const issue = {
+      number: 22,
+      title: "Already in progress",
+      body: renderTaskIssueBody({ status: "in_progress" }, "wip"),
+      state: "open",
+      state_reason: null as string | null,
+      labels: [{ name: "factory" }, { name: "status:in_progress" }] as Array<{ name: string }>,
+    };
+    let patched: Record<string, unknown> | undefined;
+    const store = makeStore(async (url, init) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (init?.method === "PATCH") {
+        patched = JSON.parse(String(init.body));
+        return json({
+          ...issue,
+          ...patched,
+          labels: (patched?.labels as string[]).map((name) => ({ name })),
+        });
+      }
+      if (u.endsWith("/issues/22")) return json(issue);
+      throw new Error(`unexpected ${u}`);
+    });
+    const adopted = await store.adopt("22");
+    expect(adopted?.frontmatter.status).toBe("in_progress");
+    expect(patched?.labels).toContain("status:in_progress");
   });
 });
 
