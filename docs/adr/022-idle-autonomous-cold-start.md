@@ -45,13 +45,17 @@ must be **all** of:
   first run. This is the deliberate safety boundary.
 - `auto_advance` on — the existing explicit chaining toggle.
 - `tag === "active"` — never cold-start archived projects.
-- **no unresolved run** — none in `queued | running | needs_review | blocked |
-  usage_capped | deferred`. Beyond in-flight, these are all "the operator or the
-  system still owes this run an action." Critically, a `needs_review` hold
-  leaves the task `ready`, so *without* this a gate-held task (e.g. a schema
-  change that deterministically hits the broad-blast-radius gate) would be
-  cold-started every tick in a futile loop. Auto-advance already stops at a held
-  run (no merge → no chain); this mirrors that.
+- **idle, with nothing awaiting the operator** — three checks: (a) no
+  `queued`/`running` run (in flight); (b) **no pending `blocked_run` decision**
+  — the live signal for a held/blocked/failed run the operator still owes an
+  action; (c) no `usage_capped` run with a scheduled `resumeAt`. Critically, a
+  `needs_review` hold leaves the task `ready`, so *without* (b) a gate-held task
+  (e.g. a schema change that deterministically hits the broad-blast-radius gate)
+  would be cold-started every tick in a futile loop. It keys on the **pending
+  decision**, not run status — `needs_review`/`blocked` RUN rows persist as
+  history forever, so gating on them would block a project permanently after its
+  first hold. Auto-advance already stops at a held run (no merge → no chain);
+  this mirrors that.
 - has a **startable** ready task — `pickNextReadyTask(tasks, null)` picks the
   first startable task in queue order (priority, rank, id — ADR-021), respecting
   dependency gates (ADR-019).

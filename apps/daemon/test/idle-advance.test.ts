@@ -124,27 +124,49 @@ describe("collectIdleColdStarts (ADR-022)", () => {
     }
   });
 
-  test("excludes a project with a held (needs_review) run — no futile re-run loop", async () => {
+  test("excludes a project with a pending blocked_run decision — no futile re-run loop", async () => {
     const h = setup();
     try {
       const id = await seedProject(h.db, h.root, { slug: "held" });
-      // A gate-held run whose task is still `ready` must NOT be cold-started
-      // again (the schema-task loop this guard fixes).
+      // A gate-held task surfaces a pending blocked_run decision; while it's
+      // unresolved the task stays `ready`, so cold-start must NOT re-submit it
+      // (the schema-task loop this guard fixes).
       h.db
-        .insert(schema.runs)
+        .insert(schema.decisions)
         .values({
           id: createId(),
+          kind: "blocked_run",
           projectId: id,
-          taskId: "task-001",
-          status: "needs_review",
-          branch: "factory/run-y",
-          worktreePath: "/tmp/y",
-          startedAt: Date.now(),
-          iterationCount: 0,
-          budgetSeconds: 60,
+          outcome: "blocked",
+          payload: { needsReview: true },
+          status: "pending",
+          createdAt: Date.now(),
         })
         .run();
       expect(await firstCandidateFor(h.db, id)).toBe(false);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("a RESOLVED (actioned) blocked_run decision does NOT permanently block", async () => {
+    const h = setup();
+    try {
+      const id = await seedProject(h.db, h.root, { slug: "resolved" });
+      h.db
+        .insert(schema.decisions)
+        .values({
+          id: createId(),
+          kind: "blocked_run",
+          projectId: id,
+          outcome: "blocked",
+          payload: {},
+          status: "actioned",
+          createdAt: Date.now(),
+        })
+        .run();
+      // History shouldn't block: the project is idle again and cold-starts.
+      expect(await firstCandidateFor(h.db, id)).toBe(true);
     } finally {
       h.cleanup();
     }

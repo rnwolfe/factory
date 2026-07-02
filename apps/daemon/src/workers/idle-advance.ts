@@ -1,29 +1,10 @@
 import { type Db, schema } from "@factory/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { resolveAutonomyConfig } from "../autonomy/config.ts";
 import { listTasks, pickNextReadyTask } from "../projects/tasks.ts";
 import { type SubmitRunDeps, submitRun } from "./submit.ts";
 
 const TICK_MS = 60_000;
-
-/**
- * Run statuses that make a project NOT idle-eligible for cold-start. Beyond the
- * obviously in-flight (`queued`/`running`), these are all "the operator or the
- * system still owes this run an action": a `needs_review` hold, a self-`blocked`
- * run, a `usage_capped` run awaiting resume, or a `deferred` one. Cold-starting
- * over any of them re-runs work that's legitimately paused — most dangerously,
- * re-submitting a gate-held task whose status is still `ready` in an endless
- * futile loop (the schema-task hold that motivated this guard). Auto-advance
- * already naturally stops at a held run (no merge → no chain); this mirrors it.
- */
-const UNRESOLVED_RUN_STATUSES = [
-  "queued",
-  "running",
-  "needs_review",
-  "blocked",
-  "usage_capped",
-  "deferred",
-] as const;
 
 export interface IdleColdStart {
   projectId: string;
@@ -56,22 +37,57 @@ export async function collectIdleColdStarts(db: Db): Promise<IdleColdStart[]> {
     .all();
 
   for (const project of projects) {
-    // Never cold-start over unresolved work — in-flight OR awaiting the
-    // operator (held/blocked/capped). This preserves auto-advance's
-    // one-run-per-project invariant, prevents double-submission across ticks,
-    // and — critically — stops re-running a gate-held task whose status is
-    // still `ready` in a futile loop.
-    const unresolved = db
+    // (a) An in-flight run — preserves auto-advance's one-run-per-project
+    // invariant and prevents double-submission across ticks.
+    const inFlight = db
       .select({ id: schema.runs.id })
       .from(schema.runs)
       .where(
         and(
           eq(schema.runs.projectId, project.id),
-          inArray(schema.runs.status, [...UNRESOLVED_RUN_STATUSES]),
+          inArray(schema.runs.status, ["queued", "running"]),
         ),
       )
+      .limit(1)
       .all();
-    if (unresolved.length > 0) continue;
+    if (inFlight.length > 0) continue;
+
+    // (b) An UNRESOLVED held/blocked/failed run — surfaced as a pending
+    // `blocked_run` decision. This is the correct live signal: `needs_review`
+    // and `blocked` RUN rows persist as history forever, so keying on run status
+    // would block a project permanently after its first hold. The pending
+    // decision clears when the operator resolves it. This is what stops the
+    // futile re-run loop of a gate-held task whose status is still `ready`.
+    const awaitingOperator = db
+      .select({ id: schema.decisions.id })
+      .from(schema.decisions)
+      .where(
+        and(
+          eq(schema.decisions.projectId, project.id),
+          eq(schema.decisions.kind, "blocked_run"),
+          eq(schema.decisions.status, "pending"),
+        ),
+      )
+      .limit(1)
+      .all();
+    if (awaitingOperator.length > 0) continue;
+
+    // (c) A usage-capped run awaiting scheduled resume — don't cold-start into a
+    // cap; the usage-cap resumer will continue it. `resumeAt` is the live signal
+    // (cleared on resume), so this never permanently blocks.
+    const capped = db
+      .select({ id: schema.runs.id })
+      .from(schema.runs)
+      .where(
+        and(
+          eq(schema.runs.projectId, project.id),
+          eq(schema.runs.status, "usage_capped"),
+          isNotNull(schema.runs.resumeAt),
+        ),
+      )
+      .limit(1)
+      .all();
+    if (capped.length > 0) continue;
 
     // Per-project emergency stop (resolved through the full config chain).
     if (resolveAutonomyConfig(db, project.id).autorun.emergencyStop) continue;
