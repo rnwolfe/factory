@@ -124,6 +124,32 @@ describe("collectIdleColdStarts (ADR-022)", () => {
     }
   });
 
+  test("excludes a project with a held (needs_review) run — no futile re-run loop", async () => {
+    const h = setup();
+    try {
+      const id = await seedProject(h.db, h.root, { slug: "held" });
+      // A gate-held run whose task is still `ready` must NOT be cold-started
+      // again (the schema-task loop this guard fixes).
+      h.db
+        .insert(schema.runs)
+        .values({
+          id: createId(),
+          projectId: id,
+          taskId: "task-001",
+          status: "needs_review",
+          branch: "factory/run-y",
+          worktreePath: "/tmp/y",
+          startedAt: Date.now(),
+          iterationCount: 0,
+          budgetSeconds: 60,
+        })
+        .run();
+      expect(await firstCandidateFor(h.db, id)).toBe(false);
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("excludes a project with no startable task", async () => {
     const h = setup();
     try {

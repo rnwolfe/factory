@@ -45,9 +45,13 @@ must be **all** of:
   first run. This is the deliberate safety boundary.
 - `auto_advance` on — the existing explicit chaining toggle.
 - `tag === "active"` — never cold-start archived projects.
-- **no run in flight** (queued/running) — preserves auto-advance's
-  one-run-per-project invariant and makes double-submission across ticks
-  impossible.
+- **no unresolved run** — none in `queued | running | needs_review | blocked |
+  usage_capped | deferred`. Beyond in-flight, these are all "the operator or the
+  system still owes this run an action." Critically, a `needs_review` hold
+  leaves the task `ready`, so *without* this a gate-held task (e.g. a schema
+  change that deterministically hits the broad-blast-radius gate) would be
+  cold-started every tick in a futile loop. Auto-advance already stops at a held
+  run (no merge → no chain); this mirrors that.
 - has a **startable** ready task — `pickNextReadyTask(tasks, null)` picks the
   first startable task in queue order (priority, rank, id — ADR-021), respecting
   dependency gates (ADR-019).
