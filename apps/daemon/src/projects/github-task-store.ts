@@ -392,6 +392,15 @@ export class GithubIssuesStore implements TaskStore {
     });
   }
 
+  async updatePriority(
+    taskId: string,
+    priority: TaskFrontmatter["priority"],
+  ): Promise<TaskFile | null> {
+    const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
+    meta.priority = priority;
+    return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
+  }
+
   async updateModel(taskId: string, model: string): Promise<TaskFile | null> {
     const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
     const trimmed = model.trim();

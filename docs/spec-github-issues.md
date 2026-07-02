@@ -255,6 +255,15 @@ predate the App install. Reaping closes that gap — an operator-triggered actio
 4. Idempotent + re-runnable: re-running refreshes the pending decision's
    candidate list rather than stacking duplicates; running it when nothing is
    untracked clears any stale pending decision and reports "nothing to import".
+5. **Enrichment on adopt (ADR-021):** after the selected issues are adopted, a
+   best-effort LLM pass (`apps/daemon/src/projects/import-enrich.ts`) reads each
+   issue's title+body and infers `blockedBy` dependency edges (scoped to the
+   adopted set, cycle-rejected) and `priority` from the prose — so the operator
+   inherits an *organized* backlog instead of a flat one. Fire-and-forget (never
+   blocks approval); on failure the adopted tasks are simply left un-enriched.
+   Adopted work is still `needs_triage`, so the operator reviews the inferred
+   structure before anything runs. Epic/parent hierarchy inference is deferred to
+   the ADR-021 hierarchy phase.
 
 Entry point: `projects.importExistingIssues` mutation → `raiseIssueImportDecision`
 (`apps/daemon/src/projects/import-issues.ts`); surfaced as the project header's

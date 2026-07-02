@@ -367,6 +367,7 @@ export interface TaskStore {
   read(id: string): Promise<TaskFile | null>;
   create(input: CreateTaskInput): Promise<TaskFile>;
   updateStatus(id: string, status: TaskFrontmatter["status"]): Promise<TaskFile | null>;
+  updatePriority(id: string, priority: TaskFrontmatter["priority"]): Promise<TaskFile | null>;
   updateModel(id: string, model: string): Promise<TaskFile | null>;
   updateAgent(id: string, agent: string): Promise<TaskFile | null>;
   updateBody(id: string, body: string): Promise<TaskFile | null>;
@@ -440,6 +441,20 @@ export class FileTaskStore implements TaskStore {
     const updated: TaskFile = {
       ...t,
       frontmatter: { ...t.frontmatter, status, updated: new Date().toISOString() },
+    };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
+  async updatePriority(
+    taskId: string,
+    priority: TaskFrontmatter["priority"],
+  ): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    const updated: TaskFile = {
+      ...t,
+      frontmatter: { ...t.frontmatter, priority, updated: new Date().toISOString() },
     };
     await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
     return updated;
@@ -769,6 +784,14 @@ export function updateTaskStatus(
   status: TaskFrontmatter["status"],
 ): Promise<TaskFile | null> {
   return taskStoreFor(target).updateStatus(taskId, status);
+}
+
+export function updateTaskPriority(
+  target: TaskTarget,
+  taskId: string,
+  priority: TaskFrontmatter["priority"],
+): Promise<TaskFile | null> {
+  return taskStoreFor(target).updatePriority(taskId, priority);
 }
 
 export function updateTaskModel(

@@ -142,7 +142,8 @@ export function IssueImportDetail({
       <div className="flex items-center justify-between gap-2">
         <p className="text-[var(--color-fg-2)]">
           {candidates.length} existing issue{candidates.length === 1 ? "" : "s"} in the upstream
-          repo — pick which to adopt as tasks.
+          repo — pick which to adopt as tasks. Factory reads each and infers dependencies + priority
+          from the description; adopted work lands in triage for you to review.
         </p>
         <button
           type="button"

@@ -19,6 +19,7 @@ import { defaultOperatorMemoryPath, slugify, writeMemoryFact } from "../memory/o
 import { seedFeaturePlanDraft, seedProjectSpecDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
+import { runImportEnrichment } from "../projects/import-enrich.ts";
 import type { IssueImportPayload } from "../projects/import-issues.ts";
 import { createTask, updateTaskStatus } from "../projects/tasks.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
@@ -620,6 +621,22 @@ export const decisionsRouter = router({
           );
         }
         projectId = project.id;
+
+        // Enrich the freshly-adopted backlog: infer blockedBy edges + priority
+        // from each issue's prose so the operator inherits an organized queue,
+        // not a flat one (ADR-021). Fire-and-forget — a slow model call must not
+        // block the approval response, and it's best-effort (adopted work already
+        // landed as needs_triage; enrichment only fills in structure).
+        const adoptedNumbers = chosen
+          .filter((c) => !failures.includes(c.number))
+          .map((c) => String(c.number));
+        if (adoptedNumbers.length > 0) {
+          void runImportEnrichment({ db: ctx.db }, project, adoptedNumbers).catch((err) => {
+            console.error(
+              `[import-enrich] ${project.id}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+        }
       }
 
       if (input.action === "approve" && decision.kind === "release_proposal") {
