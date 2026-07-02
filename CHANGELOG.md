@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.49.2 — 2026-07-02
+
+### Fixed
+- **Idle cold-start no longer loops on a held run.** The autonomous cold-start tick (v0.49.0) re-ran a task that was held for review every couple minutes — because a held run leaves the task `ready` — piling up duplicate held-for-review cards (worst for a change that deterministically hits the gate, like a schema edit). Cold-start now treats held/blocked/capped runs as "not idle" and leaves them for you to resolve.
+
 ## v0.49.1 — 2026-07-02
 
 ### Fixed
