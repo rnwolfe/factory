@@ -423,3 +423,16 @@ status lines and todo.md are written at design time and rarely updated after the
 When mapping promised-vs-shipped, ground every "not shipped" claim in a code-level check
 (grep for the registration/boot seam), not in planning docs. Cheap check: registrations,
 `index.ts` boot wiring, and route tables are the truth for "is it live."
+
+## Testing: `mock.module` restore leaks through the imported namespace (bun)
+
+When a test overrides one export with `mock.module("../x.ts", () => ({ ...real, fn: stub }))`,
+restoring in `afterAll` with `{ ...real }` does NOT restore it: the `import * as real`
+namespace live-binds to the *current* module export, so after the mock installs, `real.fn`
+already points at the stub — spreading it re-applies the mock and it LEAKS into sibling
+test files (they import the real fn and get the throwing stub). Fix: capture the original
+reference at module-eval time, before any hook runs — `const realFn = real.fn;` — and restore
+with `{ ...real, fn: realFn }`. Put the mock install/restore in `beforeAll`/`afterAll` (not
+top-level) so it's only active during that file's tests, and dynamic-`import()` the module
+under test inside the test so it binds the mocked version. (Seen 2026-07-02: runner
+post-merge guard test broke 3 merge-failure-approve tests until the real ref was captured.)

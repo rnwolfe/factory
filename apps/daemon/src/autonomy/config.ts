@@ -21,7 +21,8 @@ export type AutonomyEventKind =
   | "auto_retried"
   | "auto_retry_exhausted"
   | "proposal_surfaced"
-  | "freeze_blocked";
+  | "freeze_blocked"
+  | "side_effect_failed";
 
 export type AlertRoute = "off" | "push" | "digest";
 export type VerifierLevel = "none" | "low" | "medium" | "high";
@@ -80,6 +81,10 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
     // The block surfacing already alerts; this is the analytical "loop gave up" signal.
     auto_retry_exhausted: "digest",
     freeze_blocked: "digest",
+    // A post-merge side effect (auto-advance, writeback, …) threw after the run
+    // already finalized. Rare and anomalous — push so the operator learns the
+    // follow-up (e.g. auto-advance) silently didn't fire.
+    side_effect_failed: "push",
   },
 };
 

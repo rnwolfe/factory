@@ -980,6 +980,7 @@ const EVENT_CHIP: Record<string, string> = {
   gate_held: "chip-trashed",
   auto_retry_exhausted: "chip-trashed",
   freeze_blocked: "chip-trashed",
+  side_effect_failed: "chip-trashed",
 };
 
 /**

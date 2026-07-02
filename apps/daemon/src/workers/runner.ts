@@ -398,6 +398,48 @@ export async function executeRun(
   // are provided.
   const botAuthor = await resolveBotGitAuthor(config, project.githubRemote ?? null);
 
+  // Flips true once the run's terminal status is durably persisted AND the merge
+  // to main is decided (see the marker after the merge block). Past that point
+  // the outcome is FINAL: everything downstream — trust ladder, auto-retry,
+  // inbox surfacing, issue writeback, auto-advance, notifications — is a side
+  // effect that must NOT be able to rewrite the settled status. The outer catch
+  // reads this flag to avoid a phantom `failed` on an already-merged, already-
+  // `completed` run, which would wrongly contract the trust ladder (ADR-012) and
+  // pollute the autonomy failure metrics (ADR-013) with a failure that never
+  // happened.
+  let statusFinalized = false;
+
+  // Run a post-finalization side effect in isolation. A throw is logged and
+  // surfaced as a visible `side_effect_failed` autonomy event (so the operator
+  // learns e.g. auto-advance didn't fire) but never propagates to the outer
+  // catch and never touches the run's already-durable terminal status. Each
+  // side effect is independent — one failing does not skip the others.
+  const runSideEffect = async (label: string, fn: () => Promise<void>): Promise<void> => {
+    try {
+      await fn();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[runner] post-merge side effect "${label}" threw for ${runId} (terminal status left unchanged): ${msg}`,
+      );
+      try {
+        recordAutonomyEvent(db, events, {
+          kind: "side_effect_failed",
+          projectId: project.id,
+          runId,
+          message: `${project.name}: post-merge step "${label}" failed after the run finalized — ${msg}`,
+          detail: { label, error: msg },
+        });
+      } catch (recordErr) {
+        console.error(
+          `[runner] could not record side-effect failure for ${runId}: ${
+            recordErr instanceof Error ? recordErr.message : String(recordErr)
+          }`,
+        );
+      }
+    }
+  };
+
   try {
     const result = await runtime.spawn({
       runId,
@@ -914,63 +956,81 @@ export async function executeRun(
         if (row.releaseTag) {
           const push = await pushReleaseRefs(project.workdirPath, row.releaseTag);
           console.log(`[runner] ${runId} release push: ${push.note}`);
-          await db
-            .update(schema.runs)
-            .set({ summary: `${summary}\n\n[release] ${push.note}` })
-            .where(eq(schema.runs.id, runId));
+          await runSideEffect("release-summary", async () => {
+            await db
+              .update(schema.runs)
+              .set({ summary: `${summary}\n\n[release] ${push.note}` })
+              .where(eq(schema.runs.id, runId));
+          });
         }
       } else {
         mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;
         console.warn(`[runner] merge to main failed for ${runId}: ${mergeFailureNote}`);
-        await db
-          .update(schema.runs)
-          .set({ summary: `${summary}\n\n${mergeFailureNote}` })
-          .where(eq(schema.runs.id, runId));
+        // The merge is decided (it conflicted) and the run stays `completed`;
+        // the summary note + surfaced decision are side effects that must not
+        // flip the settled status if a write hiccups.
+        await runSideEffect("merge-failure-surface", async () => {
+          await db
+            .update(schema.runs)
+            .set({ summary: `${summary}\n\n${mergeFailureNote}` })
+            .where(eq(schema.runs.id, runId));
 
-        // The agent's work is sitting on `result.branch` but main hasn't
-        // moved. Surface a decision so the operator can approve = retry
-        // or dismiss = leave on the branch. Same primitive sessions use.
-        await recordMergeFailure(db, events, {
-          projectId: project.id,
-          reason: merge.reason,
-          message: merge.message,
-          payload: {
-            runId,
-            taskId: row.taskId ?? null,
-            branch: result.branch,
+          // The agent's work is sitting on `result.branch` but main hasn't
+          // moved. Surface a decision so the operator can approve = retry
+          // or dismiss = leave on the branch. Same primitive sessions use.
+          await recordMergeFailure(db, events, {
+            projectId: project.id,
             reason: merge.reason,
             message: merge.message,
-            summary,
-          },
+            payload: {
+              runId,
+              taskId: row.taskId ?? null,
+              branch: result.branch,
+              reason: merge.reason,
+              message: merge.message,
+              summary,
+            },
+          });
         });
       }
     }
+
+    // ── Finalization boundary ─────────────────────────────────────────────
+    // The run's outcome is now settled: the terminal status is durably written
+    // (and, for `completed`, the merge into main is decided). Everything below
+    // is a post-finalization side effect. Marking this lets the outer catch
+    // distinguish a genuine mid-run failure (still → `failed`) from a throw in
+    // the tail (status preserved). Each tail step is also wrapped in
+    // `runSideEffect` so one failing neither cascades nor rewrites history.
+    statusFinalized = true;
 
     // Trust Ladder auto-movement (ADR-012 Slice 2): the project's level moves
     // itself on this outcome — contract autonomous→collaborative on a failure or
     // merge conflict, ratchet collaborative→autonomous on a clean verifier-green
     // completion. (A held `needs_review` run is the gate working, so it's neutral.)
-    const trustMove = evaluateTrustOnOutcome(
-      db,
-      { id: project.id, name: project.name, autonomyMode },
-      { finalStatus, mergeConflict: mergeFailureNote !== null },
-      resolveAutonomyConfig(db, project.id),
-    );
-    if (trustMove === "contracted") {
-      recordAutonomyEvent(db, events, {
-        kind: "trust_contracted",
-        projectId: project.id,
-        runId,
-        message: `${project.name} paused to collaborative — ${mergeFailureNote ? "merge conflict" : "run failed"}`,
-      });
-    } else if (trustMove === "promoted") {
-      recordAutonomyEvent(db, events, {
-        kind: "trust_promoted",
-        projectId: project.id,
-        runId,
-        message: `${project.name} earned autonomous mode (clean track record)`,
-      });
-    }
+    await runSideEffect("trust-ladder", async () => {
+      const trustMove = evaluateTrustOnOutcome(
+        db,
+        { id: project.id, name: project.name, autonomyMode },
+        { finalStatus, mergeConflict: mergeFailureNote !== null },
+        resolveAutonomyConfig(db, project.id),
+      );
+      if (trustMove === "contracted") {
+        recordAutonomyEvent(db, events, {
+          kind: "trust_contracted",
+          projectId: project.id,
+          runId,
+          message: `${project.name} paused to collaborative — ${mergeFailureNote ? "merge conflict" : "run failed"}`,
+        });
+      } else if (trustMove === "promoted") {
+        recordAutonomyEvent(db, events, {
+          kind: "trust_promoted",
+          projectId: project.id,
+          runId,
+          message: `${project.name} earned autonomous mode (clean track record)`,
+        });
+      }
+    });
 
     // L3 auto-retry (ADR-012 / ADR-016 slice 4): a gate-held run with an
     // ACTIONABLE verifier defect (a real fail, not an absent-only gap) retries
@@ -979,42 +1039,45 @@ export async function executeRun(
     // (`gateHeldReport`); agent-self-blocked / failed runs still surface. Safe
     // because the retry re-gates: unverified work can't merge, so a non-converging
     // loop is just bounded wasted compute. When it retries, we skip the surface.
+    // Declared outer so the surface block below still reads it if this step throws.
     let autoRetriedRunId: string | null = null;
-    if (finalStatus === "needs_review" && gateHeldReport) {
-      const outcome = await maybeAutoRetryGatedRun(
-        { config, db, events, runs, pool },
-        {
-          runId,
-          projectId: project.id,
-          projectName: project.name,
-          taskId: row.taskId ?? null,
-          sourceWorktreePath: result.worktreePath,
-          sourceBranch: result.branch,
-          agentName: row.agentName,
-          report: gateHeldReport,
-        },
-      );
-      autoRetriedRunId = outcome.retriedRunId;
-      if (autoRetriedRunId) {
-        await db
-          .update(schema.runs)
-          .set({
-            summary: `${summary}\n\n_Auto-retried as ${autoRetriedRunId.slice(0, 8)} — verifier findings fed back to the agent._`,
-          })
-          .where(eq(schema.runs.id, runId));
-      } else if (outcome.exhausted) {
-        // The loop tried and couldn't self-heal — the quality / over-zealous-gate
-        // signal. Record it (→ /ops history + the auto_retry_exhausted metric)
-        // before the run surfaces below.
-        recordAutonomyEvent(db, events, {
-          kind: "auto_retry_exhausted",
-          projectId: project.id,
-          runId,
-          message: `${project.name} exhausted auto-retries on a gate-held run — surfacing for review`,
-          detail: { verifierReport: gateHeldReport },
-        });
+    await runSideEffect("auto-retry", async () => {
+      if (finalStatus === "needs_review" && gateHeldReport) {
+        const outcome = await maybeAutoRetryGatedRun(
+          { config, db, events, runs, pool },
+          {
+            runId,
+            projectId: project.id,
+            projectName: project.name,
+            taskId: row.taskId ?? null,
+            sourceWorktreePath: result.worktreePath,
+            sourceBranch: result.branch,
+            agentName: row.agentName,
+            report: gateHeldReport,
+          },
+        );
+        autoRetriedRunId = outcome.retriedRunId;
+        if (autoRetriedRunId) {
+          await db
+            .update(schema.runs)
+            .set({
+              summary: `${summary}\n\n_Auto-retried as ${autoRetriedRunId.slice(0, 8)} — verifier findings fed back to the agent._`,
+            })
+            .where(eq(schema.runs.id, runId));
+        } else if (outcome.exhausted) {
+          // The loop tried and couldn't self-heal — the quality / over-zealous-gate
+          // signal. Record it (→ /ops history + the auto_retry_exhausted metric)
+          // before the run surfaces below.
+          recordAutonomyEvent(db, events, {
+            kind: "auto_retry_exhausted",
+            projectId: project.id,
+            runId,
+            message: `${project.name} exhausted auto-retries on a gate-held run — surfacing for review`,
+            detail: { verifierReport: gateHeldReport },
+          });
+        }
       }
-    }
+    });
 
     // Surface stalled runs (blocked or failed) to the decisions inbox.
     // Without this the operator has to navigate into the project to discover
@@ -1027,82 +1090,86 @@ export async function executeRun(
     // `capFallbackDecision`), and `deferred`/`aborted`/`completed` don't need
     // operator attention — so we only surface the two stuck terminal states.
     // (A run we just auto-retried is not surfaced — the retry carries it.)
-    if (
-      !autoRetriedRunId &&
-      (finalStatus === "blocked" || finalStatus === "failed" || finalStatus === "needs_review")
-    ) {
-      const decisionId = createId();
-      await db.insert(schema.decisions).values({
-        id: decisionId,
-        kind: "blocked_run",
-        projectId: project.id,
-        outcome: "blocked",
-        payload: {
-          runId,
-          taskId: row.taskId ?? null,
-          summary,
-          questions: blockerQuestions,
-          branch: result.branch,
-          // Distinguish a failed run (no factory-status footer, agent died
-          // mid-thought, etc.) from a blocked run (agent self-declared
-          // blocked with questions). Same retry mechanics; different framing
-          // in the inbox card and decision detail.
-          ...(finalStatus === "failed" ? { failed: true } : {}),
-          // needs_review: agent exited cleanly with committed work but no
-          // footer. The branch holds reviewable commits — the operator can
-          // inspect and merge, or retry — so the card frames it as "review",
-          // not "failed".
-          ...(finalStatus === "needs_review" ? { needsReview: true } : {}),
-          // When the VERIFIER GATE is what held the run, carry the report so the
-          // inbox card can name the failing signals (cross-model fail, absent
-          // acceptance, …) + the resolution, instead of a bare "blocked".
-          ...(gateHeldReport ? { verifier: gateHeldReport } : {}),
-          // The gate's real reason — distinguishes a broad-blast-radius hold
-          // (coverage high, diff risk-sensitive) from a low-coverage hold, so
-          // the card doesn't always claim "coverage below high".
-          ...(gateHeldReason ? { gateReason: gateHeldReason } : {}),
-        },
-        status: "pending",
-        createdAt: Date.now(),
-      });
-      events.publish({
-        channel: "inbox",
-        kind: "decision_created",
-        decisionId,
-        projectId: project.id,
-      });
-    }
+    await runSideEffect("surface-stalled-run", async () => {
+      if (
+        !autoRetriedRunId &&
+        (finalStatus === "blocked" || finalStatus === "failed" || finalStatus === "needs_review")
+      ) {
+        const decisionId = createId();
+        await db.insert(schema.decisions).values({
+          id: decisionId,
+          kind: "blocked_run",
+          projectId: project.id,
+          outcome: "blocked",
+          payload: {
+            runId,
+            taskId: row.taskId ?? null,
+            summary,
+            questions: blockerQuestions,
+            branch: result.branch,
+            // Distinguish a failed run (no factory-status footer, agent died
+            // mid-thought, etc.) from a blocked run (agent self-declared
+            // blocked with questions). Same retry mechanics; different framing
+            // in the inbox card and decision detail.
+            ...(finalStatus === "failed" ? { failed: true } : {}),
+            // needs_review: agent exited cleanly with committed work but no
+            // footer. The branch holds reviewable commits — the operator can
+            // inspect and merge, or retry — so the card frames it as "review",
+            // not "failed".
+            ...(finalStatus === "needs_review" ? { needsReview: true } : {}),
+            // When the VERIFIER GATE is what held the run, carry the report so the
+            // inbox card can name the failing signals (cross-model fail, absent
+            // acceptance, …) + the resolution, instead of a bare "blocked".
+            ...(gateHeldReport ? { verifier: gateHeldReport } : {}),
+            // The gate's real reason — distinguishes a broad-blast-radius hold
+            // (coverage high, diff risk-sensitive) from a low-coverage hold, so
+            // the card doesn't always claim "coverage below high".
+            ...(gateHeldReason ? { gateReason: gateHeldReason } : {}),
+          },
+          status: "pending",
+          createdAt: Date.now(),
+        });
+        events.publish({
+          channel: "inbox",
+          kind: "decision_created",
+          decisionId,
+          projectId: project.id,
+        });
+      }
+    });
 
     // Usage-cap fallback: when we can't safely auto-resume (no parseable
     // reset time, or the cap kept recurring), surface a blocked_run decision
     // flagged `usageCapped` so the operator resumes on their own schedule.
     // Approving it resumes the same session via reuseFromRunId — see the
     // blocked_run handler in routers/decisions.ts.
-    if (capped && capFallbackDecision) {
-      const decisionId = createId();
-      await db.insert(schema.decisions).values({
-        id: decisionId,
-        kind: "blocked_run",
-        projectId: project.id,
-        outcome: "blocked",
-        payload: {
-          runId,
-          taskId: row.taskId ?? null,
-          summary,
-          questions: [],
-          branch: result.branch,
-          usageCapped: true,
-        },
-        status: "pending",
-        createdAt: Date.now(),
-      });
-      events.publish({
-        channel: "inbox",
-        kind: "decision_created",
-        decisionId,
-        projectId: project.id,
-      });
-    }
+    await runSideEffect("usage-cap-fallback", async () => {
+      if (capped && capFallbackDecision) {
+        const decisionId = createId();
+        await db.insert(schema.decisions).values({
+          id: decisionId,
+          kind: "blocked_run",
+          projectId: project.id,
+          outcome: "blocked",
+          payload: {
+            runId,
+            taskId: row.taskId ?? null,
+            summary,
+            questions: [],
+            branch: result.branch,
+            usageCapped: true,
+          },
+          status: "pending",
+          createdAt: Date.now(),
+        });
+        events.publish({
+          channel: "inbox",
+          kind: "decision_created",
+          decisionId,
+          projectId: project.id,
+        });
+      }
+    });
 
     // Auto-advance + defensive task-status reconcile, via the shared helper
     // that decisions.ts and interventions/orchestrate.ts also call on the
@@ -1113,35 +1180,49 @@ export async function executeRun(
     // Writeback: report the run outcome into the issue thread (github-backed
     // tasks), closing the loop with the same thread the agent read from. Self-
     // gates to github backends (no-op for file-backed) and is best-effort.
-    if (
-      row.taskId &&
-      (finalStatus === "completed" ||
-        finalStatus === "blocked" ||
-        finalStatus === "failed" ||
-        finalStatus === "needs_review")
-    ) {
-      const icon =
-        finalStatus === "completed"
-          ? "✅"
-          : finalStatus === "blocked"
-            ? "⏸️"
-            : finalStatus === "needs_review"
-              ? "🔍"
-              : "❌";
-      const lines = [`${icon} **Run ${finalStatus}** \`${runId.slice(0, 8)}\``, "", summary.trim()];
-      if (mergeSha) lines.push("", `Merged to \`main\`: \`${mergeSha.slice(0, 10)}\``);
-      if (qualityReport && qualityReport.overall !== "skipped") {
-        lines.push("", `Quality: **${qualityReport.overall}**`);
+    await runSideEffect("issue-writeback", async () => {
+      if (
+        row.taskId &&
+        (finalStatus === "completed" ||
+          finalStatus === "blocked" ||
+          finalStatus === "failed" ||
+          finalStatus === "needs_review")
+      ) {
+        const icon =
+          finalStatus === "completed"
+            ? "✅"
+            : finalStatus === "blocked"
+              ? "⏸️"
+              : finalStatus === "needs_review"
+                ? "🔍"
+                : "❌";
+        const lines = [
+          `${icon} **Run ${finalStatus}** \`${runId.slice(0, 8)}\``,
+          "",
+          summary.trim(),
+        ];
+        if (mergeSha) lines.push("", `Merged to \`main\`: \`${mergeSha.slice(0, 10)}\``);
+        if (qualityReport && qualityReport.overall !== "skipped") {
+          lines.push("", `Quality: **${qualityReport.overall}**`);
+        }
+        if (blockerQuestions.length > 0) {
+          lines.push("", "**Questions:**", ...blockerQuestions.map((q) => `- ${q}`));
+        }
+        lines.push("", "<!-- factory:run -->");
+        await postIssueComment(config, project, row.taskId, lines.join("\n"));
       }
-      if (blockerQuestions.length > 0) {
-        lines.push("", "**Questions:**", ...blockerQuestions.map((q) => `- ${q}`));
-      }
-      lines.push("", "<!-- factory:run -->");
-      await postIssueComment(config, project, row.taskId, lines.join("\n"));
-    }
+    });
 
+    // Auto-advance: submit the next ready task on a clean, merged completion.
+    // The clearest post-merge hazard — a throw from the chained `submitRun`
+    // here (after main already moved) must NOT rewrite this merged run as
+    // `failed`. `runSideEffect` isolates it: on failure the status is
+    // preserved and a `side_effect_failed` event tells the operator the queue
+    // didn't advance.
     if (finalStatus === "completed" && !mergeFailureNote) {
-      await applyPostMergeRunOutcome({ config, db, events, runs, pool }, runId);
+      await runSideEffect("auto-advance", async () => {
+        await applyPostMergeRunOutcome({ config, db, events, runs, pool }, runId);
+      });
     }
 
     // Run fully finalized — summary, status, task-status, the verifier gate, and
@@ -1156,6 +1237,33 @@ export async function executeRun(
       finalStatus,
     });
   } catch (err) {
+    // Post-finalization backstop. If the run already finalized (terminal status
+    // durably written, merge decided), a throw here came from a post-merge side
+    // effect that escaped its `runSideEffect` guard — never from the run's own
+    // outcome. Overwriting the status as `failed` would be a phantom failure on
+    // an already-merged, already-settled run: it would wrongly contract the
+    // trust ladder (ADR-012) and pollute the autonomy failure metrics (ADR-013).
+    // Preserve the real status; log + surface, do NOT rethrow (the run succeeded).
+    if (statusFinalized) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[runner] post-finalization error for ${runId} (terminal status preserved): ${msg}`,
+      );
+      try {
+        recordAutonomyEvent(db, events, {
+          kind: "side_effect_failed",
+          projectId: project.id,
+          runId,
+          message: `${project.name}: a post-merge step threw after the run finalized — ${msg}`,
+          detail: { error: msg },
+        });
+      } catch {
+        // best-effort — never let the surfacing itself resurrect the failure path
+      }
+      return;
+    }
+    // Genuine mid-run failure (spawn threw, status never settled). Mark failed
+    // and rethrow — this preserves the factory-status honesty contract.
     await db
       .update(schema.runs)
       .set({
