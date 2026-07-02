@@ -151,6 +151,15 @@ existing issue as a task (PATCH frontmatter + `factory` + `status:ready`
 labels). This preserves the "inbox is the only attention sink" contract and
 prevents unattended external input from driving agent runs.
 
+The webhook path only covers issues opened **after** the App is installed. For
+issues that predate integration, the operator triggers a **reap** (the "import
+existing issues" action): it enumerates untracked open issues and raises a
+single multi-select `issue_import` decision — one inbox card listing them all,
+not one per issue — from which the operator picks which to adopt (reusing the
+same in-place `adopt` PATCH). This upholds D4 (nothing external becomes a silent
+task) without flooding the inbox, and it is never fired at migration — migration
+stays silent, reap is on-demand and re-runnable. See spec §2.6.1.
+
 ### D5 — Sync via the App's webhook, with a poll-on-read backstop
 
 A GitHub App has a single app-level webhook that receives events for every repo

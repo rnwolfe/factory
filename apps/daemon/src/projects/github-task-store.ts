@@ -127,6 +127,21 @@ interface IssueApi {
   state_reason: string | null;
   labels: Array<{ name: string } | string>;
   pull_request?: unknown;
+  user?: { login?: string } | null;
+  html_url?: string;
+}
+
+/**
+ * A pre-existing upstream issue offered for adoption (reap-on-demand). Light
+ * descriptor — the full body isn't needed to let the operator pick which
+ * untracked issues to pull in; `adopt` re-reads the issue when approved.
+ */
+export interface ImportCandidate {
+  number: number;
+  title: string;
+  author: string;
+  htmlUrl: string | null;
+  labels: string[];
 }
 
 function labelNames(labels: IssueApi["labels"]): string[] {
@@ -225,6 +240,40 @@ export class GithubIssuesStore implements TaskStore {
       if (issues.length < 100) break;
     }
     out.sort((a, b) => Number(a.id) - Number(b.id));
+    return out;
+  }
+
+  /**
+   * Enumerate OPEN, non-PR issues that Factory does NOT already track — i.e.
+   * issues authored upstream before integration, which `list()` (label-scoped
+   * to `factory`) can never see. These are the reap candidates: the operator
+   * picks which to adopt via a single `issue_import` inbox decision. GitHub has
+   * no "NOT label" filter, so we list all open issues and drop factory-labeled
+   * ones + PRs client-side.
+   */
+  async listImportable(): Promise<ImportCandidate[]> {
+    const headers = await this.headers();
+    const out: ImportCandidate[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const url = `${this.base()}/issues?state=open&per_page=100&page=${page}`;
+      const res = await this.fetchFn(url, { headers });
+      if (!res.ok) await this.fail(res, "list importable issues");
+      const issues = (await res.json()) as IssueApi[];
+      for (const issue of issues) {
+        if (issue.pull_request) continue; // the issues endpoint also returns PRs
+        const names = labelNames(issue.labels);
+        if (names.includes(FACTORY_LABEL)) continue; // already tracked
+        out.push({
+          number: issue.number,
+          title: issue.title,
+          author: issue.user?.login ?? "unknown",
+          htmlUrl: issue.html_url ?? null,
+          labels: names,
+        });
+      }
+      if (issues.length < 100) break;
+    }
+    out.sort((a, b) => a.number - b.number);
     return out;
   }
 
@@ -710,6 +759,29 @@ export async function adoptIssue(
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<TaskFile | null> {
   return discussionStoreFor(config, project, fetchFn).adopt(taskId);
+}
+
+/**
+ * Enumerate pre-existing upstream issues Factory doesn't yet track (reap /
+ * import). Returns [] for file-backed projects, when the App isn't configured,
+ * or on any error — best-effort; the caller surfaces "nothing to import".
+ */
+export async function listImportableIssues(
+  config: Pick<FactoryConfig, "githubApp">,
+  project: {
+    taskBackend?: string | null;
+    githubRemote?: string | null;
+    githubInstallationId?: number | null;
+  },
+  fetchFn: FetchFn = globalThis.fetch,
+): Promise<ImportCandidate[]> {
+  const store = discussionStoreFor(config, project, fetchFn);
+  if (!(store instanceof GithubIssuesStore)) return [];
+  try {
+    return await store.listImportable();
+  } catch {
+    return [];
+  }
 }
 
 /**

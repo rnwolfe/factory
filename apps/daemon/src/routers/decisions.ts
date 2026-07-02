@@ -19,6 +19,7 @@ import { defaultOperatorMemoryPath, slugify, writeMemoryFact } from "../memory/o
 import { seedFeaturePlanDraft, seedProjectSpecDraft } from "../plans/iterate.ts";
 import { schedulePlanIteration } from "../plans/schedule.ts";
 import { adoptIssue } from "../projects/github-task-store.ts";
+import type { IssueImportPayload } from "../projects/import-issues.ts";
 import { createTask, updateTaskStatus } from "../projects/tasks.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
@@ -341,6 +342,11 @@ export const decisionsRouter = router({
         ceremony: z.enum(["tinker", "personal", "shared", "production"]).optional(),
         /** Owner vs contributor — determines whether bootstrap creates a vision plan. */
         role: z.enum(["owner", "contributor"]).optional(),
+        /**
+         * issue_import approve-only: the subset of candidate issue numbers the
+         * operator chose to adopt. Omitted → adopt all candidates.
+         */
+        selectedIssues: z.array(z.number()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -579,6 +585,38 @@ export const decisionsRouter = router({
         if (!adopted) {
           throw new Error(
             `could not adopt issue #${payload.number} — App unconfigured or issue missing`,
+          );
+        }
+        projectId = project.id;
+      }
+
+      if (input.action === "approve" && decision.kind === "issue_import") {
+        // Bulk reap: adopt the operator-selected subset of untracked upstream
+        // issues (default = all candidates). Reuses the same in-place `adopt`
+        // primitive as single-issue intake, so no duplicate issues are created.
+        if (!decision.projectId) throw new Error("issue_import decision missing projectId");
+        const project = await ctx.db
+          .select()
+          .from(schema.projects)
+          .where(eq(schema.projects.id, decision.projectId))
+          .get();
+        if (!project) throw new Error("project not found");
+        const payload = decision.payload as IssueImportPayload;
+        const all = payload.candidates ?? [];
+        const chosen =
+          input.selectedIssues && input.selectedIssues.length > 0
+            ? all.filter((c) => input.selectedIssues?.includes(c.number))
+            : all;
+        // Adopt sequentially; collect failures so a single missing/renamed
+        // issue doesn't abort the whole batch. Report only if everything fails.
+        const failures: number[] = [];
+        for (const c of chosen) {
+          const adopted = await adoptIssue(ctx.config, project, String(c.number)).catch(() => null);
+          if (!adopted) failures.push(c.number);
+        }
+        if (chosen.length > 0 && failures.length === chosen.length) {
+          throw new Error(
+            `could not adopt any of the selected issues (${failures.join(", ")}) — App unconfigured or issues missing`,
           );
         }
         projectId = project.id;

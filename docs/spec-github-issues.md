@@ -226,6 +226,37 @@ existing event-text cap discipline). The per-run worktree remains the boundary.
 5. `read(id)` resolves by issue number **or** `legacy_id` so historical
    `run.taskId = task-007` references still resolve post-migration.
 
+Backfill only pushes Factory's local tasks **up** as new issues; it does not
+pull anything down. Migration stays **silent** — it never touches issues that
+already existed in the upstream repo (see 2.6.1).
+
+### 2.6.1 Reap pre-existing upstream issues (`import existing issues`)
+
+The backfill (2.6) is Factory → GitHub only, so issues authored upstream *before*
+integration are invisible: `list()` is label-scoped to `factory`, and the
+webhook (3.2) only adopts on `issues.opened`, which never fires for issues that
+predate the App install. Reaping closes that gap — an operator-triggered action,
+**not** part of migration:
+
+1. `store.listImportable()` enumerates OPEN, non-PR issues **without** the
+   `factory` label (GitHub has no "NOT label" filter, so it lists all open
+   issues and drops factory-labeled ones + PRs client-side).
+2. If any exist, raise **one** `issue_import` inbox decision whose payload lists
+   them (`{ number, title, author, htmlUrl, labels }` each). One card, not N —
+   preserving the inbox-as-only-attention-sink invariant *and* D4's "external
+   issues never silently become tasks".
+3. Operator multi-selects which to adopt; approve adopts the chosen subset via
+   the same in-place `adopt()` primitive as single-issue intake (PATCH labels +
+   frontmatter onto the existing issue — no duplicate issue created). Dismiss
+   adopts none.
+4. Idempotent + re-runnable: re-running refreshes the pending decision's
+   candidate list rather than stacking duplicates; running it when nothing is
+   untracked clears any stale pending decision and reports "nothing to import".
+
+Entry point: `projects.importExistingIssues` mutation → `raiseIssueImportDecision`
+(`apps/daemon/src/projects/import-issues.ts`); surfaced as the project header's
+"import existing issues" button, available anytime on a github-issues project.
+
 ### 2.7 Phase 2 acceptance
 
 - [ ] A project can opt into `github-issues`; existing tasks backfill to issues;

@@ -18,6 +18,7 @@ export interface DecisionRow {
     | "merge_failure"
     | "agent_decision"
     | "issue_intake"
+    | "issue_import"
     | "release_proposal"
     | "queue_empty"
     | "watch_insight";
@@ -74,6 +75,14 @@ export interface DecisionRow {
     title?: string;
     author?: string;
     htmlUrl?: string;
+    // issue_import shape — a batch of pre-existing upstream issues to reap
+    candidates?: Array<{
+      number: number;
+      title: string;
+      author: string;
+      htmlUrl?: string | null;
+      labels?: string[];
+    }>;
     // release_proposal shape — a model-resolved version + rendered release body
     version?: string | null;
     body?: string;
@@ -142,6 +151,8 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
       return "agent · decision";
     case "issue_intake":
       return "issue · intake";
+    case "issue_import":
+      return "issues · import";
     case "release_proposal":
       return "release";
     case "queue_empty":
@@ -283,6 +294,14 @@ export function DecisionCard({
     ? `release ${decision.payload.version ?? "(version pending)"}`
     : null;
 
+  const importCount = Array.isArray(decision.payload.candidates)
+    ? decision.payload.candidates.length
+    : 0;
+  const issueImportHeadline =
+    decision.kind === "issue_import"
+      ? `${importCount} existing issue${importCount === 1 ? "" : "s"} to import`
+      : null;
+
   const queueEmptyHeadline =
     decision.kind === "queue_empty"
       ? `${decision.payload.projectName ?? decision.payload.projectSlug ?? "Project"} is out of runway — re-fill or archive`
@@ -310,6 +329,7 @@ export function DecisionCard({
     mergeFailHeadline ??
     agentDecisionHeadline ??
     issueIntakeHeadline ??
+    issueImportHeadline ??
     releaseHeadline ??
     queueEmptyHeadline ??
     watchHeadline ??

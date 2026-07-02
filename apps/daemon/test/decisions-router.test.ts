@@ -231,6 +231,54 @@ describe("decisionsRouter", () => {
     }
   });
 
+  test("issue_import approve adopts the selected subset (all failing → clear error)", async () => {
+    const h = setupHarness();
+    try {
+      const now = Date.now();
+      h.db
+        .insert(schema.projects)
+        .values({
+          id: "pi1",
+          slug: "pi1",
+          name: "PI1",
+          ceremony: "tinker",
+          workdirPath: path.join(h.root, "pi1"),
+          taskBackend: "github-issues",
+          githubRemote: "https://github.com/o/r.git",
+          createdAt: now,
+          lastActivityAt: now,
+        })
+        .run();
+      const decisionId = createId();
+      h.db
+        .insert(schema.decisions)
+        .values({
+          id: decisionId,
+          kind: "issue_import",
+          projectId: "pi1",
+          outcome: "import",
+          payload: {
+            candidates: [
+              { number: 4, title: "A", author: "octocat", htmlUrl: null, labels: [] },
+              { number: 5, title: "B", author: "octocat", htmlUrl: null, labels: [] },
+            ],
+          },
+          status: "pending",
+          createdAt: now,
+        })
+        .run();
+
+      // App unconfigured (githubApp: null) → every adopt returns null; selecting
+      // a subset must still route through adopt and surface the aggregate error
+      // naming exactly the selected numbers (proves the selection filter ran).
+      await expect(
+        h.caller.action({ decisionId, action: "approve", selectedIssues: [5] }),
+      ).rejects.toThrow(/could not adopt any of the selected issues \(5\)/);
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("overrideAgentDecision accepts an auto_ratified fork (Trust Ladder L2 safety valve)", async () => {
     const h = setupHarness();
     try {

@@ -1,4 +1,5 @@
 import { ArrowRight, ThumbsDown, ThumbsUp } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { AuditRow } from "./audit-card.tsx";
 import { type DecisionRow, decisionProjectLabel } from "./decision-card.tsx";
@@ -24,7 +25,7 @@ type DecisionAction = "approve" | "park" | "trash" | "decompose" | "dismiss";
 
 interface Props {
   item: InboxDetailItem | null;
-  onDecisionAction: (id: string, action: DecisionAction) => void;
+  onDecisionAction: (id: string, action: DecisionAction, selectedIssues?: number[]) => void;
 }
 
 export function InboxDetailPane({ item, onDecisionAction }: Props) {
@@ -41,6 +42,14 @@ export function InboxDetailPane({ item, onDecisionAction }: Props) {
 
   switch (item.kind) {
     case "decision":
+      if (item.row.kind === "issue_import") {
+        return (
+          <IssueImportDetail
+            row={item.row}
+            onAction={(a, selected) => onDecisionAction(item.row.id, a, selected)}
+          />
+        );
+      }
       return (
         <DecisionDetail
           row={item.row}
@@ -93,6 +102,118 @@ function DetailShell({
         open full view <ArrowRight size={12} />
       </Link>
     </div>
+  );
+}
+
+/**
+ * Multi-select detail for a bulk `issue_import` decision: the untracked upstream
+ * issues are listed as checkboxes (all checked by default); approve adopts only
+ * the checked subset. Own component so its checkbox state lives outside the
+ * generic DecisionDetail's conditional-hook-free body.
+ */
+export function IssueImportDetail({
+  row,
+  onAction,
+  compact = false,
+}: {
+  row: DecisionRow;
+  onAction: (a: DecisionAction, selectedIssues?: number[]) => void;
+  compact?: boolean;
+}) {
+  const candidates = useMemo(
+    () => (Array.isArray(row.payload?.candidates) ? row.payload.candidates : []),
+    [row.payload?.candidates],
+  );
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(candidates.map((c) => c.number)),
+  );
+  const toggle = (n: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  const allSelected = selected.size === candidates.length && candidates.length > 0;
+  const chosen = candidates.filter((c) => selected.has(c.number)).map((c) => c.number);
+
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[var(--color-fg-2)]">
+          {candidates.length} existing issue{candidates.length === 1 ? "" : "s"} in the upstream
+          repo — pick which to adopt as tasks.
+        </p>
+        <button
+          type="button"
+          onClick={() =>
+            setSelected(allSelected ? new Set() : new Set(candidates.map((c) => c.number)))
+          }
+          className="mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-fg-2)] hover:text-[var(--color-fg)] shrink-0"
+        >
+          {allSelected ? "clear all" : "select all"}
+        </button>
+      </div>
+      <ul className="space-y-1 max-h-[320px] overflow-y-auto pr-1">
+        {candidates.map((c) => (
+          <li key={c.number}>
+            <label className="flex items-start gap-2 py-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.has(c.number)}
+                onChange={() => toggle(c.number)}
+                className="mt-0.5 shrink-0 accent-[hsl(22_65%_50%)]"
+              />
+              <span className="min-w-0">
+                <SourceIssueLink
+                  number={c.number}
+                  title={c.title}
+                  href={c.htmlUrl ?? null}
+                  onClick={(e) => e.stopPropagation()}
+                  className="break-words [overflow-wrap:anywhere]"
+                />
+                <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-1.5">
+                  @{c.author}
+                </span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-2 pt-2">
+        <button
+          type="button"
+          disabled={chosen.length === 0}
+          onClick={() => onAction("approve", chosen)}
+          className="btn btn-primary flex-1 min-w-[120px] disabled:opacity-40"
+        >
+          adopt {chosen.length} {chosen.length === 1 ? "issue" : "issues"}
+        </button>
+        <button type="button" onClick={() => onAction("dismiss")} className="btn">
+          dismiss
+        </button>
+      </div>
+    </>
+  );
+
+  if (compact) return <div className="space-y-3 text-[13px] leading-relaxed">{body}</div>;
+
+  return (
+    <DetailShell
+      chips={
+        <>
+          <span className="chip">{kindLabel(row.kind)}</span>
+          <span className="chip">{decisionProjectLabel(row)}</span>
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">
+            {timeAgo(row.createdAt)} ago
+          </span>
+        </>
+      }
+      title="Import existing issues"
+      fullHref={`/decisions/${row.id}`}
+    >
+      {body}
+    </DetailShell>
   );
 }
 
@@ -507,6 +628,8 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
       return "agent · decision";
     case "issue_intake":
       return "issue · intake";
+    case "issue_import":
+      return "issues · import";
     case "release_proposal":
       return "release";
     case "queue_empty":

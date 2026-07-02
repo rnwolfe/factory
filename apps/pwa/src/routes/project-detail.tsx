@@ -223,6 +223,18 @@ export function ProjectDetail() {
     },
   });
 
+  const importExistingIssues = useMutation({
+    mutationFn: () => trpc.projects.importExistingIssues.mutate({ id }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      window.alert(
+        res.candidates === 0
+          ? "No untracked issues in the upstream repo — nothing to import."
+          : `${res.candidates} existing issue${res.candidates === 1 ? "" : "s"} queued in the inbox — pick which to adopt.`,
+      );
+    },
+  });
+
   if (project.isLoading) return <ProjectSkeleton />;
   if (!project.data) {
     return (
@@ -458,9 +470,20 @@ export function ProjectDetail() {
           ) : null}
           {p.githubRemote && githubAppStatus.data?.has ? (
             p.taskBackend === "github-issues" ? (
-              <span className="chip" title="this project's tasks are GitHub Issues">
-                tasks · github issues
-              </span>
+              <>
+                <span className="chip" title="this project's tasks are GitHub Issues">
+                  tasks · github issues
+                </span>
+                <button
+                  type="button"
+                  onClick={() => importExistingIssues.mutate()}
+                  disabled={importExistingIssues.isPending}
+                  className="btn btn-ghost text-[12px]"
+                  title="reap pre-existing upstream issues — queues them in the inbox for you to pick which to adopt"
+                >
+                  {importExistingIssues.isPending ? "scanning…" : "import existing issues"}
+                </button>
+              </>
             ) : (
               <button
                 type="button"
@@ -485,6 +508,11 @@ export function ProjectDetail() {
         {enableGithubIssues.isError ? (
           <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
             {(enableGithubIssues.error as Error).message}
+          </div>
+        ) : null}
+        {importExistingIssues.isError ? (
+          <div className="mt-2 text-xs text-[var(--color-verdict-trashed)]">
+            {(importExistingIssues.error as Error).message}
           </div>
         ) : null}
 

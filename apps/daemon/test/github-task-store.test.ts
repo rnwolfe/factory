@@ -223,6 +223,66 @@ describe("GithubIssuesStore.list", () => {
   });
 });
 
+describe("GithubIssuesStore.listImportable", () => {
+  test("returns open, non-PR issues WITHOUT the factory label", async () => {
+    let requestedUrl = "";
+    const store = makeStore(async (url) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (u.includes("/issues?")) {
+        requestedUrl = u;
+        return json([
+          {
+            number: 4,
+            title: "External bug",
+            body: "please fix",
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "bug" }],
+            user: { login: "octocat" },
+            html_url: "https://github.com/o/r/issues/4",
+          },
+          {
+            // Already tracked by Factory — must be excluded.
+            number: 6,
+            title: "Tracked task",
+            body: renderTaskIssueBody({ status: "ready" }, "x"),
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "factory" }, { name: "status:ready" }],
+            user: { login: "wolfefactory[bot]" },
+          },
+          {
+            // A PR surfaced by the issues endpoint — must be excluded.
+            number: 7,
+            title: "PR",
+            body: "",
+            state: "open",
+            state_reason: null,
+            labels: [],
+            pull_request: { url: "x" },
+          },
+        ]);
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+    const candidates = await store.listImportable();
+    // Scans open issues (not the factory-scoped list()).
+    expect(requestedUrl).toContain("state=open");
+    expect(requestedUrl).not.toContain("labels=factory");
+    expect(candidates).toEqual([
+      {
+        number: 4,
+        title: "External bug",
+        author: "octocat",
+        htmlUrl: "https://github.com/o/r/issues/4",
+        labels: ["bug"],
+      },
+    ]);
+  });
+});
+
 describe("GithubIssuesStore.read", () => {
   test("returns null on 404", async () => {
     const store = makeStore(async (url) => {

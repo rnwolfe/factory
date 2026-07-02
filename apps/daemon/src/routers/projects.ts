@@ -16,6 +16,7 @@ import {
   importFromUrl,
   readGithubOriginRemote,
 } from "../projects/import.ts";
+import { raiseIssueImportDecision } from "../projects/import-issues.ts";
 import {
   type ConfirmImportSpecInput,
   confirmImportSpec,
@@ -1063,6 +1064,23 @@ export const projectsRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       return enableGithubIssuesBackend({ db: ctx.db, config: ctx.config }, input.id);
+    }),
+
+  /**
+   * Reap pre-existing upstream issues: enumerate untracked OPEN issues on a
+   * github-issues project and, if any exist, raise ONE multi-select
+   * `issue_import` inbox decision. Operator-triggered (the "Import existing
+   * issues" action) — migration stays silent. Idempotent; re-running refreshes
+   * the pending decision. Returns the candidate count so the PWA can report
+   * "nothing to import" vs. "N issues queued for review".
+   */
+  importExistingIssues: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return raiseIssueImportDecision(
+        { db: ctx.db, config: ctx.config, events: ctx.events },
+        input.id,
+      );
     }),
 
   /**

@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { decisionProjectLabel } from "../components/decision-card.tsx";
+import { type DecisionRow, decisionProjectLabel } from "../components/decision-card.tsx";
 import { HeimdallMark } from "../components/heimdall-mark.tsx";
+import { IssueImportDetail } from "../components/inbox-detail-pane.tsx";
 import { InterventionPane } from "../components/intervention-pane.tsx";
 import { MarkdownView } from "../components/markdown-view.tsx";
 import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx";
@@ -152,11 +153,12 @@ export function DecisionDetail() {
   });
 
   const action = useMutation({
-    mutationFn: (vars: { action: Action; agent?: AgentName }) =>
+    mutationFn: (vars: { action: Action; agent?: AgentName; selectedIssues?: number[] }) =>
       trpc.decisions.action.mutate({
         decisionId: id,
         action: vars.action,
         agent: vars.agent,
+        selectedIssues: vars.selectedIssues,
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
@@ -361,6 +363,36 @@ export function DecisionDetail() {
           ? "close task"
           : "acknowledge";
   const watchEvidenceCount = Array.isArray(payload.evidence) ? payload.evidence.length : 0;
+
+  // issue_import is a bulk multi-select — render its dedicated checkbox view
+  // rather than threading candidate state through the generic detail body.
+  if (d.kind === "issue_import") {
+    return (
+      <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
+        <header className="surface p-4">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+          >
+            <ArrowLeft size={11} /> inbox
+          </Link>
+        </header>
+        {isPending ? (
+          <div className="surface p-5">
+            <IssueImportDetail
+              row={d as unknown as DecisionRow}
+              compact
+              onAction={(a, selectedIssues) => action.mutate({ action: a, selectedIssues })}
+            />
+          </div>
+        ) : (
+          <div className="surface p-5 text-[13px] text-[var(--color-fg-2)]">
+            This import decision was already {d.status}.
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">

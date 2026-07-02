@@ -18,6 +18,11 @@ export const decisionKindEnum = [
   "merge_failure",
   "agent_decision",
   "issue_intake",
+  // Bulk reap of pre-existing upstream issues on a github-issues project. One
+  // multi-select decision listing untracked open issues; approve adopts the
+  // selected subset. Operator-triggered ("Import existing issues"), never at
+  // migration. Payload is an IssueImportPayload (see projects/import-issues.ts).
+  "issue_import",
   "release_proposal",
   // Auto-advance drained a project's ready queue (no ready tasks left).
   // Informational nudge so a project doesn't stall silently; gated behind

@@ -233,6 +233,8 @@ function kindLabel(kind: DecisionRow["kind"]): string {
       return "agent · decision";
     case "issue_intake":
       return "issue · intake";
+    case "issue_import":
+      return "issues · import";
     case "release_proposal":
       return "release";
     case "queue_empty":
