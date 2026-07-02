@@ -828,10 +828,27 @@ function SelectKnob({
   );
 }
 
+/**
+ * The Watch proposal kinds eligible for Phase-C auto-run (ADR-017). These are
+ * the classes `isAutoRunEligible` checks against the allow-list. `note-only` is
+ * omitted — it produces no action, so it can't auto-run. An empty allow-list
+ * means NOTHING auto-runs, so this is a discoverable multiselect rather than a
+ * freeform field where a typo (or a blank) silently disables auto-run.
+ */
+const AUTO_RUN_CLASS_OPTIONS: readonly { value: string; hint: string }[] = [
+  { value: "groom-backlog", hint: "close/groom a stale task" },
+  { value: "adopt-as-task", hint: "turn a watch observation into a task" },
+  { value: "draft-feature-plan", hint: "seed a drafting feature plan" },
+  { value: "record-as-convention", hint: "write a convention to memory/AGENTS.md" },
+];
+
 function ClassesKnob({ ctx }: { ctx: KnobCtx }) {
-  const overridden = isOverridden(ctx.override, "autorun", "classes");
   const value = ctx.resolved.autorun.classes;
   const inherited = ctx.inherited.autorun.classes;
+  const toggle = (cls: string) => {
+    const next = value.includes(cls) ? value.filter((c) => c !== cls) : [...value, cls];
+    ctx.edit((d) => setIn(d, "autorun", "classes", next));
+  };
   return (
     <KnobShell
       ctx={ctx}
@@ -841,22 +858,29 @@ function ClassesKnob({ ctx }: { ctx: KnobCtx }) {
       inheritedLabel={inherited.length > 0 ? inherited.join(", ") : "—"}
       drop={(d) => dropIn(d, "autorun", "classes")}
     >
-      <input
-        type="text"
-        defaultValue={value.join(", ")}
-        disabled={ctx.pending}
-        placeholder="comma-separated"
-        onBlur={(e) => {
-          const next = e.target.value
-            .split(",")
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0);
-          if (deepEqual(next, value)) return;
-          ctx.edit((d) => setIn(d, "autorun", "classes", next));
-        }}
-        className="w-40 mono text-[11.5px] bg-[var(--color-bg-2)] border border-[var(--color-line)] rounded px-2 py-1"
-      />
-      {!overridden ? <span className="sr-only">inherited</span> : null}
+      <div className="flex flex-col gap-1 w-52">
+        {AUTO_RUN_CLASS_OPTIONS.map((opt) => (
+          <label
+            key={opt.value}
+            className="flex items-center gap-2 cursor-pointer"
+            title={opt.hint}
+          >
+            <input
+              type="checkbox"
+              checked={value.includes(opt.value)}
+              disabled={ctx.pending}
+              onChange={() => toggle(opt.value)}
+              className="shrink-0 accent-[hsl(22_65%_50%)]"
+            />
+            <span className="mono text-[11px] text-[var(--color-fg-1)]">{opt.value}</span>
+          </label>
+        ))}
+        {value.length === 0 ? (
+          <span className="mono text-[10px] text-[var(--color-verdict-parked)]">
+            none selected — nothing auto-runs
+          </span>
+        ) : null}
+      </div>
     </KnobShell>
   );
 }
