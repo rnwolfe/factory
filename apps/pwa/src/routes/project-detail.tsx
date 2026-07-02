@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   ExternalLink,
   Eye,
   FileText,
@@ -210,6 +211,17 @@ export function ProjectDetail() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["runs.list", id] });
       nav(`/projects/${id}/runs/${res.runId}`);
+    },
+  });
+
+  // Reorder within the ready queue (ADR-021). beforeId/afterId are the neighbors
+  // the task should sit between; the daemon computes the fractional rank.
+  const reorder = useMutation({
+    mutationFn: (vars: { taskId: string; beforeId: string | null; afterId: string | null }) =>
+      trpc.projects.tasks.reorder.mutate({ projectId: id, ...vars }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.list", id] });
+      qc.invalidateQueries({ queryKey: ["projects.get", id] });
     },
   });
 
@@ -720,16 +732,42 @@ export function ProjectDetail() {
                       </span>
                     </div>
                     <div className="surface divide-y divide-[var(--color-line)]">
-                      {laneTasks.map((t) => (
-                        <TaskRow
-                          key={t.id}
-                          projectId={id}
-                          task={t}
-                          activeRun={activeRunByTask.get(t.id) ?? null}
-                          onStart={() => start.mutate({ taskId: t.id })}
-                          startDisabled={start.isPending}
-                        />
-                      ))}
+                      {laneTasks.map((t, i) => {
+                        // Reorder controls only on the ready lane — the queue the
+                        // operator actually orders (ADR-021). Move up/down = sit
+                        // between the appropriate neighbors; drag is Phase 6.
+                        const reorderable = lane.id === "ready" && !reorder.isPending;
+                        const moveUp =
+                          reorderable && i > 0
+                            ? () =>
+                                reorder.mutate({
+                                  taskId: t.id,
+                                  beforeId: laneTasks[i - 2]?.id ?? null,
+                                  afterId: laneTasks[i - 1]?.id ?? null,
+                                })
+                            : undefined;
+                        const moveDown =
+                          reorderable && i < laneTasks.length - 1
+                            ? () =>
+                                reorder.mutate({
+                                  taskId: t.id,
+                                  beforeId: laneTasks[i + 1]?.id ?? null,
+                                  afterId: laneTasks[i + 2]?.id ?? null,
+                                })
+                            : undefined;
+                        return (
+                          <TaskRow
+                            key={t.id}
+                            projectId={id}
+                            task={t}
+                            activeRun={activeRunByTask.get(t.id) ?? null}
+                            onStart={() => start.mutate({ taskId: t.id })}
+                            startDisabled={start.isPending}
+                            onMoveUp={moveUp}
+                            onMoveDown={moveDown}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -1218,23 +1256,17 @@ function TaskRow({
   activeRun,
   onStart,
   startDisabled,
+  onMoveUp,
+  onMoveDown,
 }: {
   projectId: string;
-  task: {
-    id: string;
-    status: string;
-    title: string;
-    estimate: string | null;
-    model?: string | null;
-    sourceLinks?: ProvenanceLink[];
-    startable?: boolean;
-    openBlockers?: string[];
-    blocks?: string[];
-    blockedBy?: string[];
-  };
+  task: TaskSummary;
   activeRun: RunRow | null;
   onStart: () => void;
   startDisabled: boolean;
+  /** Present only for ready-lane rows — reorder the operator queue (ADR-021). */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const isGated =
     task.status === "ready" && task.startable === false && (task.openBlockers?.length ?? 0) > 0;
@@ -1275,6 +1307,34 @@ function TaskRow({
             ) : null}
           </div>
         </div>
+        {onMoveUp || onMoveDown ? (
+          <div className="flex flex-col shrink-0 -my-1" data-card-skip-open>
+            <button
+              type="button"
+              aria-label="move up in queue"
+              disabled={!onMoveUp}
+              onClick={(e) => {
+                e.preventDefault();
+                onMoveUp?.();
+              }}
+              className="text-[var(--color-fg-3)] hover:text-[var(--color-fg)] disabled:opacity-20 leading-none"
+            >
+              <ChevronUp size={13} />
+            </button>
+            <button
+              type="button"
+              aria-label="move down in queue"
+              disabled={!onMoveDown}
+              onClick={(e) => {
+                e.preventDefault();
+                onMoveDown?.();
+              }}
+              className="text-[var(--color-fg-3)] hover:text-[var(--color-fg)] disabled:opacity-20 leading-none"
+            >
+              <ChevronDown size={13} />
+            </button>
+          </div>
+        ) : null}
         {modelShort ? (
           <span className="chip mono text-[10.5px] shrink-0" title={`pinned to ${task.model}`}>
             {modelShort}

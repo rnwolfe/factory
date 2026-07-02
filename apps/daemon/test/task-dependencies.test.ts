@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TaskFile, TaskFrontmatter } from "../src/projects/tasks.ts";
 import {
+  compareTaskOrder,
   dependencyCycleExists,
   isStartable,
   normalizeBlockedBy,
@@ -17,6 +18,51 @@ function task(id: string, status: TaskFrontmatter["status"], blockedBy?: string[
     body: "",
   };
 }
+
+function ranked(
+  id: string,
+  opts: { priority?: TaskFrontmatter["priority"]; rank?: string } = {},
+): TaskFile {
+  return {
+    id,
+    filePath: `/tmp/${id}.md`,
+    frontmatter: { id, title: id, status: "ready", ...opts },
+    body: "",
+  };
+}
+
+describe("compareTaskOrder (ADR-021 queue order)", () => {
+  test("priority band wins first (high < med < low)", () => {
+    const lst = [
+      ranked("task-1", { priority: "low" }),
+      ranked("task-2", { priority: "high" }),
+      ranked("task-3", { priority: "med" }),
+    ].sort(compareTaskOrder);
+    expect(lst.map((t) => t.id)).toEqual(["task-2", "task-3", "task-1"]);
+  });
+  test("within a band, rank orders; ranked before unranked", () => {
+    const lst = [
+      ranked("task-3", {}), // unranked
+      ranked("task-1", { rank: "a0" }),
+      ranked("task-2", { rank: "a5" }),
+    ].sort(compareTaskOrder);
+    expect(lst.map((t) => t.id)).toEqual(["task-1", "task-2", "task-3"]);
+  });
+  test("no priority/rank → numeric id order (legacy behavior preserved)", () => {
+    const lst = [ranked("task-10"), ranked("task-2"), ranked("task-1")].sort(compareTaskOrder);
+    expect(lst.map((t) => t.id)).toEqual(["task-1", "task-2", "task-10"]);
+  });
+});
+
+describe("pickNextReadyTask honors queue order", () => {
+  test("picks the highest-priority ready task, not the lowest id", () => {
+    const pool = [
+      ranked("task-1", { priority: "low" }),
+      ranked("task-2", { priority: "high" }),
+    ].sort(compareTaskOrder);
+    expect(pickNextReadyTask(pool, null)?.id).toBe("task-2");
+  });
+});
 
 describe("normalizeBlockedBy", () => {
   test("trims, drops empties + self, dedupes", () => {

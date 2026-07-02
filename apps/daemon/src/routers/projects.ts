@@ -40,6 +40,7 @@ import {
   normalizeBlockedBy,
   openBlockers,
   renderAcceptanceBlock,
+  reorderTask,
   type TaskFile,
   tasksById,
   updateTaskAgent,
@@ -448,6 +449,43 @@ const tasksRouter = router({
       await commitAllChanges(
         project.workdirPath,
         `chore: ${input.taskId} dependencies -> [${next.join(", ")}]`,
+        ctx.config.gitAuthor,
+      );
+      return { frontmatter: updated.frontmatter };
+    }),
+
+  /**
+   * Reorder a task in the operator queue (ADR-021 §B). `beforeId`/`afterId` are
+   * the neighbors it should sit between (either null = head/tail); the daemon
+   * computes a fractional-index `rank` strictly between them — a single-row
+   * write. Commits on main so the next run's worktree starts clean.
+   */
+  reorder: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        taskId: z.string(),
+        beforeId: z.string().nullable().optional(),
+        afterId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const updated = await reorderTask(
+        project,
+        input.taskId,
+        input.beforeId ?? null,
+        input.afterId ?? null,
+      );
+      if (!updated) throw new Error("task not found");
+      await commitAllChanges(
+        project.workdirPath,
+        `chore: reorder ${input.taskId}`,
         ctx.config.gitAuthor,
       );
       return { frontmatter: updated.frontmatter };

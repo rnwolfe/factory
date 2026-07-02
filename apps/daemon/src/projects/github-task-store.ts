@@ -4,7 +4,7 @@ import type { GithubAppClient } from "../github/app-auth.ts";
 import { githubAppClientFromConfig, parseGithubRepo } from "../github/app-auth.ts";
 import { GithubError } from "./github.ts";
 import type { CreateTaskInput, TaskFile, TaskFrontmatter, TaskStore } from "./tasks.ts";
-import { FileTaskStore } from "./tasks.ts";
+import { compareTaskOrder, FileTaskStore } from "./tasks.ts";
 
 /**
  * GitHub Issues task backend (ADR-007 Phase 2). The issue IS the task: its
@@ -32,6 +32,8 @@ const META_KEYS = [
   // the GitHub backend today; mapping onto GitHub's native issue-dependency API
   // (`/issues/{n}/dependencies/blocked_by`) is the ADR's next slice.
   "blockedBy",
+  // Operator queue-order key (ADR-021). Fractional-index string; see rank.ts.
+  "rank",
   "legacy_id",
   "milestone",
   "sourcePlanId",
@@ -51,6 +53,7 @@ interface IssueMeta {
   agent?: string;
   parent?: string;
   blockedBy?: string[];
+  rank?: string;
   legacy_id?: string;
   milestone?: string;
   sourcePlanId?: string;
@@ -165,6 +168,7 @@ function issueToTaskFile(owner: string, repo: string, issue: IssueApi): TaskFile
   if (meta.agent) frontmatter.agent = meta.agent;
   if (meta.parent) frontmatter.parent = meta.parent;
   if (meta.blockedBy && meta.blockedBy.length > 0) frontmatter.blockedBy = meta.blockedBy;
+  if (meta.rank) frontmatter.rank = meta.rank;
   if (meta.legacy_id) frontmatter.legacy_id = meta.legacy_id;
   if (meta.milestone) frontmatter.milestone = meta.milestone;
   if (meta.sourcePlanId) frontmatter.sourcePlanId = meta.sourcePlanId;
@@ -239,7 +243,8 @@ export class GithubIssuesStore implements TaskStore {
       }
       if (issues.length < 100) break;
     }
-    out.sort((a, b) => Number(a.id) - Number(b.id));
+    // Canonical queue order: priority, then rank, then id (ADR-021).
+    out.sort(compareTaskOrder);
     return out;
   }
 
@@ -309,6 +314,7 @@ export class GithubIssuesStore implements TaskStore {
       agent: fm.agent,
       parent: fm.parent,
       blockedBy: fm.blockedBy && fm.blockedBy.length > 0 ? fm.blockedBy : undefined,
+      rank: fm.rank,
       legacy_id: fm.id,
     };
     const { state } = statusToGithub(fm.status);
@@ -348,6 +354,7 @@ export class GithubIssuesStore implements TaskStore {
       agent: input.agent,
       parent: input.parent,
       blockedBy: input.blockedBy && input.blockedBy.length > 0 ? input.blockedBy : undefined,
+      rank: input.rank,
       milestone: input.milestone,
       sourcePlanId: input.sourcePlanId,
       sourceAuditId: input.sourceAuditId,
@@ -404,6 +411,12 @@ export class GithubIssuesStore implements TaskStore {
   async updateBlockedBy(taskId: string, blockedBy: string[]): Promise<TaskFile | null> {
     const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
     meta.blockedBy = blockedBy.length > 0 ? blockedBy : undefined;
+    return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
+  }
+
+  async updateRank(taskId: string, rank: string): Promise<TaskFile | null> {
+    const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
+    meta.rank = rank || undefined;
     return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
   }
 

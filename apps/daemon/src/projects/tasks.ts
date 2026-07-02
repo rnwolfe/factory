@@ -9,6 +9,7 @@ import {
   type IssueComment,
   type IssueConversation,
 } from "./github-task-store.ts";
+import { generateKeyBetween, generateNKeysBetween } from "./rank.ts";
 
 export interface TaskFile {
   id: string;
@@ -59,6 +60,14 @@ export interface TaskFrontmatter {
    * Default/absent = no edges = parallel (today's behavior).
    */
   blockedBy?: string[];
+  /**
+   * Operator queue-order key (ADR-021 §B): a fractional-index string. Sorting by
+   * `(priority, rank)` gives the order auto-advance picks; a reorder rewrites
+   * exactly one task's `rank`. Absent = unranked; unranked tasks sort after
+   * ranked ones (within a priority band) by id, so legacy queues keep id-order
+   * until the operator reorders. See `rank.ts`.
+   */
+  rank?: string;
   labels?: string[];
   estimate?: "small" | "medium" | "large";
   /**
@@ -121,15 +130,41 @@ export function renderTaskMarkdown(t: TaskFile): string {
   return `---\n${fm}\n---\n\n${t.body.replace(/^\s+/, "")}\n`;
 }
 
+/** Priority bands for queue ordering (ADR-021). Lower = picked first. */
+const PRIORITY_ORDER: Record<NonNullable<TaskFrontmatter["priority"]>, number> = {
+  high: 0,
+  med: 1,
+  low: 2,
+};
+
+/**
+ * Canonical queue order (ADR-021 §B): by `priority` band, then `rank`
+ * (fractional-index string), then numeric id as the legacy tiebreak. Ranked
+ * tasks sort before unranked within a band, so a project with no ranks keeps
+ * its historical id-order until the operator reorders. This is the order both
+ * `list()` impls return and the order `pickNextReadyTask` walks.
+ */
+export function compareTaskOrder(a: TaskFile, b: TaskFile): number {
+  const pa = PRIORITY_ORDER[a.frontmatter.priority ?? "med"];
+  const pb = PRIORITY_ORDER[b.frontmatter.priority ?? "med"];
+  if (pa !== pb) return pa - pb;
+  const ra = a.frontmatter.rank;
+  const rb = b.frontmatter.rank;
+  if (ra != null && rb != null) return ra < rb ? -1 : ra > rb ? 1 : 0;
+  if (ra != null) return -1;
+  if (rb != null) return 1;
+  return a.id.localeCompare(b.id, "en", { numeric: true });
+}
+
 /**
  * Pick the next ready task after the one we just finished.
  *
- * Tasks are sorted by id (numeric collation). When `justFinishedId` is
- * given, we only consider tasks AFTER it — auto-advance must not wrap
- * back to earlier tasks. If the operator started at task-009, they
- * intended to skip 001-008; quietly re-running 001 after 009 finishes
- * silently undoes that intent. When no later task is ready, auto-advance
- * stops and the operator can pick an earlier one manually.
+ * Tasks are in canonical queue order (`compareTaskOrder`: priority, then rank,
+ * then id). When `justFinishedId` is given, we only consider tasks AFTER it —
+ * auto-advance must not wrap back to earlier tasks. If the operator ordered the
+ * queue and started partway in, quietly re-running an earlier task silently
+ * undoes that intent. When no later task is ready, auto-advance stops and the
+ * operator can pick an earlier one manually.
  *
  * When `justFinishedId` is null/unknown, falls back to the first ready
  * task in the list — the original behavior for ad-hoc submissions
@@ -295,6 +330,8 @@ export interface CreateTaskInput {
   parent?: string;
   /** Task ids this task is blocked by (ADR-019). Normalized at the createTask seam. */
   blockedBy?: string[];
+  /** Queue-order key (ADR-021). Assigned at the createTask seam when absent. */
+  rank?: string;
   /** Spec milestone this task belongs to (e.g. `"M1"`). See ADR-009. */
   milestone?: string;
   /** Provenance: the milestone whose decomposition created this task. */
@@ -335,6 +372,8 @@ export interface TaskStore {
   updateBody(id: string, body: string): Promise<TaskFile | null>;
   /** Replace the task's `blockedBy` dependency edges (ADR-019). Empty clears them. */
   updateBlockedBy(id: string, blockedBy: string[]): Promise<TaskFile | null>;
+  /** Set the task's queue-order `rank` key (ADR-021). */
+  updateRank(id: string, rank: string): Promise<TaskFile | null>;
 
   // --- Remote-discussion / adoption ops. ---------------------------------
   // The issue-backed backend implements these against the GitHub issue's
@@ -385,8 +424,8 @@ export class FileTaskStore implements TaskStore {
         // skip unreadable files
       }
     }
-    // Sort by id (which is monotonic per the spec).
-    tasks.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
+    // Canonical queue order: priority, then rank, then id (ADR-021).
+    tasks.sort(compareTaskOrder);
     return tasks;
   }
 
@@ -467,6 +506,17 @@ export class FileTaskStore implements TaskStore {
     return updated;
   }
 
+  async updateRank(taskId: string, rank: string): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    const updated: TaskFile = {
+      ...t,
+      frontmatter: { ...t.frontmatter, rank, updated: new Date().toISOString() },
+    };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
   async updateBody(taskId: string, body: string): Promise<TaskFile | null> {
     const t = await this.read(taskId);
     if (!t) return null;
@@ -501,6 +551,7 @@ export class FileTaskStore implements TaskStore {
     if (input.labels && input.labels.length > 0) frontmatter.labels = input.labels;
     if (input.parent) frontmatter.parent = input.parent;
     if (input.blockedBy && input.blockedBy.length > 0) frontmatter.blockedBy = input.blockedBy;
+    if (input.rank && input.rank.length > 0) frontmatter.rank = input.rank;
     if (input.milestone && input.milestone.trim().length > 0) {
       frontmatter.milestone = input.milestone.trim();
     }
@@ -640,6 +691,12 @@ export function createTask(target: TaskTarget, input: CreateTaskInput): Promise<
   // diverge: (1) guarantee an `## Acceptance` section so the verifier's acceptance
   // signal is never permanently absent (which would hold autonomous runs); (2)
   // clean the `blockedBy` dependency edges (ADR-019) — trim/dedupe/cap.
+  //
+  // Ranking is LAZY (ADR-021): new tasks get no `rank`, and `compareTaskOrder`
+  // sorts unranked tasks by id *after* any explicitly-ranked ones within a
+  // priority band — so a fresh task naturally lands at the queue tail with zero
+  // extra reads. Ranks are minted only when the operator reorders (`reorderTask`)
+  // or a caller passes an explicit `rank` (e.g. a batch via `generateNKeysBetween`).
   return taskStoreFor(target).create({
     ...input,
     body: ensureAcceptanceSection(input.body),
@@ -654,6 +711,56 @@ export function updateTaskBlockedBy(
   blockedBy: string[],
 ): Promise<TaskFile | null> {
   return taskStoreFor(target).updateBlockedBy(taskId, normalizeBlockedBy(blockedBy, taskId));
+}
+
+/**
+ * Reorder a task to sit between `beforeId` (the task it should follow) and
+ * `afterId` (the task it should precede) in the queue (ADR-021). Either bound
+ * may be null (move to head/tail). Computes a fractional-index `rank` strictly
+ * between the neighbors' ranks and writes it — a single-row update, no
+ * renumber. Neighbors missing a rank are lazily assigned one first so the
+ * midpoint is well-defined even on a legacy (unranked) queue.
+ */
+export async function reorderTask(
+  target: TaskTarget,
+  taskId: string,
+  beforeId: string | null,
+  afterId: string | null,
+): Promise<TaskFile | null> {
+  const store = taskStoreFor(target);
+  const tasks = await store.list(); // current queue order (compareTaskOrder)
+  // First reorder on a legacy (partly-)unranked queue: backfill ranks for the
+  // whole queue IN CURRENT ORDER so neighbor ranks are mutually consistent and
+  // well-defined. One-time — later reorders are single-row writes. (Seeding each
+  // neighbor independently would collide, since generateKeyBetween(null, null)
+  // is deterministic.)
+  if (tasks.some((t) => t.frontmatter.rank == null)) {
+    const keys = generateNKeysBetween(null, null, tasks.length);
+    for (let i = 0; i < tasks.length; i++) {
+      const t = tasks[i];
+      const key = keys[i];
+      if (t && key && t.frontmatter.rank !== key) {
+        await store.updateRank(t.id, key);
+        t.frontmatter.rank = key;
+      }
+    }
+  }
+  const rankOf = (id: string | null): string | null =>
+    id ? (tasks.find((t) => t.id === id)?.frontmatter.rank ?? null) : null;
+  const lo = rankOf(beforeId);
+  let hi = rankOf(afterId);
+  // Guard against out-of-order / equal bounds from a stale client view.
+  if (lo != null && hi != null && lo >= hi) hi = null;
+  return store.updateRank(taskId, generateKeyBetween(lo, hi));
+}
+
+/** Set a task's queue-order `rank` key directly (ADR-021). */
+export function updateTaskRank(
+  target: TaskTarget,
+  taskId: string,
+  rank: string,
+): Promise<TaskFile | null> {
+  return taskStoreFor(target).updateRank(taskId, rank);
 }
 
 export function updateTaskStatus(
