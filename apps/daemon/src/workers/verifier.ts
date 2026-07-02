@@ -179,7 +179,10 @@ export function classifyBlastRadius(diff: string): BlastClassification {
     if (l.startsWith("+++ ") || l.startsWith("--- ")) continue;
     if (l.startsWith("diff --git")) {
       const m = l.match(/ b\/(.+)$/);
-      if (m?.[1]) files.add(m[1]);
+      // Exclude Factory's own bookkeeping (`.factory/work/*.md` task files, etc.)
+      // from blast classification — it's metadata, not shipped project code, and
+      // a task slug like "…-schema-…" would otherwise trip the risky-path filter.
+      if (m?.[1] && !m[1].startsWith(".factory/")) files.add(m[1]);
       continue;
     }
     if (l.startsWith("+")) added++;

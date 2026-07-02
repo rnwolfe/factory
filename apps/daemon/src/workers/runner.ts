@@ -721,6 +721,11 @@ export async function executeRun(
     // show WHY (the failing verifier signals) + HOW to resolve. Null unless the
     // verifier gate is what downgraded this run.
     let gateHeldReport: VerifierReport | null = null;
+    // The gate's actual hold reason (`decideAutoLand`) — e.g. "broad blast
+    // radius …" when coverage IS high but the diff is risk-sensitive. Carried
+    // to the block payload so the card names the REAL reason instead of always
+    // saying "coverage below high".
+    let gateHeldReason: string | null = null;
     // A no-op completion (0 commits) has had its worktree reclaimed by the runtime,
     // so quality checks would spawn in a missing cwd (ENOENT) and log a spurious
     // failure. There is nothing to check anyway — skip, matching the gate guard below.
@@ -826,6 +831,7 @@ export async function executeRun(
         if (!gate.land) {
           finalStatus = "needs_review";
           gateHeldReport = verifierReport;
+          gateHeldReason = gate.reason;
           await db
             .update(schema.runs)
             .set({
@@ -1047,6 +1053,10 @@ export async function executeRun(
           // inbox card can name the failing signals (cross-model fail, absent
           // acceptance, …) + the resolution, instead of a bare "blocked".
           ...(gateHeldReport ? { verifier: gateHeldReport } : {}),
+          // The gate's real reason — distinguishes a broad-blast-radius hold
+          // (coverage high, diff risk-sensitive) from a low-coverage hold, so
+          // the card doesn't always claim "coverage below high".
+          ...(gateHeldReason ? { gateReason: gateHeldReason } : {}),
         },
         status: "pending",
         createdAt: Date.now(),

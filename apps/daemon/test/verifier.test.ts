@@ -150,6 +150,27 @@ describe("classifyBlastRadius", () => {
     ].join("\n");
     expect(classifyBlastRadius(big).radius).toBe("broad");
   });
+
+  test("Factory's own .factory/ task files don't count toward blast radius", () => {
+    // A task file whose slug contains "schema" must NOT trip the risky-path
+    // filter — it's Factory bookkeeping, not shipped project code.
+    const diff = `diff --git a/.factory/work/task-012-define-drizzle-schema-x.md b/.factory/work/task-012-define-drizzle-schema-x.md
++status: done`;
+    const b = classifyBlastRadius(diff);
+    expect(b.files).toBe(0);
+    expect(b.radius).toBe("contained");
+  });
+
+  test("a real schema.ts change is still broad even alongside a .factory task file", () => {
+    const diff = `diff --git a/.factory/work/task-012-schema.md b/.factory/work/task-012-schema.md
++status: done
+diff --git a/src/server/db/schema.ts b/src/server/db/schema.ts
++export const households = sqliteTable("households", {});`;
+    const b = classifyBlastRadius(diff);
+    expect(b.files).toBe(1); // only schema.ts counts
+    expect(b.radius).toBe("broad");
+    expect(b.reasons.join(" ")).toContain("schema.ts");
+  });
 });
 
 describe("decideAutoLand", () => {

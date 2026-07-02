@@ -78,6 +78,10 @@ interface DecisionPayload {
   needsReview?: boolean;
   // The verifier gate's report — already a parsed object on the payload.
   verifier?: VerifierReportView | null;
+  // The gate's actual hold reason (decideAutoLand) — e.g. a broad-blast-radius
+  // hold where coverage IS high but the diff is risk-sensitive. When present it
+  // supersedes the generic "coverage below high" copy.
+  gateReason?: string;
   // merge_failure-only
   reason?: string;
   message?: string;
@@ -931,10 +935,19 @@ export function DecisionDetail() {
               <Section title="held for review">
                 <div className="px-4 py-3 space-y-3">
                   <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)]">
-                    The agent finished and committed, but the verifier gate held it because coverage
-                    was below <span className="mono text-[12px] text-[var(--color-fg)]">high</span>.
-                    Nothing crashed — this is a quality hold, and the work is waiting on the run's
-                    branch.
+                    The agent finished and committed, but the verifier gate held it for review
+                    {payload.gateReason ? (
+                      <>
+                        {" — "}
+                        <span className="text-[var(--color-fg)]">{payload.gateReason}</span>
+                      </>
+                    ) : (
+                      <>
+                        {" because coverage was below "}
+                        <span className="mono text-[12px] text-[var(--color-fg)]">high</span>
+                      </>
+                    )}
+                    . Nothing crashed — the work is committed and waiting on the run's branch.
                   </p>
                   <VerifierReport report={payload.verifier ?? null} />
                 </div>
