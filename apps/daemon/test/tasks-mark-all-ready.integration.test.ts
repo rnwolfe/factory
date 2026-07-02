@@ -104,9 +104,15 @@ describe("projects.tasks.markAllReady", () => {
       const a = await makeTriageTask(h, "Adopted A");
       const b = await makeTriageTask(h, "Adopted B");
       // A task already ready — must not be touched or double-counted.
-      const ready = await createTask({ workdirPath: h.workdirPath }, { title: "Already ready" });
+      const ready = await createTask(
+        { workdirPath: h.workdirPath },
+        { title: "Already ready", body: "x" },
+      );
       // A backlog task — deliberately not promoted (only triage lane moves).
-      const backlogTask = await createTask({ workdirPath: h.workdirPath }, { title: "Backlog" });
+      const backlogTask = await createTask(
+        { workdirPath: h.workdirPath },
+        { title: "Backlog", body: "x" },
+      );
       await h.caller.tasks.updateStatus({
         projectId: h.projectId,
         taskId: backlogTask.id,
@@ -130,7 +136,7 @@ describe("projects.tasks.markAllReady", () => {
   test("no-op when nothing is in triage", async () => {
     const h = setupHarness();
     try {
-      await createTask({ workdirPath: h.workdirPath }, { title: "Already ready" });
+      await createTask({ workdirPath: h.workdirPath }, { title: "Already ready", body: "x" });
       const res = await h.caller.tasks.markAllReady({ projectId: h.projectId });
       expect(res.promoted).toBe(0);
     } finally {

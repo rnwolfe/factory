@@ -211,17 +211,28 @@ export interface GateDecision {
 
 /**
  * The auto-land decision: a run lands unattended only with HIGH verifier coverage
- * AND a contained diff. Anything less routes to `review`. Conservative on purpose —
- * auto-landing unverified or broad changes is the most dangerous surface in the system.
+ * AND a diff within the project's `maxBlastRadius` ceiling. Anything less routes to
+ * `review`. Conservative on purpose — auto-landing unverified changes is the most
+ * dangerous surface in the system.
+ *
+ * `maxBlastRadius` (the project's resolved `gate.maxBlastRadius`, ADR-016) is the
+ * operator's opt-in: `"contained"` (default) holds broad diffs for review;
+ * `"broad"` lets an operator who trusts a project auto-land even risk-sensitive /
+ * large diffs (still requiring high coverage). Defaults to `"contained"` so any
+ * caller that doesn't pass it keeps the strict behavior.
  */
-export function decideAutoLand(report: VerifierReport, blast: BlastClassification): GateDecision {
+export function decideAutoLand(
+  report: VerifierReport,
+  blast: BlastClassification,
+  maxBlastRadius: BlastRadius = "contained",
+): GateDecision {
   if (report.level !== "high") {
     return { land: false, reason: `verifier coverage ${report.level} (need high)` };
   }
-  if (blast.radius === "broad") {
+  if (blast.radius === "broad" && maxBlastRadius !== "broad") {
     return { land: false, reason: `broad blast radius — ${blast.reasons.join("; ")}` };
   }
-  return { land: true, reason: "high verifier coverage + contained diff" };
+  return { land: true, reason: `high verifier coverage + ${blast.radius} diff` };
 }
 
 /**

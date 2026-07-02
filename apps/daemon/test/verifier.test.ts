@@ -196,12 +196,22 @@ describe("decideAutoLand", () => {
     expect(d.reason).toContain("medium");
   });
 
-  test("high coverage but broad diff → hold", () => {
+  test("high coverage but broad diff → hold (default contained ceiling)", () => {
     const broad = classifyBlastRadius(
       `diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n+x`,
     );
     const d = decideAutoLand(high, broad);
     expect(d.land).toBe(false);
     expect(d.reason).toContain("blast radius");
+  });
+
+  test("broad diff lands when the project's maxBlastRadius ceiling is broad", () => {
+    const broad = classifyBlastRadius(
+      `diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml\n+x`,
+    );
+    // Operator opted the project into auto-landing broad diffs (still high cov).
+    expect(decideAutoLand(high, broad, "broad").land).toBe(true);
+    // …but coverage still gates: medium never lands regardless of ceiling.
+    expect(decideAutoLand(medium, broad, "broad").land).toBe(false);
   });
 });
