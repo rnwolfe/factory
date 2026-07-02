@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.50.2 — 2026-07-02
+
+### Fixed
+- **Run panes no longer live on the operator's personal tmux server — the real "runs die without a status block" root cause.** With no dedicated socket, the daemon created run panes on the ambient default tmux server, which in practice is the operator's own interactive/iTerm2 session. Any disturbance to that server — a self-hosting run's `bun run test` load, control-mode churn, attaching/detaching — killed the co-tenant run panes mid-flight, and they were marked `failed`. The daemon now always uses a dedicated tmux socket derived from `FACTORY_HOME` (`~/.factory-live` → `factory-live`), fully isolated from the operator's default server. **After upgrading, watch runs with `tmux -L factory-live attach` instead of plain `tmux`, and any orphaned `factory-*` sessions left on your default server can be cleaned up once by hand.**
+
 ## v0.50.1 — 2026-07-02
 
 ### Fixed
