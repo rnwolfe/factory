@@ -647,9 +647,11 @@ function InFlightRow({ run }: { run: AmbientRun }) {
       : elapsed < 3600
         ? `${Math.floor(elapsed / 60)}m`
         : `${Math.floor(elapsed / 3600)}h`;
+  // The run pane lives under the project, not at a bare /runs/:id (which 404s).
+  const href = run.projectId ? `/projects/${run.projectId}/runs/${run.runId}` : "/ops";
   return (
     <Link
-      to={`/runs/${run.runId}`}
+      to={href}
       className="flex gap-3 surface drop-in breathe px-3.5 py-3 active:bg-[var(--color-bg-2)]"
     >
       {/* inset rounded accent rail — softer than a hard border-left */}
@@ -702,11 +704,14 @@ function UnattendedRow({ event }: { event: AmbientEvent }) {
           : `${Math.floor(elapsed / 86400)}d`;
   const chip = UNATTENDED_CHIP[event.kind] ?? { label: `auto · ${event.kind}`, icon: ArrowUpRight };
   const Icon = chip.icon;
-  const href = event.runId
-    ? `/runs/${event.runId}`
-    : event.projectId
-      ? `/projects/${event.projectId}`
-      : "/ops";
+  // The run pane is nested under its project; a bare /runs/:id 404s. Fall back
+  // to the project, then to /ops, as the ambient event loses its ids.
+  const href =
+    event.runId && event.projectId
+      ? `/projects/${event.projectId}/runs/${event.runId}`
+      : event.projectId
+        ? `/projects/${event.projectId}`
+        : "/ops";
   return (
     <Link
       to={href}
@@ -911,8 +916,13 @@ function SnoozeMenuItem({
 function TriagingRow({ idea }: { idea: TriagingIdea }) {
   const elapsed = Math.max(0, Math.floor((Date.now() - idea.createdAt) / 1000));
   const elapsedLabel = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m`;
+  // Ideas mid-triage have no detail page yet — route to the ambient-activity
+  // view (/ops) so the row taps somewhere real, matching the watch strip.
   return (
-    <div className="flex gap-3 surface drop-in px-3.5 py-3">
+    <Link
+      to="/ops"
+      className="flex gap-3 surface drop-in px-3.5 py-3 active:bg-[var(--color-bg-2)]"
+    >
       <span className="w-[3px] rounded-[2px] bg-[var(--color-working)] shrink-0" aria-hidden />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1.5">
@@ -930,7 +940,7 @@ function TriagingRow({ idea }: { idea: TriagingIdea }) {
           {idea.rawText}
         </p>
       </div>
-    </div>
+    </Link>
   );
 }
 
