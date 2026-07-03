@@ -61,6 +61,13 @@ export interface InvokeClaudeOptions {
    * that don't shell out into project source.
    */
   cwd?: string;
+  /**
+   * Model id forwarded to the agent CLI (`--model`). Null/undefined lets the
+   * CLI pick its own default — matches the per-project `projects.model`
+   * convention. Codex and claude have disjoint model ids, so callers should
+   * pass the project's model paired with the resolved agent.
+   */
+  model?: string | null;
 }
 
 /**
@@ -126,6 +133,7 @@ export async function invokeClaudeJson(
 
   const { argv, stdin } = agent.buildArgv(prompt, {
     resumeSessionId: opts.resumeSessionId,
+    model: opts.model ?? undefined,
   });
   const proc = bunSpawn({
     cmd: argv as string[],

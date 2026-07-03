@@ -27,6 +27,7 @@ import { protectedProcedure, router } from "../trpc.ts";
 import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
 import { resetMainAndRetryMerge } from "../workers/merge-remediation.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
+import { landConflictResolution } from "../workers/resolve-conflict.ts";
 import { submitRun } from "../workers/submit.ts";
 import { autoContract } from "../workers/trust-ladder.ts";
 import { renderVerifierFindings, type VerifierReport } from "../workers/verifier.ts";
@@ -97,6 +98,19 @@ interface MergeFailurePayload {
   reason: string;
   message: string;
   summary?: string;
+  /**
+   * Conflict auto-resolve (feature plan mnx1zt27): when the merge conflicted and
+   * an agent produced a resolution but the `conflictAutoResolve` lever is off,
+   * the resolution is stashed here as a *proposal*. The operator applies it with
+   * one tap via `resolveMergeFailureConflict`; `resolveBranch` holds the resolved
+   * merge commit (its scratch worktree is already torn down).
+   */
+  proposedResolution?: {
+    resolveBranch: string;
+    resolutionSha: string;
+    agentSummary: string;
+    diffStat: string;
+  };
 }
 
 const ActionEnum = z.enum(["approve", "park", "trash", "decompose", "dismiss"]);
@@ -916,6 +930,88 @@ export const decisionsRouter = router({
       });
 
       return { ok: true, projectId: decision.projectId, mergedSha: retry.sha };
+    }),
+
+  /**
+   * Apply an agent-proposed conflict resolution (feature plan mnx1zt27). The
+   * operator-approval half of the `mergeRemediation.conflictAutoResolve` lever:
+   * when the lever is off, a conflicted merge whose agent resolution succeeded is
+   * surfaced as a pending decision carrying `proposedResolution`. This procedure
+   * lands that resolution's branch into `main` via the same `mergeIntoMain` path
+   * the unattended (lever-on) flow uses, and fires the held post-merge side
+   * effects — so the approved path merges identically.
+   *
+   * Scoped to `merge_failure` decisions that actually carry a `proposedResolution`
+   * (an agent block/fail/null-parse leaves the decision without one; those fall
+   * back to the plain retry / tmux intervention). If the resolution can no longer
+   * land (e.g. `main` advanced since it was produced), the decision stays pending
+   * and the tmux fallback is untouched.
+   */
+  resolveMergeFailureConflict: protectedProcedure
+    .input(z.object({ decisionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const decision = await ctx.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, input.decisionId))
+        .get();
+      if (!decision) throw new TRPCError({ code: "NOT_FOUND", message: "decision not found" });
+      if (decision.kind !== "merge_failure") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `resolveMergeFailureConflict only handles merge_failure (got ${decision.kind})`,
+        });
+      }
+      if (decision.status !== "pending") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `decision already ${decision.status}`,
+        });
+      }
+      const payload = decision.payload as MergeFailurePayload;
+      if (!payload.proposedResolution) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "this merge_failure has no proposed resolution to apply",
+        });
+      }
+      if (!decision.projectId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "merge_failure decision missing projectId",
+        });
+      }
+
+      const land = await landConflictResolution(
+        { config: ctx.config, db: ctx.db, events: ctx.events, runs: ctx.runs, pool: ctx.pool },
+        {
+          projectId: decision.projectId,
+          runId: payload.runId,
+          taskId: payload.taskId ?? null,
+          resolveBranch: payload.proposedResolution.resolveBranch,
+        },
+      );
+      if (!land.ok) {
+        // Leave the decision pending so the operator can intervene via tmux.
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `applying resolution still failing — ${land.reason}: ${land.message}`,
+        });
+      }
+
+      const now = Date.now();
+      await ctx.db
+        .update(schema.decisions)
+        .set({ status: "actioned", actionedAt: now, outcome: "merge:conflict-resolved" })
+        .where(eq(schema.decisions.id, input.decisionId));
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "decision_actioned",
+        decisionId: input.decisionId,
+        projectId: decision.projectId,
+      });
+
+      return { ok: true, projectId: decision.projectId, mergedSha: land.sha };
     }),
 
   /**

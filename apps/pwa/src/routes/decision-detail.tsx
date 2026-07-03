@@ -85,6 +85,12 @@ interface DecisionPayload {
   // merge_failure-only
   reason?: string;
   message?: string;
+  proposedResolution?: {
+    resolveBranch: string;
+    resolutionSha: string;
+    agentSummary: string;
+    diffStat: string;
+  };
   // agent_decision shape
   kind?: "architectural" | "library" | "naming" | "scope" | "tradeoff";
   responseType?: "single" | "multi" | "free";
@@ -187,6 +193,20 @@ export function DecisionDetail() {
   // plain retry (which re-fails while main is still dirty).
   const resolveDirty = useMutation({
     mutationFn: () => trpc.decisions.resolveMergeFailureDirty.mutate({ decisionId: id }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+      qc.invalidateQueries({ queryKey: ["projects.list"] });
+      if (res.projectId) nav(`/projects/${res.projectId}`);
+      else nav("/");
+    },
+  });
+
+  // Apply an agent-proposed conflict resolution (feature plan mnx1zt27): land the
+  // resolution branch into main in one tap. Only offered when the merge_failure
+  // carries a `proposedResolution` (lever off + agent resolved successfully).
+  const resolveConflict = useMutation({
+    mutationFn: () => trpc.decisions.resolveMergeFailureConflict.mutate({ decisionId: id }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
       qc.invalidateQueries({ queryKey: ["decisions.get", id] });
@@ -1141,6 +1161,24 @@ export function DecisionDetail() {
               </p>
             </Section>
           ) : null}
+          {payload.proposedResolution ? (
+            <Section title="proposed resolution">
+              <div className="px-4 py-3 space-y-2">
+                <p className="text-[14px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap">
+                  {payload.proposedResolution.agentSummary}
+                </p>
+                <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                  {payload.proposedResolution.resolveBranch} ·{" "}
+                  {payload.proposedResolution.resolutionSha.slice(0, 8)}
+                </p>
+                {payload.proposedResolution.diffStat ? (
+                  <pre className="mono text-[11px] leading-relaxed text-[var(--color-fg-2)] whitespace-pre-wrap break-words">
+                    {payload.proposedResolution.diffStat}
+                  </pre>
+                ) : null}
+              </div>
+            </Section>
+          ) : null}
           {payload.runId && d.projectId ? (
             <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
               source run ·{" "}
@@ -1264,6 +1302,22 @@ export function DecisionDetail() {
                 title="hard-reset main to a clean state (discarding the uncommitted changes that blocked the merge), then retry"
               >
                 {resolveDirty.isPending ? "resetting…" : "reset main & retry"}
+              </button>
+            ) : null}
+            {isMergeFailure && payload.reason === "conflict" && payload.proposedResolution ? (
+              // Conflict auto-resolve (feature plan mnx1zt27): an agent already
+              // resolved the conflict on a scratch branch. One tap lands it — the
+              // same mergeIntoMain path the unattended (lever-on) flow uses.
+              <button
+                type="button"
+                className="btn btn-primary col-span-3"
+                onClick={() => resolveConflict.mutate()}
+                disabled={
+                  resolveConflict.isPending || action.isPending || startIntervention.isPending
+                }
+                title={`apply the agent's resolution (${payload.proposedResolution.resolveBranch}) and merge into main`}
+              >
+                {resolveConflict.isPending ? "applying…" : "apply resolution & merge"}
               </button>
             ) : null}
             <button
