@@ -679,6 +679,7 @@ const UNATTENDED_CHIP: Record<string, { label: string; icon: typeof GitMerge }> 
   auto_merged: { label: "auto · merged", icon: GitMerge },
   auto_ran: { label: "auto · ran", icon: ArrowUpRight },
   trust_promoted: { label: "auto · promoted", icon: CheckCircle2 },
+  milestone_auto_planned: { label: "auto · milestone", icon: ArrowUpRight },
 };
 
 /** A thing the system did unattended while you were away. FYI only, no action. */

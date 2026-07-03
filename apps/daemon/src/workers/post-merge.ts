@@ -221,6 +221,27 @@ async function maybeAutoPlanAndAdvance(deps: PostMergeDeps, project: Project): P
   );
   if (planned.created === 0) return false;
 
+  // Leave a discoverable, timestamped record that a whole milestone was
+  // auto-planned + auto-executed unattended under the hands-off preset. This
+  // lands in the read-only autonomy history (/ops timeline, ADR-016) — an
+  // awareness surface, never an action queue — so it needs no operator tap and
+  // adds no must-respond inbox card (the "one attention sink" invariant).
+  const { recordAutonomyEvent } = await import("../autonomy/events.ts");
+  recordAutonomyEvent(db, events, {
+    kind: "milestone_auto_planned",
+    projectId: project.id,
+    message: `hands-off: auto-planned + started milestone "${planned.milestone}" (${planned.created} task${
+      planned.created === 1 ? "" : "s"
+    })`,
+    detail: {
+      preset: "hands-off",
+      milestone: planned.milestone,
+      created: planned.created,
+      taskIds: planned.taskIds,
+      blastRadius: planned.blast?.radius ?? null,
+    },
+  });
+
   // Queue replenished. Cold-start from the front of the fresh queue (null anchor,
   // mirroring idle-advance) — the just-finished task id is no anchor for a batch
   // of brand-new tasks. The post-merge chain takes over from the next finalize.

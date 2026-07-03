@@ -543,6 +543,63 @@ describe("applyPostMergeRunOutcome · hands-off auto-plan on queue drain", () =>
     }
   });
 
+  // hgc0d0zg acceptance: an auto-confirmed hands-off milestone leaves a
+  // discoverable, timestamped record on the read-only autonomy history
+  // (/ops timeline) stating it was auto-planned + executed under hands-off —
+  // and creates NO decision (no must-respond inbox surface).
+  test("auto-planned milestone records a discoverable, no-action autonomy event", async () => {
+    const h = setupHarness();
+    const submitSpy = spyOn(h.pool, "submit").mockResolvedValue(undefined);
+    const before = Date.now();
+    try {
+      seedMilestonePrompt(h);
+      const seed = await seedProject(h, {
+        autoAdvance: true,
+        autonomyConfig: HANDS_OFF_CONFIG,
+        withSpec: true,
+        justFinishedId: "task-001",
+        tasks: [{ id: "task-001", status: "done" }],
+      });
+
+      await callPostMerge(h, seed.runId, decompositionInvoker("Build the router"));
+
+      // A single autonomy-history row was recorded (read-only /ops timeline).
+      const events = h.db
+        .select()
+        .from(schema.autonomyEvents)
+        .where(
+          and(
+            eq(schema.autonomyEvents.projectId, seed.projectId),
+            eq(schema.autonomyEvents.kind, "milestone_auto_planned"),
+          ),
+        )
+        .all();
+      expect(events).toHaveLength(1);
+      const ev = events[0];
+      if (!ev) throw new Error("no autonomy event");
+      // Timestamped, and the message states the hands-off auto-plan+execute.
+      expect(ev.createdAt).toBeGreaterThanOrEqual(before);
+      expect(ev.message).toContain("hands-off");
+      expect(ev.message).toContain("M1");
+      const detail = JSON.parse(ev.detail ?? "{}");
+      expect(detail.preset).toBe("hands-off");
+      expect(detail.milestone).toBe("M1");
+      expect(detail.created).toBe(1);
+
+      // AC2: it is NOT an inbox/decision surface — no decision row was created,
+      // so nothing for the operator to dismiss or approve.
+      const decisions = h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.projectId, seed.projectId))
+        .all();
+      expect(decisions).toHaveLength(0);
+    } finally {
+      submitSpy.mockRestore();
+      h.cleanup();
+    }
+  });
+
   // Criterion 2: conservative/balanced presets keep the manual nudge behavior.
   for (const [label, config] of [
     ["balanced", BALANCED_CONFIG],
