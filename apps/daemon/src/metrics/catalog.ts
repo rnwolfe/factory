@@ -1,5 +1,11 @@
 import { type Db, schema } from "@factory/db";
 import { and, count, eq, gte, isNotNull, lt } from "drizzle-orm";
+import {
+  classifyMergeResolution,
+  governingLeverOn,
+  type MergeFailureLevers,
+  type MergeResolutionPath,
+} from "../workers/merge-failure.ts";
 import { gitDayStats } from "./git-stats.ts";
 
 /**
@@ -156,6 +162,58 @@ function countAutonomyEvents(ctx: MetricContext, kind: string): number {
       .where(and(...conds))
       .get()?.c ?? 0
   );
+}
+
+// ── merge-failure classification (feature plan mnx1zt27) ─────────────────────
+// A merge_failure decision is a rich row: its reason lives in the payload, its
+// resolution path is derived from (status, outcome), and the merge-remediation
+// lever value in effect when it happened is captured in the payload. Rather than
+// one scalar, the ops surface wants the full breakdown — so we load the day's
+// merge_failure rows once per compute and count the classified subset. Merge
+// failures are rare (a day-window holds a handful), so a per-metric row scan is
+// cheaper than it looks and keeps each catalog entry a self-contained counter.
+//
+// ANCHOR: `decisions.created_at` — the day the failure OCCURRED. The resolution
+// path is a snapshot of how that failure stands at compute time; auto paths
+// resolve instantly (same tick) so they're always captured, and for any day
+// `merge_failures_total` === Σ(resolution paths) === Σ(lever on/off).
+
+interface MergeFailureFacts {
+  reason: string;
+  path: MergeResolutionPath;
+  leverOn: boolean;
+}
+
+function loadMergeFailures(ctx: MetricContext): MergeFailureFacts[] {
+  const conds = [
+    eq(schema.decisions.kind, "merge_failure"),
+    gte(schema.decisions.createdAt, ctx.dayStartMs),
+    lt(schema.decisions.createdAt, ctx.dayEndMs),
+  ];
+  if (ctx.project) conds.push(eq(schema.decisions.projectId, ctx.project.id));
+  const rows = ctx.db
+    .select({
+      status: schema.decisions.status,
+      outcome: schema.decisions.outcome,
+      payload: schema.decisions.payload,
+    })
+    .from(schema.decisions)
+    .where(and(...conds))
+    .all();
+  return rows.map((r) => {
+    const payload = (r.payload ?? {}) as { reason?: unknown; levers?: MergeFailureLevers };
+    const reason = typeof payload.reason === "string" ? payload.reason : "other";
+    return {
+      reason,
+      path: classifyMergeResolution({ status: r.status, outcome: r.outcome }),
+      leverOn: governingLeverOn(reason, payload.levers),
+    };
+  });
+}
+
+/** Count merge_failure decisions in the window matching `pred`. */
+function countMergeFailures(ctx: MetricContext, pred: (f: MergeFailureFacts) => boolean): number {
+  return loadMergeFailures(ctx).filter(pred).length;
 }
 
 /** Sum a git stat over the scope (one project, or all for the portfolio). */
@@ -349,5 +407,77 @@ export const METRIC_CATALOG: MetricDef[] = [
           .get()?.n ?? 0
       );
     },
+  },
+
+  // Merge-failure remediation (feature plan mnx1zt27) — the auto-merge to `main`
+  // that dirty/conflicting state used to strand behind a manual git-surgery
+  // session. The whole point of the remediation levers is to shrink the
+  // `manual_tmux` + `unresolved` slices; charting the breakdown makes that
+  // visible over time. All anchored on the failure's `created_at`, so for any day
+  // `merge_failures_total` === Σ(resolution paths) === Σ(lever on/off).
+  {
+    key: "merge_failures_total",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, () => true),
+  },
+  // …by reason (why the merge refused).
+  {
+    key: "merge_failures_dirty",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.reason === "dirty"),
+  },
+  {
+    key: "merge_failures_conflict",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.reason === "conflict"),
+  },
+  // …by resolution path (the five buckets — how the failure was ultimately
+  // resolved). Their sum equals `merge_failures_total` for the same day.
+  {
+    key: "merge_failures_resolved_auto_dirty_reset",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.path === "auto_dirty_reset"),
+  },
+  {
+    key: "merge_failures_resolved_auto_agent_resolve",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.path === "auto_agent_resolve"),
+  },
+  {
+    key: "merge_failures_resolved_operator_agent_resolve",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.path === "operator_agent_resolve"),
+  },
+  {
+    key: "merge_failures_resolved_manual_tmux",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.path === "manual_tmux"),
+  },
+  {
+    key: "merge_failures_unresolved",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.path === "unresolved"),
+  },
+  // …by the merge-remediation lever value in effect when the failure happened —
+  // "does enabling auto-remediation correlate with fewer manual sessions?".
+  {
+    key: "merge_failures_lever_on",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => f.leverOn),
+  },
+  {
+    key: "merge_failures_lever_off",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => countMergeFailures(c, (f) => !f.leverOn),
   },
 ];

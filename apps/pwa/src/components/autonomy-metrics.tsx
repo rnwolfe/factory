@@ -80,6 +80,16 @@ const SERIES_METRICS = [
   "loc_removed",
   "projects_collaborative",
   "projects_autonomous",
+  // Merge-failure remediation (feature plan mnx1zt27) — resolution-path + lever
+  // breakdown of auto-merge failures, so the "manual git-surgery" slices are
+  // visibly shrinking (or not) over time.
+  "merge_failures_resolved_auto_dirty_reset",
+  "merge_failures_resolved_auto_agent_resolve",
+  "merge_failures_resolved_operator_agent_resolve",
+  "merge_failures_resolved_manual_tmux",
+  "merge_failures_unresolved",
+  "merge_failures_lever_on",
+  "merge_failures_lever_off",
 ] as const;
 type SeriesMetric = (typeof SERIES_METRICS)[number];
 
@@ -329,6 +339,34 @@ export function AutonomyMetrics() {
       ]),
     [series.projects_collaborative, series.projects_autonomous],
   );
+  const mergeResolutionRows = useMemo(
+    () =>
+      mergeSeries([
+        { key: "auto_dirty_reset", rows: series.merge_failures_resolved_auto_dirty_reset },
+        { key: "auto_agent_resolve", rows: series.merge_failures_resolved_auto_agent_resolve },
+        {
+          key: "operator_agent_resolve",
+          rows: series.merge_failures_resolved_operator_agent_resolve,
+        },
+        { key: "manual_tmux", rows: series.merge_failures_resolved_manual_tmux },
+        { key: "unresolved", rows: series.merge_failures_unresolved },
+      ]),
+    [
+      series.merge_failures_resolved_auto_dirty_reset,
+      series.merge_failures_resolved_auto_agent_resolve,
+      series.merge_failures_resolved_operator_agent_resolve,
+      series.merge_failures_resolved_manual_tmux,
+      series.merge_failures_unresolved,
+    ],
+  );
+  const mergeLeverRows = useMemo(
+    () =>
+      mergeSeries([
+        { key: "lever_on", rows: series.merge_failures_lever_on },
+        { key: "lever_off", rows: series.merge_failures_lever_off },
+      ]),
+    [series.merge_failures_lever_on, series.merge_failures_lever_off],
+  );
 
   const snap = snapQ.data;
   const m = snap?.metrics ?? {};
@@ -493,6 +531,72 @@ export function AutonomyMetrics() {
           />
         </ChartCard>
       ) : null}
+
+      {/* Merge-failure remediation (feature plan mnx1zt27) — how auto-merge
+          failures got resolved, and whether the remediation lever was on. The
+          headline is the resolution mix: the `manual tmux` + `unresolved` slices
+          are the manual-git-surgery cost the feature exists to shrink. */}
+      <ChartCard
+        title="merge failures · resolution path / day"
+        legend={[
+          { label: "auto reset", color: PALETTE.working },
+          { label: "auto resolve", color: PALETTE.green },
+          { label: "operator", color: PALETTE.blue },
+          { label: "manual tmux", color: PALETTE.amber },
+          { label: "unresolved", color: PALETTE.red },
+        ]}
+      >
+        <MetricChart
+          data={mergeResolutionRows}
+          series={[
+            { key: "auto_dirty_reset", label: "auto reset", color: PALETTE.working, stacked: true },
+            {
+              key: "auto_agent_resolve",
+              label: "auto resolve",
+              color: PALETTE.green,
+              stacked: true,
+            },
+            {
+              key: "operator_agent_resolve",
+              label: "operator",
+              color: PALETTE.blue,
+              stacked: true,
+            },
+            { key: "manual_tmux", label: "manual tmux", color: PALETTE.amber, stacked: true },
+            { key: "unresolved", label: "unresolved", color: PALETTE.red, stacked: true },
+          ]}
+          formatX={fmtDay}
+          formatY={fmtInt}
+          empty={rowsAllZero(mergeResolutionRows, [
+            "auto_dirty_reset",
+            "auto_agent_resolve",
+            "operator_agent_resolve",
+            "manual_tmux",
+            "unresolved",
+          ])}
+          emptyLabel="no merge failures in this range"
+        />
+      </ChartCard>
+
+      <ChartCard
+        title="merge failures · remediation lever / day"
+        legend={[
+          { label: "lever on", color: PALETTE.working },
+          { label: "lever off", color: PALETTE.neutral },
+        ]}
+      >
+        <MetricChart
+          data={mergeLeverRows}
+          series={[
+            { key: "lever_on", label: "lever on", color: PALETTE.working, stacked: true },
+            { key: "lever_off", label: "lever off", color: PALETTE.neutral, stacked: true },
+          ]}
+          formatX={fmtDay}
+          formatY={fmtInt}
+          empty={rowsAllZero(mergeLeverRows, ["lever_on", "lever_off"])}
+          emptyLabel="no merge failures in this range"
+        />
+      </ChartCard>
 
       <p className="mono text-[9.5px] text-[var(--color-fg-3)] px-1">
         read-only · rolled-up daily · merged-to-main work · {from} → {to}

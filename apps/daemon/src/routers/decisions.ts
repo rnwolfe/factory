@@ -25,6 +25,7 @@ import { createTask, updateTaskStatus } from "../projects/tasks.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
+import { MERGE_FAILURE_OUTCOME } from "../workers/merge-failure.ts";
 import { resetMainAndRetryMerge } from "../workers/merge-remediation.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { landConflictResolution } from "../workers/resolve-conflict.ts";
@@ -385,6 +386,9 @@ export const decisionsRouter = router({
       let retryRunId: string | null = null;
       let mergedSha: string | null = null;
       let planId: string | null = null;
+      // When a plain approve lands a merge_failure, stamp the resolution path so
+      // the ops metric attributes it to the operator bucket (feature plan mnx1zt27).
+      let mergeOutcome: string | null = null;
 
       if (input.action === "approve" && decision.kind === "merge_failure") {
         // Retry the merge of the run's branch into main. If main is still
@@ -411,6 +415,7 @@ export const decisionsRouter = router({
         }
         mergedSha = merge.sha;
         projectId = project.id;
+        mergeOutcome = MERGE_FAILURE_OUTCOME.operatorApprovedRetry;
         if (!merge.alreadyMerged) {
           ctx.events.publish({
             channel: "events",
@@ -843,6 +848,7 @@ export const decisionsRouter = router({
           status: input.action === "dismiss" ? "dismissed" : "actioned",
           actionedAt: now,
           ...(projectId ? { projectId } : {}),
+          ...(mergeOutcome ? { outcome: mergeOutcome } : {}),
         })
         .where(eq(schema.decisions.id, input.decisionId));
 
