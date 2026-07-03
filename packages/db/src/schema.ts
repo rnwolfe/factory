@@ -454,22 +454,29 @@ export const rubricVersions = sqliteTable(
   (t) => [uniqueIndex("rubric_versions_key_version_uniq").on(t.rubricKey, t.version)],
 );
 
-export const decisions = sqliteTable("decisions", {
-  id: text("id").primaryKey(),
-  kind: text("kind", { enum: decisionKindEnum }).notNull(),
-  ideaId: text("idea_id").references(() => ideas.id),
-  projectId: text("project_id").references(() => projects.id),
-  rubricVersionId: text("rubric_version_id").references(() => rubricVersions.id),
-  outcome: text("outcome").notNull(),
-  payload: text("payload", { mode: "json" }).notNull(),
-  uncertainty: real("uncertainty"),
-  weightedScore: real("weighted_score"),
-  status: text("status", { enum: decisionStatusEnum }).notNull().default("pending"),
-  /** Nullable epoch-ms timestamp. Pending decisions resurface when this is null or in the past. */
-  snoozedUntil: integer("snoozed_until"),
-  createdAt: integer("created_at").notNull(),
-  actionedAt: integer("actioned_at"),
-});
+export const decisions = sqliteTable(
+  "decisions",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: decisionKindEnum }).notNull(),
+    ideaId: text("idea_id").references(() => ideas.id),
+    projectId: text("project_id").references(() => projects.id),
+    rubricVersionId: text("rubric_version_id").references(() => rubricVersions.id),
+    outcome: text("outcome").notNull(),
+    payload: text("payload", { mode: "json" }).notNull(),
+    uncertainty: real("uncertainty"),
+    weightedScore: real("weighted_score"),
+    status: text("status", { enum: decisionStatusEnum }).notNull().default("pending"),
+    /** Nullable epoch-ms timestamp. Pending decisions resurface when this is null or in the past. */
+    snoozedUntil: integer("snoozed_until"),
+    createdAt: integer("created_at").notNull(),
+    actionedAt: integer("actioned_at"),
+  },
+  (t) => [
+    index("decisions_status_created_idx").on(t.status, t.createdAt),
+    index("decisions_project_idx").on(t.projectId),
+  ],
+);
 
 export const decisionComments = sqliteTable("decision_comments", {
   id: text("id").primaryKey(),
@@ -481,107 +488,122 @@ export const decisionComments = sqliteTable("decision_comments", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const runs = sqliteTable("runs", {
-  id: text("id").primaryKey(),
-  projectId: text("project_id")
-    .references(() => projects.id)
-    .notNull(),
-  taskId: text("task_id"),
-  status: text("status", { enum: runStatusEnum }).notNull(),
-  agentName: text("agent_name").notNull().default("claude-code"),
-  branch: text("branch").notNull(),
-  worktreePath: text("worktree_path").notNull(),
-  tmuxSession: text("tmux_session"),
-  sessionId: text("session_id"),
-  startedAt: integer("started_at").notNull(),
-  endedAt: integer("ended_at"),
-  exitCode: integer("exit_code"),
-  iterationCount: integer("iteration_count").notNull().default(0),
-  budgetSeconds: integer("budget_seconds").notNull(),
-  /** Operator-facing wrap-up extracted from the agent's factory-status block. */
-  summary: text("summary"),
-  /** When status='blocked', the JSON-stringified array of agent questions. */
-  blockerQuestions: text("blocker_questions"),
-  /**
-   * Optional baseRef the worktree was created from. Defaults to project HEAD
-   * when null. Used by the retry path so a new run can resume from a prior
-   * (e.g. blocked) run's branch tip instead of starting fresh.
-   */
-  baseRef: text("base_ref"),
-  /**
-   * Frozen `task_plan` plan id whose draft was folded into this run's prompt.
-   * Null when the run was submitted without an attached plan (v0.1 behavior).
-   */
-  taskPlanId: text("task_plan_id"),
-  /**
-   * Captured QualityReport (JSON-stringified). Null when no quality config
-   * is present in the project, or when the runner skipped the pass.
-   */
-  qualityReport: text("quality_report"),
-  /**
-   * Captured VerifierReport (JSON-stringified) — the verifier-confidence score
-   * + per-signal coverage breakdown (ADR-014, WS C). Informational for now; the
-   * gate slice will route auto-land vs review on its `level`. Null for runs that
-   * predate WS C or didn't reach completion.
-   */
-  verifierReport: text("verifier_report"),
-  /**
-   * Parsed `acceptance` array from the agent's factory-status block, when
-   * the run had a frozen task_plan attached and the agent emitted per-
-   * criterion results. JSON array of {criterion, met, evidence?, reason?}.
-   */
-  acceptanceResults: text("acceptance_results"),
-  /**
-   * Operator answers / extra context, prepended to the agent's prompt as a
-   * top-level "Operator notes" section. Set by the blocked-run retry path:
-   * when the operator approves a `blocked_run` decision after replying in
-   * the thread, the gathered comments ride forward so the new run starts
-   * with answers to the agent's questions, instead of repeating itself.
-   */
-  operatorContext: text("operator_context"),
-  /**
-   * When status='usage_capped', the epoch-ms at which the daemon should
-   * auto-resume this run (the parsed cap reset time). Null when the run is
-   * not capped, or when the reset time was unparseable / the cap recurred —
-   * those cases surface a `blocked_run` decision for the operator instead.
-   */
-  resumeAt: integer("resume_at"),
-  /**
-   * Effective Claude model id for this run, resolved at submit time per the
-   * inheritance chain: task frontmatter → project default → system default
-   * (`default-model` setting) → null (CLI picks). Stored so resume/retry
-   * paths and the diff/metrics views can show what the run was actually
-   * invoked with, independent of any later changes to the upstream values.
-   */
-  model: text("model"),
-  /**
-   * When this run is a retry of a prior run (e.g. the operator retried a
-   * failed or blocked run), this points to the original run's id. Null for
-   * first-attempt runs. Enables retry-chain tracing and diff views between
-   * attempts.
-   */
-  retryOfRunId: text("retry_of_run_id").references((): AnySQLiteColumn => runs.id),
-  /**
-   * Set when this run was submitted to execute a confirmed release proposal —
-   * the annotated tag (e.g. `v0.23.0`) the run is expected to create. After the
-   * run's branch merges into the project's `main`, the runner pushes `main` +
-   * this tag to origin. The push happens post-merge from the project checkout
-   * (not from the run's worktree, where `main` is stale). Null for ordinary
-   * runs, which never push. See ADR-008 + tasks/lessons.md.
-   */
-  releaseTag: text("release_tag"),
-});
+export const runs = sqliteTable(
+  "runs",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .references(() => projects.id)
+      .notNull(),
+    taskId: text("task_id"),
+    status: text("status", { enum: runStatusEnum }).notNull(),
+    agentName: text("agent_name").notNull().default("claude-code"),
+    branch: text("branch").notNull(),
+    worktreePath: text("worktree_path").notNull(),
+    tmuxSession: text("tmux_session"),
+    sessionId: text("session_id"),
+    startedAt: integer("started_at").notNull(),
+    endedAt: integer("ended_at"),
+    exitCode: integer("exit_code"),
+    iterationCount: integer("iteration_count").notNull().default(0),
+    budgetSeconds: integer("budget_seconds").notNull(),
+    /** Operator-facing wrap-up extracted from the agent's factory-status block. */
+    summary: text("summary"),
+    /** When status='blocked', the JSON-stringified array of agent questions. */
+    blockerQuestions: text("blocker_questions"),
+    /**
+     * Optional baseRef the worktree was created from. Defaults to project HEAD
+     * when null. Used by the retry path so a new run can resume from a prior
+     * (e.g. blocked) run's branch tip instead of starting fresh.
+     */
+    baseRef: text("base_ref"),
+    /**
+     * Frozen `task_plan` plan id whose draft was folded into this run's prompt.
+     * Null when the run was submitted without an attached plan (v0.1 behavior).
+     */
+    taskPlanId: text("task_plan_id"),
+    /**
+     * Captured QualityReport (JSON-stringified). Null when no quality config
+     * is present in the project, or when the runner skipped the pass.
+     */
+    qualityReport: text("quality_report"),
+    /**
+     * Captured VerifierReport (JSON-stringified) — the verifier-confidence score
+     * + per-signal coverage breakdown (ADR-014, WS C). Informational for now; the
+     * gate slice will route auto-land vs review on its `level`. Null for runs that
+     * predate WS C or didn't reach completion.
+     */
+    verifierReport: text("verifier_report"),
+    /**
+     * Parsed `acceptance` array from the agent's factory-status block, when
+     * the run had a frozen task_plan attached and the agent emitted per-
+     * criterion results. JSON array of {criterion, met, evidence?, reason?}.
+     */
+    acceptanceResults: text("acceptance_results"),
+    /**
+     * Operator answers / extra context, prepended to the agent's prompt as a
+     * top-level "Operator notes" section. Set by the blocked-run retry path:
+     * when the operator approves a `blocked_run` decision after replying in
+     * the thread, the gathered comments ride forward so the new run starts
+     * with answers to the agent's questions, instead of repeating itself.
+     */
+    operatorContext: text("operator_context"),
+    /**
+     * When status='usage_capped', the epoch-ms at which the daemon should
+     * auto-resume this run (the parsed cap reset time). Null when the run is
+     * not capped, or when the reset time was unparseable / the cap recurred —
+     * those cases surface a `blocked_run` decision for the operator instead.
+     */
+    resumeAt: integer("resume_at"),
+    /**
+     * Effective Claude model id for this run, resolved at submit time per the
+     * inheritance chain: task frontmatter → project default → system default
+     * (`default-model` setting) → null (CLI picks). Stored so resume/retry
+     * paths and the diff/metrics views can show what the run was actually
+     * invoked with, independent of any later changes to the upstream values.
+     */
+    model: text("model"),
+    /**
+     * When this run is a retry of a prior run (e.g. the operator retried a
+     * failed or blocked run), this points to the original run's id. Null for
+     * first-attempt runs. Enables retry-chain tracing and diff views between
+     * attempts.
+     */
+    retryOfRunId: text("retry_of_run_id").references((): AnySQLiteColumn => runs.id),
+    /**
+     * Set when this run was submitted to execute a confirmed release proposal —
+     * the annotated tag (e.g. `v0.23.0`) the run is expected to create. After the
+     * run's branch merges into the project's `main`, the runner pushes `main` +
+     * this tag to origin. The push happens post-merge from the project checkout
+     * (not from the run's worktree, where `main` is stale). Null for ordinary
+     * runs, which never push. See ADR-008 + tasks/lessons.md.
+     */
+    releaseTag: text("release_tag"),
+  },
+  (t) => [
+    index("runs_status_idx").on(t.status),
+    index("runs_project_idx").on(t.projectId),
+    index("runs_task_idx").on(t.taskId),
+  ],
+);
 
-export const events = sqliteTable("events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  runId: text("run_id")
-    .references(() => runs.id)
-    .notNull(),
-  iteration: integer("iteration").notNull(),
-  ts: integer("ts").notNull(),
-  kind: text("kind").notNull(),
-  payload: text("payload", { mode: "json" }).notNull(),
-});
+export const events = sqliteTable(
+  "events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runId: text("run_id")
+      .references(() => runs.id)
+      .notNull(),
+    iteration: integer("iteration").notNull(),
+    ts: integer("ts").notNull(),
+    kind: text("kind").notNull(),
+    payload: text("payload", { mode: "json" }).notNull(),
+  },
+  (t) => [
+    index("events_run_id_idx").on(t.runId, t.id),
+    index("events_run_kind_idx").on(t.runId, t.kind),
+  ],
+);
 
 export const prompts = sqliteTable(
   "prompts",
