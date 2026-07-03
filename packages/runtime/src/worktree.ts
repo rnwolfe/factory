@@ -169,6 +169,20 @@ export async function isWorktreeClean(worktreePath: string): Promise<boolean> {
   return r.exitCode === 0 && r.stdout.trim() === "";
 }
 
+/**
+ * Force a repository's working tree back to a clean state: discard every
+ * tracked modification (`git reset --hard`) and remove untracked files and
+ * directories (`git clean -fd`). This is destructive by design — it exists so
+ * merge remediation can clear a dirty `main` that blocked an auto-merge before
+ * retrying it. It is only reachable behind the `mergeRemediation.dirtyAutoReset`
+ * lever or an explicit operator tap; never on an unattended path that hasn't
+ * opted in. Leaves the current branch/HEAD unchanged.
+ */
+export async function resetToClean(repoPath: string): Promise<void> {
+  await git(["reset", "--hard", "HEAD"], repoPath, { check: true });
+  await git(["clean", "-fd"], repoPath, { check: true });
+}
+
 export interface GitAuthor {
   name: string;
   email: string;

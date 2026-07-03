@@ -110,6 +110,7 @@ function mergeConfig(
       ),
     },
     retry: { ...base.retry, ...over.retry },
+    mergeRemediation: { ...base.mergeRemediation, ...over.mergeRemediation },
     alerts: { ...base.alerts, ...over.alerts },
   };
 }

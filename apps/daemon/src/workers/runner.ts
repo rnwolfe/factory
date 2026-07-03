@@ -38,6 +38,7 @@ import {
   wrapResumePromptWithPlan,
 } from "./factory-status.ts";
 import { recordMergeFailure } from "./merge-failure.ts";
+import { resetMainAndRetryMerge } from "./merge-remediation.ts";
 import type { WorkerPool } from "./pool.ts";
 import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
@@ -990,34 +991,94 @@ export async function executeRun(
           });
         }
       } else {
-        mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;
-        console.warn(`[runner] merge to main failed for ${runId}: ${mergeFailureNote}`);
-        // The merge is decided (it conflicted) and the run stays `completed`;
-        // the summary note + surfaced decision are side effects that must not
-        // flip the settled status if a write hiccups.
-        await runSideEffect("merge-failure-surface", async () => {
-          await db
-            .update(schema.runs)
-            .set({ summary: `${summary}\n\n${mergeFailureNote}` })
-            .where(eq(schema.runs.id, runId));
+        // Merge remediation (feature plan mnx1zt27): when `main` was dirty, the
+        // `dirtyAutoReset` lever lets the daemon reset `main` and retry the merge
+        // unattended instead of stranding the work behind a manual git session.
+        // Scoped to the `dirty` failure mode — a conflict needs real resolution,
+        // not a reset. When the lever is off, or the reset+retry still fails, we
+        // fall through to the normal pending-decision surface (acceptance §5).
+        let remediated = false;
+        if (merge.reason === "dirty") {
+          const dirtyAutoReset = resolveAutonomyConfig(db, project.id).mergeRemediation
+            .dirtyAutoReset;
+          if (dirtyAutoReset) {
+            // Guarded: the run already finalized as `completed`, so a git throw
+            // in the reset/retry must fall through to the pending decision, not
+            // bubble to the outer catch and flip the run to `failed`.
+            const retry = await resetMainAndRetryMerge(
+              { config, db, events, runs, pool },
+              { projectId: project.id, runId, taskId: row.taskId ?? null, branch: result.branch },
+            ).catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              return { ok: false as const, reason: "other", message: msg };
+            });
+            if (retry.ok) {
+              remediated = true;
+              mergeSha = retry.sha;
+              recordAutonomyEvent(db, events, {
+                kind: "auto_merged",
+                projectId: project.id,
+                runId,
+                message: `${project.name} reset a dirty main and merged ${result.branch} unattended`,
+              });
+              // Record the merge_failure already-resolved for the audit trail —
+              // it never enters the inbox (no operator tap needed).
+              await runSideEffect("merge-remediation-audit", async () => {
+                await recordMergeFailure(db, events, {
+                  projectId: project.id,
+                  reason: merge.reason,
+                  message: merge.message,
+                  resolvedOutcome: "merge:dirty-auto-reset",
+                  payload: {
+                    runId,
+                    taskId: row.taskId ?? null,
+                    branch: result.branch,
+                    reason: merge.reason,
+                    message: merge.message,
+                    summary,
+                    remediation: "dirty-auto-reset",
+                    mergedSha: retry.sha,
+                  },
+                });
+              });
+            } else {
+              console.warn(
+                `[runner] dirtyAutoReset retry still failed for ${runId}: ${retry.reason}: ${retry.message}`,
+              );
+            }
+          }
+        }
 
-          // The agent's work is sitting on `result.branch` but main hasn't
-          // moved. Surface a decision so the operator can approve = retry
-          // or dismiss = leave on the branch. Same primitive sessions use.
-          await recordMergeFailure(db, events, {
-            projectId: project.id,
-            reason: merge.reason,
-            message: merge.message,
-            payload: {
-              runId,
-              taskId: row.taskId ?? null,
-              branch: result.branch,
+        if (!remediated) {
+          mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;
+          console.warn(`[runner] merge to main failed for ${runId}: ${mergeFailureNote}`);
+          // The merge is decided (it conflicted) and the run stays `completed`;
+          // the summary note + surfaced decision are side effects that must not
+          // flip the settled status if a write hiccups.
+          await runSideEffect("merge-failure-surface", async () => {
+            await db
+              .update(schema.runs)
+              .set({ summary: `${summary}\n\n${mergeFailureNote}` })
+              .where(eq(schema.runs.id, runId));
+
+            // The agent's work is sitting on `result.branch` but main hasn't
+            // moved. Surface a decision so the operator can approve = retry
+            // or dismiss = leave on the branch. Same primitive sessions use.
+            await recordMergeFailure(db, events, {
+              projectId: project.id,
               reason: merge.reason,
               message: merge.message,
-              summary,
-            },
+              payload: {
+                runId,
+                taskId: row.taskId ?? null,
+                branch: result.branch,
+                reason: merge.reason,
+                message: merge.message,
+                summary,
+              },
+            });
           });
-        });
+        }
       }
     }
 
