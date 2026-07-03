@@ -20,6 +20,14 @@ const DEFAULT_GIT_AUTHOR = { name: "Factory", email: "factory@localhost" };
  */
 const AGENT_EXIT_GRACE_MS = 30_000;
 
+/**
+ * Default inactivity watchdog window: 20 minutes of TOTAL silence (no parsed
+ * event, no raw pane byte) before a hung run is reaped. Generous on purpose so
+ * a legitimately slow tool call (a long test suite, a big install) is never
+ * mistaken for a hang. `idleTimeoutSeconds = 0` disables it entirely.
+ */
+const IDLE_TIMEOUT_DEFAULT_SECONDS = 20 * 60;
+
 function deriveBranch(spec: RunSpec): string {
   if (spec.strategy.type === "branch") return spec.strategy.name;
   // "head" strategy: still create a worktree on its own branch so concurrent
@@ -116,7 +124,40 @@ class HostRuntime implements Runtime {
     let graceTimer: ReturnType<typeof setTimeout> | null = null;
     const graceMs = spec.agentExitGraceMs ?? AGENT_EXIT_GRACE_MS;
 
+    // Inactivity watchdog. A hung agent — no output, no exit — on an
+    // unbounded-budget run would otherwise occupy a worker slot until the
+    // daemon restarts. We track a rolling deadline: any observed activity (any
+    // pane byte routed through `onLine`, which is also the source of every
+    // parsed stream event) rearms it. If the window elapses with no activity we
+    // emit the pre-declared `idle_timeout` event and force the session closed,
+    // exactly like the budget/grace kill paths. `idleTimeoutSeconds = 0`
+    // disables the watchdog (mirrors `budgetSeconds = 0` = infinite).
+    const idleWindowMs = (spec.idleTimeoutSeconds ?? IDLE_TIMEOUT_DEFAULT_SECONDS) * 1000;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleTripped = false;
+    const onIdleTimeout = () => {
+      idleTripped = true;
+      // The already-defined liveness event — persisted for the reaped run and
+      // consumed by the daemon to mark it `failed` with an inactivity summary.
+      spec.onEvent({ kind: "idle_timeout", ts: Date.now(), runId: spec.runId, iteration });
+      spec.onEvent({
+        kind: "raw",
+        line: `[runtime] no activity for ${idleWindowMs / 1000}s — reaping idle run`,
+        runId: spec.runId,
+        iteration,
+      });
+      void handle?.kill();
+    };
+    const rearmIdleTimer = () => {
+      if (idleWindowMs <= 0 || idleTripped) return;
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(onIdleTimeout, idleWindowMs);
+    };
+
     const onLine = (line: string) => {
+      // Any pane byte is activity — reset the inactivity clock. This also
+      // covers every parsed stream event, since each is derived from a line.
+      rearmIdleTimer();
       // Always emit the raw line so consumers can stream pane output to xterm.
       spec.onEvent({ kind: "raw", line, runId: spec.runId, iteration });
       if (spec.agent.detectStaleness?.(line)) {
@@ -152,6 +193,11 @@ class HostRuntime implements Runtime {
         ? setTimeout(() => budgetController.abort(), spec.budgetSeconds * 1000)
         : null;
 
+    // Arm the watchdog before the agent starts. A run that produces NO output
+    // at all (wedged before its first byte) must still be reaped, so the clock
+    // starts now rather than on the first observed line.
+    rearmIdleTimer();
+
     let sandboxExit = { exitCode: 0 };
     try {
       handle = await spec.sandbox.spawn({
@@ -168,6 +214,7 @@ class HostRuntime implements Runtime {
     } finally {
       if (budgetTimer) clearTimeout(budgetTimer);
       if (graceTimer) clearTimeout(graceTimer);
+      if (idleTimer) clearTimeout(idleTimer);
     }
 
     const aborted = compositeAbort.aborted;

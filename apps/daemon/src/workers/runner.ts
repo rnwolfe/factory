@@ -379,6 +379,13 @@ export async function executeRun(
   // CFA does not see), breaking the type at the post-spawn use sites.
   let usageLimit: { resetsAt: number | null; message: string } | undefined;
 
+  // Flips true when the runtime's inactivity watchdog reaps this run (no output
+  // for the configured idle window). Detected via the persisted `idle_timeout`
+  // event rather than a return flag — same closure-capture pattern as
+  // `usageLimit`. A reaped-for-inactivity run is a hang, so it becomes `failed`
+  // with an inactivity-specific summary (below), distinct from "did bad work".
+  let idleTimedOut = false;
+
   // Reuse vs. fresh detection: a fresh run's branch is `factory/run-<runId>`
   // by convention. When the row's branch deviates, the run was submitted
   // with `reuseFromRunId` and is operating on an existing worktree+branch
@@ -459,6 +466,9 @@ export async function executeRun(
       // row.budgetSeconds is NOT NULL; preserve 0 (= infinite) instead of
       // collapsing to the default via `||`.
       budgetSeconds: row.budgetSeconds,
+      // Inactivity watchdog — reaps a hung agent even on an unbounded budget so
+      // it can't hold a worker slot until the daemon restarts. 0 disables it.
+      idleTimeoutSeconds: config.runIdleTimeoutSeconds,
       maxIterations: 1,
       abort: ac.signal,
       resume: resuming && row.sessionId ? { sessionId: row.sessionId } : undefined,
@@ -511,6 +521,7 @@ export async function executeRun(
         if (e.kind === "usage_limit") {
           usageLimit = { resetsAt: e.resetsAt, message: e.message };
         }
+        if (e.kind === "idle_timeout") idleTimedOut = true;
       },
       logSocketPath: path.join(project.workdirPath, ".factory", "runs", runId, "log.txt"),
       tmuxSessionName: `factory-${project.slug}-${runId}`.slice(0, 60),
@@ -550,19 +561,27 @@ export async function executeRun(
     // and its session is resumable. It outranks `defer`/parsed status, but
     // not an operator abort — explicit intent wins.
     const capped = !aborted && usageLimit != null;
+    // The inactivity watchdog reaped this run: the agent hung (no output for the
+    // idle window) and the runtime force-killed it. That's a liveness failure —
+    // it outranks any parsed status / defer / cap (the process was killed
+    // mid-thought, so any footer is moot), but NOT an operator abort, which is
+    // explicit intent and already gated by `!aborted`.
+    const idleReaped = !aborted && idleTimedOut;
     // `let`, not `const`: the verifier gate (ADR-014) may downgrade an autonomous
     // `completed` run to `needs_review` after quality + cross-model run below. The
     // merge / surface / auto-advance blocks all read this variable downstream, so the
     // single reassignment routes the whole tail correctly — same trick as the
     // acceptance downgrade, just later in the pipeline.
-    let finalStatus: RunStatus = capped
-      ? "usage_capped"
-      : defer
-        ? "deferred"
-        : runStatusFor(parsed, aborted, {
-            hasCommits: result.commits.length > 0,
-            exitCode: result.exitCode,
-          });
+    let finalStatus: RunStatus = idleReaped
+      ? "failed"
+      : capped
+        ? "usage_capped"
+        : defer
+          ? "deferred"
+          : runStatusFor(parsed, aborted, {
+              hasCommits: result.commits.length > 0,
+              exitCode: result.exitCode,
+            });
 
     // Usage-cap resolution. Auto-resume at the parsed reset time when we have
     // one and the cap hasn't already recurred for this task; otherwise fall
@@ -601,26 +620,33 @@ export async function executeRun(
     // discarding it as `failed`. Null parse with no commits still fails.
     const acceptanceDowngraded =
       parsed?.status === "done" && finalStatus === "blocked" && parsed.acceptance.length > 0;
-    const baseSummary = capped
-      ? `${usageLimit?.message ?? "Hit the account usage limit."} ${
-          resumeAt != null
-            ? `Auto-resume scheduled for ${new Date(resumeAt).toLocaleString()}.`
-            : "Surfaced as a decision — approve to resume the session."
-        }`
-      : defer
-        ? `Deferred: ${defer.summary}${
-            parsed
-              ? `\n\n_Note: agent emitted both factory-defer and factory-status (${parsed.status}); deferred work takes precedence._`
-              : ""
+    const idleMinutes = Math.round(config.runIdleTimeoutSeconds / 60);
+    const baseSummary = idleReaped
+      ? `Run reaped for inactivity — the agent produced no output for ${
+          idleMinutes >= 1
+            ? `${idleMinutes} minute${idleMinutes === 1 ? "" : "s"}`
+            : `${config.runIdleTimeoutSeconds}s`
+        } and was killed by the idle watchdog. This is a hang (liveness) failure, not a judgment on the work — the run occupied a worker slot without making progress. Retry to try again.`
+      : capped
+        ? `${usageLimit?.message ?? "Hit the account usage limit."} ${
+            resumeAt != null
+              ? `Auto-resume scheduled for ${new Date(resumeAt).toLocaleString()}.`
+              : "Surfaced as a decision — approve to resume the session."
           }`
-        : parsed?.summary ||
-          (finalStatus === "completed"
-            ? "Run completed without an explicit summary."
-            : finalStatus === "aborted"
-              ? "Run was aborted by the operator."
-              : finalStatus === "needs_review"
-                ? "Agent exited cleanly with commits but emitted no factory-status footer — work is preserved on the run branch for review (not merged)."
-                : "Run ended without a status block — the agent may have stopped early.");
+        : defer
+          ? `Deferred: ${defer.summary}${
+              parsed
+                ? `\n\n_Note: agent emitted both factory-defer and factory-status (${parsed.status}); deferred work takes precedence._`
+                : ""
+            }`
+          : parsed?.summary ||
+            (finalStatus === "completed"
+              ? "Run completed without an explicit summary."
+              : finalStatus === "aborted"
+                ? "Run was aborted by the operator."
+                : finalStatus === "needs_review"
+                  ? "Agent exited cleanly with commits but emitted no factory-status footer — work is preserved on the run branch for review (not merged)."
+                  : "Run ended without a status block — the agent may have stopped early.");
     const summary = acceptanceDowngraded
       ? `${baseSummary}\n\n_Note: agent declared done but ${parsed?.acceptance.filter((a) => !a.met).length ?? 0} acceptance criterion(s) reported as unmet — downgraded to blocked._`
       : baseSummary;
