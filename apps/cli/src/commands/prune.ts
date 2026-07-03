@@ -12,25 +12,41 @@ export interface PruneArgs {
   includeFailed: boolean;
   project: string | null;
   ageDays: number;
+  logsOlderThan: number;
   help: boolean;
 }
 
-const PRUNE_HELP = `factory prune — clean up worktrees from terminal runs
+const DEFAULT_LOGS_OLDER_THAN_DAYS = 30;
+
+const PRUNE_HELP = `factory prune — reclaim disk from terminal runs
 
 usage:
   factory prune [options]
 
 options:
-  --apply              actually remove worktrees (default: dry-run preview)
-  --include-failed     also clean failed/blocked/aborted/usage_capped/deferred
-                       run worktrees (default: only completed runs)
-  --project=<slug>     limit to a single project
-  --age=<days>         only clean worktrees older than N days
-  --help, -h           this message
+  --apply                  actually remove artifacts (default: dry-run preview)
+  --include-failed         also clean failed/blocked/aborted/usage_capped/deferred
+                           runs (default: only completed runs)
+  --project=<slug>         limit to a single project
+  --age=<days>             only clean worktrees older than N days
+  --logs-older-than=<days> only sweep per-run log dirs older than N days
+                           (default: ${DEFAULT_LOGS_OLDER_THAN_DAYS})
+  --help, -h               this message
 
-Only the worktree directory is removed; the run's branch ref stays so
-\`git log <branch>\` still works for inspection. Runs with status
-running/queued are never touched (the query filter excludes them).
+Removes three run-scoped artifacts: the worktree directory, the run's
+\`factory/run-<id>\` branch ref, and its \`.factory/runs/<id>/\` log dir.
+
+A branch ref is deleted ONLY when its work is safe to lose from the ref —
+the run merged to main (the merge commit preserves history) or the branch
+has no commits beyond its base. A failed/blocked run whose branch still
+carries unmerged commits keeps its branch: it's the retry/salvage substrate.
+Only \`factory/run-*\` branches are ever touched; operator-named branches are
+left alone.
+
+Log dirs are swept for terminal runs older than --logs-older-than; the log
+dirs of queued/running/blocked runs are never touched (the boot reaper reads
+them to salvage in-flight runs after a restart). Runs with status
+running/queued are never touched at all.
 `;
 
 export function parsePruneArgs(argv: string[]): PruneArgs {
@@ -38,6 +54,7 @@ export function parsePruneArgs(argv: string[]): PruneArgs {
   let includeFailed = false;
   let project: string | null = null;
   let ageDays = 0;
+  let logsOlderThan = DEFAULT_LOGS_OLDER_THAN_DAYS;
   let help = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -48,8 +65,11 @@ export function parsePruneArgs(argv: string[]): PruneArgs {
     else if (a?.startsWith("--project=")) project = a.slice("--project=".length);
     else if (a === "--age") ageDays = Number(argv[++i] ?? 0);
     else if (a?.startsWith("--age=")) ageDays = Number(a.slice("--age=".length));
+    else if (a === "--logs-older-than") logsOlderThan = Number(argv[++i] ?? logsOlderThan);
+    else if (a?.startsWith("--logs-older-than="))
+      logsOlderThan = Number(a.slice("--logs-older-than=".length));
   }
-  return { apply, includeFailed, project, ageDays, help };
+  return { apply, includeFailed, project, ageDays, logsOlderThan, help };
 }
 
 /**
@@ -86,6 +106,7 @@ const ALL_TERMINAL_STATUSES = [
 interface RunRow {
   id: string;
   status: string;
+  branch: string;
   worktree_path: string;
   ended_at: number | null;
   slug: string;
@@ -95,9 +116,29 @@ interface RunRow {
 interface Candidate {
   runId: string;
   status: string;
+  branch: string;
   worktreePath: string;
   projectSlug: string;
   projectWorkdir: string;
+  endedAt: number;
+  sizeBytes: number;
+  /** True when this run's branch ref is safe to delete (merged or empty). */
+  branchDeletable: boolean;
+}
+
+interface LogRow {
+  id: string;
+  status: string;
+  ended_at: number | null;
+  slug: string;
+  workdir_path: string;
+}
+
+interface LogCandidate {
+  runId: string;
+  status: string;
+  projectSlug: string;
+  logDir: string;
   endedAt: number;
   sizeBytes: number;
 }
@@ -132,7 +173,7 @@ async function selectCandidates(args: PruneArgs, dbPath: string): Promise<Candid
     // SQLite parameter binding for the IN clause; one '?' per status.
     const placeholders = statuses.map(() => "?").join(",");
     const sql = `
-      SELECT r.id, r.status, r.worktree_path, r.ended_at,
+      SELECT r.id, r.status, r.branch, r.worktree_path, r.ended_at,
              p.slug, p.workdir_path
       FROM runs r
       JOIN projects p ON p.id = r.project_id
@@ -152,9 +193,79 @@ async function selectCandidates(args: PruneArgs, dbPath: string): Promise<Candid
       candidates.push({
         runId: r.id,
         status: r.status,
+        branch: r.branch,
         worktreePath: r.worktree_path,
         projectSlug: r.slug,
         projectWorkdir: r.workdir_path,
+        endedAt: r.ended_at,
+        sizeBytes: 0,
+        branchDeletable: false,
+      });
+    }
+    return candidates;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * A run's branch ref is safe to delete only when losing the ref loses nothing:
+ * the branch merged to main (the `--no-ff` merge commit's second parent is the
+ * branch tip, so the tip is an ancestor of main) OR the branch has no commits
+ * beyond its base (tip == base, still an ancestor of main). A failed/blocked/
+ * needs_review branch that carries unmerged commits is NOT an ancestor of main
+ * and is kept — it's the retry/salvage substrate (CLAUDE.md). Only auto-generated
+ * `factory/run-*` branches are ever considered; operator-named branches are left
+ * alone. When `main` is absent the ancestry check errors → kept (safe default).
+ *
+ * Mirrors runtime's `deleteBranch` (`git branch -D`); the CLI shells git directly
+ * to stay free of a workspace dependency, matching the `git worktree remove`
+ * calls already in this file.
+ */
+async function isBranchDeletable(projectWorkdir: string, branch: string): Promise<boolean> {
+  if (!branch.startsWith("factory/run-")) return false;
+  const exists = await run(["git", "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], {
+    cwd: projectWorkdir,
+  });
+  if (exists.exitCode !== 0) return false; // ref already gone
+  const ancestor = await run(["git", "merge-base", "--is-ancestor", branch, "main"], {
+    cwd: projectWorkdir,
+  });
+  return ancestor.exitCode === 0;
+}
+
+async function selectLogCandidates(args: PruneArgs, dbPath: string): Promise<LogCandidate[]> {
+  const statuses = args.includeFailed ? ALL_TERMINAL_STATUSES : SAFE_STATUSES;
+  // `blocked` log dirs are protected: the boot reaper reads persisted logs to
+  // salvage in-flight/blocked runs after a restart. queued/running never appear
+  // in the terminal-status sets above, so filtering `blocked` is sufficient.
+  const logStatuses = statuses.filter((s) => s !== "blocked");
+  const cutoff = args.logsOlderThan > 0 ? Date.now() - args.logsOlderThan * 86_400_000 : Date.now();
+
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const placeholders = logStatuses.map(() => "?").join(",");
+    const sql = `
+      SELECT r.id, r.status, r.ended_at, p.slug, p.workdir_path
+      FROM runs r
+      JOIN projects p ON p.id = r.project_id
+      WHERE r.status IN (${placeholders})
+        AND r.ended_at IS NOT NULL
+      ORDER BY r.ended_at ASC
+    `;
+    const rows = db.prepare(sql).all(...logStatuses) as LogRow[];
+
+    const candidates: LogCandidate[] = [];
+    for (const r of rows) {
+      if (args.project && r.slug !== args.project) continue;
+      if (r.ended_at == null || r.ended_at > cutoff) continue;
+      const logDir = path.join(r.workdir_path, ".factory", "runs", r.id);
+      if (!existsSync(logDir)) continue; // already swept
+      candidates.push({
+        runId: r.id,
+        status: r.status,
+        projectSlug: r.slug,
+        logDir,
         endedAt: r.ended_at,
         sizeBytes: 0,
       });
@@ -190,41 +301,74 @@ export async function runPrune(args: PruneArgs): Promise<number> {
   }
 
   const candidates = await selectCandidates(args, dbPath);
+  const logCandidates = await selectLogCandidates(args, dbPath);
 
-  // Size computation in parallel — bounded by candidate count, which is
-  // small (tens, not thousands) and du is fast on per-run worktrees.
-  await Promise.all(
-    candidates.map(async (c) => {
+  // Size + branch-deletability computation in parallel — bounded by candidate
+  // count, which is small (tens, not thousands); du and git are fast per-run.
+  await Promise.all([
+    ...candidates.map(async (c) => {
       c.sizeBytes = await dirSizeBytes(c.worktreePath);
+      c.branchDeletable = await isBranchDeletable(c.projectWorkdir, c.branch);
     }),
-  );
+    ...logCandidates.map(async (c) => {
+      c.sizeBytes = await dirSizeBytes(c.logDir);
+    }),
+  ]);
 
-  const byProject = groupBy(candidates, (c) => c.projectSlug);
+  const deletableBranches = candidates.filter((c) => c.branchDeletable).length;
 
   process.stdout.write(`factory prune (${args.apply ? "apply" : "dry-run"}):\n`);
-  if (candidates.length === 0) {
+  if (candidates.length === 0 && logCandidates.length === 0) {
     process.stdout.write("\nnothing to clean. ");
     if (!args.includeFailed) {
       process.stdout.write("add --include-failed to also consider failed/blocked/aborted runs.\n");
     } else {
-      process.stdout.write("no terminal-status worktrees exist on disk.\n");
+      process.stdout.write("no terminal-status worktrees or stale log dirs on disk.\n");
     }
     return 0;
   }
 
+  // Worktrees + branch refs.
   let totalBytes = 0;
-  for (const [slug, list] of byProject) {
-    process.stdout.write(`\n  ${slug}:\n`);
-    for (const c of list) {
-      const size = formatBytes(c.sizeBytes).padStart(7);
-      const age = ageOf(c.endedAt).padStart(4);
-      process.stdout.write(`    ${c.runId.slice(0, 12)} [${c.status.padEnd(12)}] ${size} ${age}\n`);
-      totalBytes += c.sizeBytes;
+  if (candidates.length > 0) {
+    for (const [slug, list] of groupBy(candidates, (c) => c.projectSlug)) {
+      process.stdout.write(`\n  ${slug}:\n`);
+      for (const c of list) {
+        const size = formatBytes(c.sizeBytes).padStart(7);
+        const age = ageOf(c.endedAt).padStart(4);
+        const branchTag = c.branchDeletable ? "branch:del" : "branch:keep";
+        process.stdout.write(
+          `    ${c.runId.slice(0, 12)} [${c.status.padEnd(12)}] ${size} ${age}  ${branchTag}\n`,
+        );
+        totalBytes += c.sizeBytes;
+      }
     }
+    const verb = args.apply ? "removing" : "would remove";
+    process.stdout.write(
+      `\n${verb}: ${candidates.length} worktrees · ${formatBytes(totalBytes)} · ${deletableBranches} branch refs\n`,
+    );
   }
 
-  const verb = args.apply ? "removing" : "would remove";
-  process.stdout.write(`\n${verb}: ${candidates.length} worktrees · ${formatBytes(totalBytes)}\n`);
+  // Stale per-run log dirs.
+  let logBytes = 0;
+  if (logCandidates.length > 0) {
+    process.stdout.write(`\nstale log dirs (older than ${args.logsOlderThan}d):\n`);
+    for (const [slug, list] of groupBy(logCandidates, (c) => c.projectSlug)) {
+      process.stdout.write(`\n  ${slug}:\n`);
+      for (const c of list) {
+        const size = formatBytes(c.sizeBytes).padStart(7);
+        const age = ageOf(c.endedAt).padStart(4);
+        process.stdout.write(
+          `    ${c.runId.slice(0, 12)} [${c.status.padEnd(12)}] ${size} ${age}\n`,
+        );
+        logBytes += c.sizeBytes;
+      }
+    }
+    const verb = args.apply ? "removing" : "would remove";
+    process.stdout.write(
+      `\n${verb}: ${logCandidates.length} log dirs · ${formatBytes(logBytes)}\n`,
+    );
+  }
 
   if (!args.apply) {
     process.stdout.write("\nre-run with --apply to remove\n");
@@ -237,27 +381,48 @@ export async function runPrune(args: PruneArgs): Promise<number> {
   // Apply phase.
   let removed = 0;
   let failed = 0;
+  let branchesDeleted = 0;
   for (const c of candidates) {
+    let worktreeGone = false;
     const wr = await run(["git", "worktree", "remove", "--force", c.worktreePath], {
       cwd: c.projectWorkdir,
     });
     if (wr.exitCode === 0) {
       removed++;
-      continue;
-    }
-    // Filesystem fallback: directory might be detached from git's worktree
-    // registry already (manual rm, daemon crash, etc). Best-effort rm + prune.
-    await run(["rm", "-rf", c.worktreePath]);
-    await run(["git", "worktree", "prune"], { cwd: c.projectWorkdir });
-    if (!existsSync(c.worktreePath)) {
-      removed++;
+      worktreeGone = true;
     } else {
-      failed++;
-      process.stderr.write(`factory: failed to remove ${c.worktreePath}: ${wr.stderr.trim()}\n`);
+      // Filesystem fallback: directory might be detached from git's worktree
+      // registry already (manual rm, daemon crash, etc). Best-effort rm + prune.
+      await run(["rm", "-rf", c.worktreePath]);
+      await run(["git", "worktree", "prune"], { cwd: c.projectWorkdir });
+      if (!existsSync(c.worktreePath)) {
+        removed++;
+        worktreeGone = true;
+      } else {
+        failed++;
+        process.stderr.write(`factory: failed to remove ${c.worktreePath}: ${wr.stderr.trim()}\n`);
+      }
+    }
+    // Only delete the branch once its worktree is gone (a checked-out branch
+    // cannot be deleted) and only when it's safe to lose from the ref.
+    if (worktreeGone && c.branchDeletable) {
+      const br = await run(["git", "branch", "-D", c.branch], { cwd: c.projectWorkdir });
+      if (br.exitCode === 0) branchesDeleted++;
+      else
+        process.stderr.write(`factory: failed to delete branch ${c.branch}: ${br.stderr.trim()}\n`);
     }
   }
 
-  process.stdout.write(`\nremoved: ${removed}`);
+  let logsRemoved = 0;
+  for (const c of logCandidates) {
+    await run(["rm", "-rf", c.logDir]);
+    if (!existsSync(c.logDir)) logsRemoved++;
+    else process.stderr.write(`factory: failed to remove log dir ${c.logDir}\n`);
+  }
+
+  process.stdout.write(`\nremoved: ${removed} worktrees`);
+  if (branchesDeleted > 0) process.stdout.write(` · ${branchesDeleted} branch refs`);
+  if (logsRemoved > 0) process.stdout.write(` · ${logsRemoved} log dirs`);
   if (failed > 0) process.stdout.write(` · failed: ${failed}`);
   process.stdout.write("\n");
   return failed > 0 ? 1 : 0;
