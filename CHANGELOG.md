@@ -4,6 +4,23 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.51.0 — 2026-07-03
+
+### Added
+- **Hands-off projects now plan their own next milestone.** When a hands-off-preset project with auto-advance drains its ready queue, the daemon re-decomposes the committed SPEC into the next milestone's tasks and starts them — no operator tap — closing the plan→execute loop for unattended projects. Guardrail: only decompositions within the project's *contained* blast-radius ceiling auto-confirm; a broader one (large estimate, risky topic like auth/migration/infra, too many tasks) falls back to the existing queue-empty nudge for manual review. Every auto-planned milestone leaves a discoverable `milestone_auto_planned` record on the /ops history timeline and the inbox's "done while you were away" section — awareness without a new must-respond card. Other presets keep the manual nudge. (ADR-009 amendment)
+- **Merge-failure remediation metrics.** The ops metrics surface gains two stacked charts breaking down auto-merge failures by resolution path (auto-dirty-reset, auto-agent-resolve, operator-approved, manual-tmux, unresolved) and by the merge-remediation lever in effect at failure time — so you can see whether the remediation levers are actually earning their keep. Read-only, no new inbox.
+- **`factory prune` reclaims more.** Beyond worktrees, prune now deletes `factory/run-*` branch refs — but only when the branch is merged or empty; failed branches with unmerged commits are kept as salvage — and sweeps per-run log dirs of terminal runs older than 30 days (`--logs-older-than`). Same dry-run-by-default / `--apply` discipline.
+
+### Changed
+- **Metrics are live now, with explicit windows.** `metrics.snapshot` computes from source tables at request time instead of the last daily rollup bucket — a run recorded a second ago shows immediately, and the just-after-UTC-midnight zero-dip is gone. The daily series serves finalized days from the rollup and computes today live via the same path. Every metric also declares its window explicitly — headline counts are cumulative all-time, rate ratios are rolling 7-day — and tiles render the window label so no number is ambiguous about what it covers.
+- **Merge-failure cards are lever-aware.** With auto-remediation on, the decision arrives already resolved as an informational card (what ran, merged sha, run link) instead of action buttons; with it off, the card keeps its reason-specific primary action (dirty: reset & retry; conflict: review and apply the proposed resolution). Intervene and dismiss stay available everywhere. Both `mergeRemediation.*` knobs are now editable in the autonomy panel.
+
+### Fixed
+- **Promoting feedback to a task no longer dead-ends on "task not found."** On the GitHub Issues backend, the task route read via a paginated list call that could transiently 5xx or lag the just-created issue right after promote. Single-task reads now fall back to a direct issue fetch, and the task view distinguishes "genuinely absent" from "still loading / transient error → retry."
+- **One "needs you" count on every inbox badge.** The desktop sidebar, mobile nav, and app-icon badges showed two different numbers for the same inbox; all three now share the single "needs you" semantic (pending, non-snoozed decisions). Also cuts app-wide inbox-count polling ~16× — WS push already keeps the badge current.
+- **Inbox live push survives connection drops.** The inbox and decision-thread sockets had no reconnect, so a wifi blip, daemon restart, or phone sleep silently killed live updates until a full reload. They now reconnect with backoff, and a duplicate always-open ops socket (one per hidden ticker variant) is deduped to exactly one per app.
+- **Pinch-zoom and landscape restored.** The PWA suppressed pinch-zoom (a WCAG 1.4.4 failure on a dense phone-first console) and locked installed apps to portrait — so an iPad PWA could never rotate into the desktop chrome. Both limits removed; layout is unaffected.
+
 ## v0.50.3 — 2026-07-02
 
 ### Fixed
