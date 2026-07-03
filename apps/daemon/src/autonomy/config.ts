@@ -169,6 +169,47 @@ function parsePartial(raw: string | null | undefined): DeepPartial<AutonomyConfi
   }
 }
 
+const PRESET_NAMES: AutonomyPreset[] = ["conservative", "balanced", "hands-off"];
+
+/** Structural JSON equality (objects / arrays / primitives) — no lib dependency. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  const ak = Object.keys(a as Record<string, unknown>);
+  const bk = Object.keys(b as Record<string, unknown>);
+  if (ak.length !== bk.length) return false;
+  return ak.every((k) =>
+    deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+  );
+}
+
+/**
+ * Which named preset the project's stored override corresponds to, if any — the
+ * daemon-side mirror of the PWA's `matchingPreset` (autonomy-panel.tsx). Compares
+ * the raw project override blob (what `autonomy.applyPreset` persisted) against
+ * each preset, so it reports exactly the preset the operator selected. Returns
+ * null for a custom/"Advanced"-tweaked config, an unset override, or a project
+ * inheriting only the system default. System scope is intentionally out of scope:
+ * this asks "did the operator pick this preset ON this project?".
+ */
+export function matchingAutonomyPreset(db: Db, projectId: string): AutonomyPreset | null {
+  const row = db
+    .select({ ac: schema.projects.autonomyConfig })
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+  const over = parsePartial(row?.ac);
+  if (!over) return null;
+  for (const p of PRESET_NAMES) {
+    if (deepEqual(over, AUTONOMY_PRESETS[p])) return p;
+  }
+  return null;
+}
+
 /**
  * Resolve the effective policy for a project (or the system default when no
  * projectId): built-in ⊕ system ⊕ project. The single read path for every knob.

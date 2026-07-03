@@ -8,8 +8,11 @@ import { createId } from "@paralleldrive/cuid2";
 import { spawn as bunSpawn } from "bun";
 import { and, eq } from "drizzle-orm";
 
+import { AUTONOMY_PRESETS } from "../src/autonomy/config.ts";
 import type { FactoryConfig } from "../src/config.ts";
 import { EventBus } from "../src/events.ts";
+import type { InvokeClaudeResult } from "../src/plans/invoke-claude.ts";
+import { listTasks } from "../src/projects/tasks.ts";
 import { WorkerPool } from "../src/workers/pool.ts";
 import { applyPostMergeRunOutcome } from "../src/workers/post-merge.ts";
 import { RunRegistry } from "../src/workers/registry.ts";
@@ -111,6 +114,10 @@ interface SeedOpts {
   autoAdvance?: boolean;
   /** Status of the run row applyPostMergeRunOutcome is called with. */
   runStatus?: (typeof schema.runStatusEnum)[number];
+  /** Raw JSON to store in projects.autonomyConfig (e.g. a preset blob). */
+  autonomyConfig?: string | null;
+  /** Commit a docs/internal/SPEC.md so proposeMilestone has something to read. */
+  withSpec?: boolean;
 }
 
 interface SeedResult {
@@ -147,6 +154,14 @@ async function seedProject(h: Harness, opts: SeedOpts): Promise<SeedResult> {
       "utf8",
     );
   }
+  if (opts.withSpec) {
+    await mkdir(path.join(workdirPath, "docs", "internal"), { recursive: true });
+    await writeFile(
+      path.join(workdirPath, "docs", "internal", "SPEC.md"),
+      "# Spec\n\n## Milestone-gated build order\n- M0 — spike\n- M1 — onboarding\n",
+      "utf8",
+    );
+  }
   await writeFile(path.join(workdirPath, "README.md"), "# init\n", "utf8");
   await git(["add", "-A"], workdirPath);
   await git(["commit", "-q", "-m", "init"], workdirPath);
@@ -166,6 +181,7 @@ async function seedProject(h: Harness, opts: SeedOpts): Promise<SeedResult> {
       createdAt: now,
       lastActivityAt: now,
       autoAdvance: opts.autoAdvance ?? true,
+      autonomyConfig: opts.autonomyConfig ?? null,
       model: null,
       archivedAt: null,
     })
@@ -200,11 +216,50 @@ function runsForTask(h: Harness, projectId: string, taskId: string) {
     .all();
 }
 
-function callPostMerge(h: Harness, runId: string) {
+type AgentInvoker = (prompt: string) => Promise<InvokeClaudeResult>;
+
+function callPostMerge(h: Harness, runId: string, agentInvoker?: AgentInvoker) {
   return applyPostMergeRunOutcome(
-    { config: h.config, db: h.db, events: h.events, runs: h.runs, pool: h.pool },
+    { config: h.config, db: h.db, events: h.events, runs: h.runs, pool: h.pool, agentInvoker },
     runId,
   );
+}
+
+/** Seed the active milestone-decompose prompt `proposeMilestone` reads. */
+function seedMilestonePrompt(h: Harness): void {
+  h.db
+    .insert(schema.prompts)
+    .values({
+      id: "p-milestone",
+      promptKey: "spec-decompose-milestone-v1",
+      version: 1,
+      content: "ceremony={{INTENT_CEREMONY}} target={{TARGET_MILESTONE}}\n{{SPEC_MARKDOWN}}",
+      active: true,
+      createdAt: Date.now(),
+    })
+    .run();
+}
+
+/** Preset override blobs, verbatim from AUTONOMY_PRESETS (what applyPreset stores). */
+const HANDS_OFF_CONFIG = JSON.stringify(AUTONOMY_PRESETS["hands-off"]);
+const BALANCED_CONFIG = JSON.stringify(AUTONOMY_PRESETS.balanced);
+const CONSERVATIVE_CONFIG = JSON.stringify(AUTONOMY_PRESETS.conservative);
+
+/** An agent reply carrying a non-empty milestone decomposition. */
+function decompositionInvoker(taskTitle = "Auto-planned task"): AgentInvoker {
+  return async () => ({
+    text: JSON.stringify({
+      milestone: "M1",
+      summary: "next milestone",
+      tasks: [{ title: taskTitle, estimate: "small", acceptance: ["it works"] }],
+      unknowns: [],
+      risks: [],
+      firstTaskNote: "",
+      roadmap: [{ id: "M1", title: "Onboarding", goal: "ideation" }],
+    }),
+    sessionId: null,
+    metrics: null,
+  });
 }
 
 describe("applyPostMergeRunOutcome · auto-advance", () => {
@@ -403,6 +458,169 @@ describe("applyPostMergeRunOutcome · auto-advance", () => {
 
       expect(runsForTask(h, seed.projectId, "task-002").length).toBe(0);
       expect(submitSpy).not.toHaveBeenCalled();
+    } finally {
+      submitSpy.mockRestore();
+      h.cleanup();
+    }
+  });
+});
+
+describe("applyPostMergeRunOutcome · hands-off auto-plan on queue drain", () => {
+  // Criteria 1 + 3: hands-off preset + auto-advance → on drain, confirmMilestone
+  // runs with no PWA interaction, and the new task is picked up by the chain.
+  test("hands-off + drained queue → auto-plans a milestone and starts it", async () => {
+    const h = setupHarness();
+    const submitSpy = spyOn(h.pool, "submit").mockResolvedValue(undefined);
+    try {
+      // Surface any drain nudge, to prove we DON'T fall back to it.
+      h.db
+        .insert(schema.settings)
+        .values({ key: "notify-on-queue-empty", value: "true", updatedAt: Date.now() })
+        .run();
+      seedMilestonePrompt(h);
+
+      const seed = await seedProject(h, {
+        autoAdvance: true,
+        autonomyConfig: HANDS_OFF_CONFIG,
+        withSpec: true,
+        justFinishedId: "task-001",
+        // No later ready task — the queue is drained.
+        tasks: [{ id: "task-001", status: "done" }],
+      });
+
+      await callPostMerge(h, seed.runId, decompositionInvoker("Build the router"));
+
+      // confirmMilestone created the milestone task (committed on main), no PWA.
+      const tasks = await listTasks({ workdirPath: seed.workdirPath, taskBackend: "file" });
+      const planned = tasks.filter((t) => t.frontmatter.labels?.includes("milestone-task"));
+      expect(planned).toHaveLength(1);
+      expect(planned[0]?.frontmatter.title).toBe("Build the router");
+      expect(planned[0]?.frontmatter.milestone).toBe("M1");
+
+      // ...and the existing auto-advance chain immediately started it.
+      expect(submitSpy).toHaveBeenCalledTimes(1);
+      const startedId = planned[0]?.id;
+      if (!startedId) throw new Error("no planned task id");
+      const started = runsForTask(h, seed.projectId, startedId);
+      expect(started.length).toBe(1);
+      expect(started[0]?.status).toBe("queued");
+
+      // No queue-empty nudge — the loop stayed hands-off.
+      const nudges = h.db
+        .select()
+        .from(schema.decisions)
+        .where(
+          and(
+            eq(schema.decisions.projectId, seed.projectId),
+            eq(schema.decisions.kind, "queue_empty"),
+          ),
+        )
+        .all();
+      expect(nudges.length).toBe(0);
+    } finally {
+      submitSpy.mockRestore();
+      h.cleanup();
+    }
+  });
+
+  // Criterion 2: conservative/balanced presets keep the manual nudge behavior.
+  for (const [label, config] of [
+    ["balanced", BALANCED_CONFIG],
+    ["conservative", CONSERVATIVE_CONFIG],
+  ] as const) {
+    test(`${label} preset + drained queue → nudges, never auto-plans`, async () => {
+      const h = setupHarness();
+      const submitSpy = spyOn(h.pool, "submit").mockResolvedValue(undefined);
+      try {
+        h.db
+          .insert(schema.settings)
+          .values({ key: "notify-on-queue-empty", value: "true", updatedAt: Date.now() })
+          .run();
+        seedMilestonePrompt(h);
+
+        const seed = await seedProject(h, {
+          autoAdvance: true,
+          autonomyConfig: config,
+          withSpec: true,
+          justFinishedId: "task-001",
+          tasks: [{ id: "task-001", status: "done" }],
+        });
+
+        // Invoker that WOULD plan tasks — proves it's never called off-preset.
+        let invoked = false;
+        const invoker: AgentInvoker = async (p) => {
+          invoked = true;
+          return decompositionInvoker()(p);
+        };
+        await callPostMerge(h, seed.runId, invoker);
+
+        expect(invoked).toBe(false);
+        expect(submitSpy).not.toHaveBeenCalled();
+        // Only the pre-seeded task-001; no milestone task was created.
+        const tasks = await listTasks({ workdirPath: seed.workdirPath, taskBackend: "file" });
+        expect(tasks.filter((t) => t.frontmatter.labels?.includes("milestone-task"))).toHaveLength(
+          0,
+        );
+        // The unchanged manual nudge fired.
+        const nudges = h.db
+          .select()
+          .from(schema.decisions)
+          .where(
+            and(
+              eq(schema.decisions.projectId, seed.projectId),
+              eq(schema.decisions.kind, "queue_empty"),
+            ),
+          )
+          .all();
+        expect(nudges.length).toBe(1);
+        expect(nudges[0]?.status).toBe("pending");
+      } finally {
+        submitSpy.mockRestore();
+        h.cleanup();
+      }
+    });
+  }
+
+  // Precondition: an EMPTY decomposition is not confirmed — falls back to nudge.
+  test("hands-off but empty decomposition → no tasks, falls back to nudge", async () => {
+    const h = setupHarness();
+    const submitSpy = spyOn(h.pool, "submit").mockResolvedValue(undefined);
+    try {
+      h.db
+        .insert(schema.settings)
+        .values({ key: "notify-on-queue-empty", value: "true", updatedAt: Date.now() })
+        .run();
+      seedMilestonePrompt(h);
+
+      const seed = await seedProject(h, {
+        autoAdvance: true,
+        autonomyConfig: HANDS_OFF_CONFIG,
+        withSpec: true,
+        justFinishedId: "task-001",
+        tasks: [{ id: "task-001", status: "done" }],
+      });
+
+      const emptyInvoker: AgentInvoker = async () => ({
+        text: JSON.stringify({ milestone: "M1", tasks: [], roadmap: [] }),
+        sessionId: null,
+        metrics: null,
+      });
+      await callPostMerge(h, seed.runId, emptyInvoker);
+
+      expect(submitSpy).not.toHaveBeenCalled();
+      const tasks = await listTasks({ workdirPath: seed.workdirPath, taskBackend: "file" });
+      expect(tasks.filter((t) => t.frontmatter.labels?.includes("milestone-task"))).toHaveLength(0);
+      const nudges = h.db
+        .select()
+        .from(schema.decisions)
+        .where(
+          and(
+            eq(schema.decisions.projectId, seed.projectId),
+            eq(schema.decisions.kind, "queue_empty"),
+          ),
+        )
+        .all();
+      expect(nudges.length).toBe(1);
     } finally {
       submitSpy.mockRestore();
       h.cleanup();

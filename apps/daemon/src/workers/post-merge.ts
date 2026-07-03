@@ -1,9 +1,11 @@
-import type { Db } from "@factory/db";
+import type { Db, Project } from "@factory/db";
 import { schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { and, eq, inArray, ne } from "drizzle-orm";
+import { matchingAutonomyPreset } from "../autonomy/config.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import type { InvokeClaudeResult } from "../plans/invoke-claude.ts";
 import { listTasks, pickNextReadyTask, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
 import { KeyedMutex } from "./keyed-mutex.ts";
 import type { WorkerPool } from "./pool.ts";
@@ -48,6 +50,11 @@ export interface PostMergeDeps {
   events: EventBus;
   runs: RunRegistry;
   pool: WorkerPool;
+  /**
+   * Test/override seam for the hands-off auto-plan path — forwarded to
+   * `proposeMilestone`. Omitted in production so the real agent runs.
+   */
+  agentInvoker?: (prompt: string) => Promise<InvokeClaudeResult>;
 }
 
 /**
@@ -176,10 +183,61 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
         );
       } else {
         // Auto-advance ran but found nothing ready to pick up — the project's
-        // queue just drained. Nudge the operator (flag-gated, de-duped).
-        const { maybeEmitQueueEmptyNudge } = await import("../inbox/queue-empty.ts");
-        await maybeEmitQueueEmptyNudge(db, events, project);
+        // queue just drained. A hands-off project auto-plans its next milestone
+        // and starts it with no operator tap; every other preset just nudges.
+        const advanced = await maybeAutoPlanAndAdvance(deps, project);
+        if (!advanced) {
+          const { maybeEmitQueueEmptyNudge } = await import("../inbox/queue-empty.ts");
+          await maybeEmitQueueEmptyNudge(db, events, project);
+        }
       }
     });
   }
+}
+
+/**
+ * Hands-off auto-plan + auto-execute (queue-drain branch). When a hands-off
+ * project's ready queue drains, re-decompose its SPEC into the next milestone's
+ * tasks and immediately cold-start the replenished queue — closing the loop so
+ * an unattended project keeps building without an operator confirming a plan.
+ *
+ * Returns true when the queue was replenished (tasks created), meaning the
+ * caller must NOT emit a queue-empty nudge. Returns false for every other
+ * preset, or when planning produced nothing (no committed SPEC, agent error, or
+ * an empty decomposition) — the caller then falls back to the manual nudge.
+ *
+ * Runs inside the caller's per-project `autoAdvanceLock`, so the agent call is
+ * serialized against other finalizations on the same project — a hands-off
+ * project can only be auto-planning one milestone at a time.
+ */
+async function maybeAutoPlanAndAdvance(deps: PostMergeDeps, project: Project): Promise<boolean> {
+  const { config, db, events, runs, pool } = deps;
+  if (matchingAutonomyPreset(db, project.id) !== "hands-off") return false;
+
+  const { autoPlanNextMilestone } = await import("../projects/auto-milestone.ts");
+  const planned = await autoPlanNextMilestone(
+    { config, db, agentInvoker: deps.agentInvoker },
+    project,
+  );
+  if (planned.created === 0) return false;
+
+  // Queue replenished. Cold-start from the front of the fresh queue (null anchor,
+  // mirroring idle-advance) — the just-finished task id is no anchor for a batch
+  // of brand-new tasks. The post-merge chain takes over from the next finalize.
+  const tasks = await listTasks(project);
+  const next = pickNextReadyTask(tasks, null);
+  if (next) {
+    const fresh = await readTaskFile(project, next.id);
+    if (fresh && fresh.frontmatter.status === "ready") {
+      const { resolveQueueEmptyNudges } = await import("../inbox/queue-empty.ts");
+      await resolveQueueEmptyNudges(db, events, project.id);
+      const { submitRun } = await import("./submit.ts");
+      await submitRun(
+        { config, db, events, runs, pool },
+        { projectId: project.id, taskId: next.id },
+      );
+    }
+  }
+  // Tasks exist now — a queue-empty nudge would be wrong even if the pick raced.
+  return true;
 }
