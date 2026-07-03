@@ -43,6 +43,7 @@ import type { WorkerPool } from "./pool.ts";
 import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
 import { type QualityReport, runQualityChecks } from "./quality.ts";
 import type { RunRegistry } from "./registry.ts";
+import { remediateMergeConflict } from "./resolve-conflict.ts";
 import { evaluateTrustOnOutcome } from "./trust-ladder.ts";
 import {
   classifyBlastRadius,
@@ -998,6 +999,10 @@ export async function executeRun(
         // not a reset. When the lever is off, or the reset+retry still fails, we
         // fall through to the normal pending-decision surface (acceptance §5).
         let remediated = false;
+        // `surfaced` = conflict auto-resolve already recorded a pending decision
+        // carrying a proposed resolution (lever off), so we must NOT also record
+        // the plain pending decision below.
+        let surfaced = false;
         if (merge.reason === "dirty") {
           const dirtyAutoReset = resolveAutonomyConfig(db, project.id).mergeRemediation
             .dirtyAutoReset;
@@ -1047,9 +1052,55 @@ export async function executeRun(
               );
             }
           }
+        } else if (merge.reason === "conflict") {
+          // Conflict auto-resolve (feature plan mnx1zt27): stage the conflict in
+          // an isolated scratch worktree and hand it to a `claude --print` agent.
+          // The `conflictAutoResolve` lever (default off; on only at hands-off)
+          // decides whether a valid resolution lands unattended or is attached to
+          // a pending decision as a *proposed* resolution the operator taps to
+          // apply. Agent block/fail/null-parse, or a land failure, returns
+          // `handled:false` → we fall through to the plain pending decision and
+          // the tmux-intervention fallback (acceptance §5). Guarded like the
+          // dirty path so a throw can't flip the settled `completed` run.
+          const outcome = await remediateMergeConflict(
+            { config, db, events, runs, pool },
+            {
+              projectId: project.id,
+              runId,
+              taskId: row.taskId ?? null,
+              branch: result.branch,
+              mergeMessage: merge.message,
+              summary,
+            },
+          ).catch((err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            return { handled: false as const, reason: "other", message: msg };
+          });
+          if (outcome.handled && outcome.landed) {
+            // The auto_merged autonomy event + resolved audit decision are
+            // recorded inside remediateMergeConflict (the policy owner).
+            remediated = true;
+            mergeSha = outcome.sha;
+          } else if (outcome.handled && !outcome.landed) {
+            // A proposed resolution is attached to a pending decision; the run
+            // stays unmerged pending the operator's tap.
+            surfaced = true;
+            mergeFailureNote =
+              "[merge] conflict: proposed resolution attached — operator approval required";
+            await runSideEffect("merge-conflict-note", async () => {
+              await db
+                .update(schema.runs)
+                .set({ summary: `${summary}\n\n${mergeFailureNote}` })
+                .where(eq(schema.runs.id, runId));
+            });
+          } else {
+            console.warn(
+              `[runner] conflictAutoResolve did not remediate ${runId}: ${outcome.reason}: ${outcome.message}`,
+            );
+          }
         }
 
-        if (!remediated) {
+        if (!remediated && !surfaced) {
           mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;
           console.warn(`[runner] merge to main failed for ${runId}: ${mergeFailureNote}`);
           // The merge is decided (it conflicted) and the run stays `completed`;

@@ -296,6 +296,154 @@ export async function mergeIntoMain(opts: MergeIntoMainOpts): Promise<MergeResul
   return { ok: true, sha, alreadyMerged: false };
 }
 
+function gitAuthorEnv(author: GitAuthor): Record<string, string> {
+  return {
+    GIT_AUTHOR_NAME: author.name,
+    GIT_AUTHOR_EMAIL: author.email,
+    GIT_COMMITTER_NAME: author.name,
+    GIT_COMMITTER_EMAIL: author.email,
+  };
+}
+
+export interface PrepareConflictResolutionOpts {
+  projectPath: string;
+  /** The run branch (e.g. `factory/run-<id>`) whose merge conflicted. */
+  branch: string;
+  /** Fresh branch the scratch worktree is created on, holding the resolution. */
+  resolveBranch: string;
+  /** Where to create the isolated scratch worktree. */
+  worktreePath: string;
+  /** Branch we're merging into. Defaults to "main". */
+  targetBranch?: string;
+  author: GitAuthor;
+  /** Merge commit subject used when the merge lands (clean or resolved). */
+  message: string;
+}
+
+export type PrepareConflictResolutionResult =
+  | { status: "conflicted"; worktreePath: string; conflictedFiles: string[] }
+  | { status: "clean"; sha: string }
+  | { status: "error"; message: string };
+
+/**
+ * Stage a merge conflict for agentic resolution in an ISOLATED scratch worktree
+ * — never the project's main checkout. Creates `resolveBranch` at `targetBranch`
+ * in a new worktree, then `git merge --no-ff <branch>` so the conflict markers,
+ * `MERGE_HEAD`, and the unmerged index are all present for the agent (cwd =
+ * `worktreePath`) to resolve. See ADR mnx1zt27 (conflict auto-resolve).
+ *
+ * Returns `conflicted` (the expected path — the agent takes over), `clean` (the
+ * merge unexpectedly applied with no conflict; nothing for the agent to do), or
+ * `error` (worktree/merge machinery failed — no in-progress merge to resolve).
+ */
+export async function prepareConflictResolution(
+  opts: PrepareConflictResolutionOpts,
+): Promise<PrepareConflictResolutionResult> {
+  const targetBranch = opts.targetBranch ?? "main";
+  await mkdir(path.dirname(opts.worktreePath), { recursive: true });
+
+  const add = await git(
+    ["worktree", "add", "-b", opts.resolveBranch, opts.worktreePath, targetBranch],
+    opts.projectPath,
+  );
+  if (add.exitCode !== 0) {
+    return { status: "error", message: (add.stderr.trim() || "worktree add failed").slice(0, 400) };
+  }
+
+  const merge = await git(
+    ["merge", "--no-ff", "--no-verify", "-m", opts.message, opts.branch],
+    opts.worktreePath,
+    { env: gitAuthorEnv(opts.author) },
+  );
+  if (merge.exitCode === 0) {
+    const sha = (
+      await git(["rev-parse", "HEAD"], opts.worktreePath, { check: true })
+    ).stdout.trim();
+    return { status: "clean", sha };
+  }
+
+  // Non-zero: conflicts (expected) or a hard error. An in-progress merge
+  // (MERGE_HEAD set) distinguishes the two.
+  const mergeHead = await git(["rev-parse", "-q", "--verify", "MERGE_HEAD"], opts.worktreePath);
+  if (mergeHead.exitCode !== 0) {
+    return {
+      status: "error",
+      message: (merge.stderr.trim() || merge.stdout.trim() || "merge failed").slice(0, 400),
+    };
+  }
+  const conflicted = await git(["diff", "--name-only", "--diff-filter=U"], opts.worktreePath);
+  const conflictedFiles = conflicted.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return { status: "conflicted", worktreePath: opts.worktreePath, conflictedFiles };
+}
+
+export type FinalizeConflictResolutionResult =
+  | { ok: true; sha: string }
+  | { ok: false; reason: "unresolved" | "no-merge" | "other"; message: string };
+
+/**
+ * Validate + complete an agent's conflict resolution in a scratch worktree. Even
+ * when the agent claims `done`, this is the guard that a `true` lever never lands
+ * a bad resolution (ADR mnx1zt27 §5): any remaining unmerged path or leftover
+ * conflict marker is rejected. If the conflicts are fully resolved but the agent
+ * left the merge uncommitted (`MERGE_HEAD` still set), the merge is completed
+ * here. Verifies the result is a real merge commit.
+ */
+export async function finalizeConflictResolution(opts: {
+  worktreePath: string;
+  author: GitAuthor;
+  message: string;
+}): Promise<FinalizeConflictResolutionResult> {
+  // Any unmerged index entry means a conflict the agent never resolved.
+  const unmerged = await git(["diff", "--name-only", "--diff-filter=U"], opts.worktreePath);
+  if (unmerged.stdout.trim().length > 0) {
+    return {
+      ok: false,
+      reason: "unresolved",
+      message: `unmerged paths remain: ${unmerged.stdout.trim().split("\n").join(", ")}`,
+    };
+  }
+  // Leftover conflict markers in tracked files (e.g. the agent committed without
+  // truly resolving). `<<<<<<<`/`>>>>>>>` are the safe pair to match — `=======`
+  // has legitimate uses (Markdown/RST headings).
+  const markers = await git(["grep", "-lF", "-e", "<<<<<<<", "-e", ">>>>>>>"], opts.worktreePath);
+  if (markers.exitCode === 0 && markers.stdout.trim().length > 0) {
+    return {
+      ok: false,
+      reason: "unresolved",
+      message: `conflict markers remain in: ${markers.stdout.trim().split("\n").join(", ")}`,
+    };
+  }
+
+  // Complete the merge if the agent resolved but didn't commit.
+  const mergeHead = await git(["rev-parse", "-q", "--verify", "MERGE_HEAD"], opts.worktreePath);
+  if (mergeHead.exitCode === 0) {
+    await git(["add", "-A"], opts.worktreePath, { check: true });
+    const commit = await git(["commit", "--no-verify", "-m", opts.message], opts.worktreePath, {
+      env: gitAuthorEnv(opts.author),
+    });
+    if (commit.exitCode !== 0) {
+      return {
+        ok: false,
+        reason: "other",
+        message: (commit.stderr.trim() || "commit failed").slice(0, 400),
+      };
+    }
+  }
+
+  // The resolution must be a merge commit (2+ parents) — otherwise the agent
+  // sidestepped the merge (e.g. reset HEAD) and there's nothing sound to land.
+  const parents = await git(["rev-list", "--parents", "-n", "1", "HEAD"], opts.worktreePath);
+  const parentCount = parents.stdout.trim().split(/\s+/).filter(Boolean).length - 1;
+  if (parentCount < 2) {
+    return { ok: false, reason: "no-merge", message: "resolution HEAD is not a merge commit" };
+  }
+  const sha = (await git(["rev-parse", "HEAD"], opts.worktreePath, { check: true })).stdout.trim();
+  return { ok: true, sha };
+}
+
 export interface AttachExistingWorktreeOpts {
   projectPath: string;
   worktreePath: string;

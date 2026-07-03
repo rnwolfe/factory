@@ -119,6 +119,7 @@ export const claudeMetricsOwnerKindEnum = [
   "audit_promote",
   "audit_comment",
   "spec_import",
+  "merge_conflict_resolve",
 ] as const;
 
 export type AutonomyMode = (typeof autonomyModeEnum)[number];
