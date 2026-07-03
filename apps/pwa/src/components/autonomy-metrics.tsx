@@ -27,16 +27,31 @@ import { MetricChart } from "./metric-chart.tsx";
 
 // ── API shapes (mirrors metricsRouter; ADR-013 §3) ───────────────────────────
 
+type MetricWindow = "cumulative" | "rolling_24h" | "rolling_7d";
+
 interface CatalogEntry {
   key: string;
   scope: "project" | "portfolio" | "both";
+  window: MetricWindow;
 }
 
 interface Snapshot {
   date: string | null;
   metrics: Record<string, number>;
+  /** The window each metric was computed over — labels the tile ("all-time"/"7d"). */
+  windows: Record<string, MetricWindow>;
   derived: { decisions_per_run: number; auto_ratify_rate: number };
+  /** The window the derived rate ratios were computed over. */
+  derivedWindow: MetricWindow;
 }
+
+// Short human label for a metric's snapshot window — rendered on every tile so
+// a bare number is never ambiguous (12 runs all-time vs 12 runs in 7 days).
+const WINDOW_LABEL: Record<MetricWindow, string> = {
+  cumulative: "all-time",
+  rolling_24h: "24h",
+  rolling_7d: "7d",
+};
 
 // ── presentation map (labels only; existence is driven by the catalog) ───────
 
@@ -120,17 +135,27 @@ function StatTile({
   label,
   value,
   hint,
+  window,
   emphasis,
 }: {
   label: string;
   value: string;
   hint?: string;
+  /** Short window label (e.g. "all-time", "7d") — states what the number covers. */
+  window?: string;
   emphasis?: boolean;
 }) {
   return (
     <div className="surface p-3">
-      <div className="mono text-[9.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
-        {label}
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="mono text-[9.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          {label}
+        </div>
+        {window ? (
+          <span className="mono text-[8px] uppercase tracking-[0.12em] text-[var(--color-fg-3)] border border-[var(--color-line)] rounded px-1 py-px leading-none whitespace-nowrap flex-shrink-0">
+            {window}
+          </span>
+        ) : null}
       </div>
       <div
         className={[
@@ -340,17 +365,34 @@ export function AutonomyMetrics() {
         </div>
       </div>
 
-      {/* Headline snapshot tiles (latest rolled-up day) */}
+      {/* Headline snapshot tiles — live from source. COUNT tiles are cumulative
+          (all-time running total); the RATE ratios use a trailing window. Each
+          tile states its window so the number is never ambiguous. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <StatTile
           label="decisions / run"
           value={snap ? fmtRatio(snap.derived.decisions_per_run) : "—"}
           hint="north-star → 0"
+          window={snap ? WINDOW_LABEL[snap.derivedWindow] : undefined}
           emphasis
         />
-        <StatTile label="auto-ratify" value={snap ? fmtPct(snap.derived.auto_ratify_rate) : "—"} />
-        <StatTile label="runs" value={fmtInt(m.runs_total ?? 0)} hint={scopeName} />
-        <StatTile label="commits" value={fmtInt(m.commits ?? 0)} hint="merged · latest day" />
+        <StatTile
+          label="auto-ratify"
+          value={snap ? fmtPct(snap.derived.auto_ratify_rate) : "—"}
+          window={snap ? WINDOW_LABEL[snap.derivedWindow] : undefined}
+        />
+        <StatTile
+          label="runs"
+          value={fmtInt(m.runs_total ?? 0)}
+          hint={scopeName}
+          window={snap ? WINDOW_LABEL[snap.windows.runs_total ?? "cumulative"] : undefined}
+        />
+        <StatTile
+          label="commits"
+          value={fmtInt(m.commits ?? 0)}
+          hint="merged"
+          window={snap ? WINDOW_LABEL[snap.windows.commits ?? "cumulative"] : undefined}
+        />
       </div>
 
       {/* North-star: decisions-per-run over time (full width) */}

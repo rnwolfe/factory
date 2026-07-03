@@ -38,6 +38,10 @@ describe("metricsRouter time-series API", () => {
       expect(keys).toContain("runs_total");
       expect(keys).toContain("loc_added");
       expect(catalog.find((c) => c.key === "active_projects")?.scope).toBe("portfolio");
+      // Every entry declares an explicit snapshot window (no implicit tile window).
+      expect(catalog.every((c) => typeof c.window === "string")).toBe(true);
+      expect(catalog.find((c) => c.key === "runs_total")?.window).toBe("cumulative");
+      expect(catalog.find((c) => c.key === "active_projects")?.window).toBe("rolling_7d");
     } finally {
       h.cleanup();
     }
@@ -187,10 +191,11 @@ describe("metricsRouter time-series API", () => {
       const last = series.at(-1);
       expect(last).toBeDefined();
       expect(last?.date).toBe(today);
-      // The whole point of the task: the current-day point equals the snapshot's
-      // value for the same metric + scope at the same moment.
-      expect(last?.value).toBe(snap.metrics.runs_total);
+      // The trailing point is today's DAY BUCKET (the 3 runs that landed today) —
+      // distinct from the snapshot tile, which is now the CUMULATIVE all-time
+      // count. Here they coincide (all activity is same-day + no prior runs).
       expect(last?.value).toBe(3);
+      expect(snap.metrics.runs_total).toBe(3);
     } finally {
       h.cleanup();
     }

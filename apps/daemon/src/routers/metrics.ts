@@ -4,7 +4,7 @@ import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { METRIC_CATALOG } from "../metrics/catalog.ts";
 import { dayKey } from "../metrics/rollup.ts";
-import { computeLiveSnapshot } from "../metrics/snapshot.ts";
+import { computeLiveSnapshot, computeMetricDayBucket } from "../metrics/snapshot.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const OwnerKindEnum = z.enum([
@@ -546,9 +546,13 @@ export const metricsRouter = router({
     }),
 
   // ── Autonomy & ops metrics surface (ADR-013) ───────────────────────────────
-  /** The metric catalog (key + scope) so the PWA renders charts without hardcoding. */
+  /**
+   * The metric catalog (key + scope + snapshot window) so the PWA renders charts
+   * and labels tiles without hardcoding. `window` is the range a metric's live
+   * snapshot value covers (`cumulative` → "all-time", `rolling_7d` → "7d").
+   */
   catalog: protectedProcedure.query(() =>
-    METRIC_CATALOG.map((m) => ({ key: m.key, scope: m.scope })),
+    METRIC_CATALOG.map((m) => ({ key: m.key, scope: m.scope, window: m.window })),
   ),
 
   /**
@@ -559,9 +563,11 @@ export const metricsRouter = router({
    * `metrics_daily` rollup, unchanged. The current-day point is NOT read from
    * that table — its bucket lags behind the source tables until the rollup tick
    * refreshes it (empty/near-empty just after UTC midnight). Instead today is
-   * computed live via the *same* path `metrics.snapshot` uses
-   * ({@link computeLiveSnapshot}), so a run/decision recorded a second ago is
-   * already reflected and the series never shows a stale zero-dip for today.
+   * computed live from the source tables via {@link computeMetricDayBucket}, so a
+   * run/decision recorded a second ago is already reflected and the series never
+   * shows a stale zero-dip for today. This is the *day-bucket* live value —
+   * distinct from `metrics.snapshot`'s cumulative/rolling tile windows — so the
+   * trailing chart point stays consistent with the rollup's per-day buckets.
    */
   series: protectedProcedure
     .input(
@@ -600,10 +606,9 @@ export const metricsRouter = router({
       const inRange = (!input.from || today >= input.from) && (!input.to || today <= input.to);
       if (!inRange) return finalized;
 
-      const snapshot = await computeLiveSnapshot(ctx.db, scope, now);
-      const todayValue = snapshot.metrics[input.metric];
-      // Absent from the snapshot ⇒ the metric doesn't apply to this scope (or
-      // computed null). Mirror the rollup, which writes no row in that case.
+      const todayValue = await computeMetricDayBucket(ctx.db, input.metric, scope, now);
+      // null ⇒ the metric doesn't apply to this scope (or computed null). Mirror
+      // the rollup, which writes no row in that case.
       if (todayValue == null) return finalized;
       return [...finalized, { date: today, value: todayValue }];
     }),
