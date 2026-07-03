@@ -170,8 +170,13 @@ export function TaskDetail() {
     }
   }, [editing, task.data]);
 
-  if (task.isLoading) return <TaskSkeleton />;
-  if (!task.data) {
+  // Only a query that *resolved to null* is a genuine "not found". `undefined`
+  // means we're still loading or the last fetch errored — common right after a
+  // github-issues task is promoted, when the backing list read can briefly 5xx
+  // or lag the just-created issue. Rendering "not found" on that first failed
+  // poll strands the operator on a route that self-heals within one 4s tick, so
+  // show a retrying state instead and let refetchInterval recover.
+  if (task.data === null) {
     return (
       <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
         task not found.{" "}
@@ -180,6 +185,17 @@ export function TaskDetail() {
         </Link>
       </div>
     );
+  }
+  if (!task.data) {
+    if (task.isError) {
+      return (
+        <div className="surface p-4 text-sm text-[var(--color-fg-2)]">
+          loading task…{" "}
+          <span className="mono text-[11px] text-[var(--color-fg-3)]">(retrying)</span>
+        </div>
+      );
+    }
+    return <TaskSkeleton />;
   }
 
   const fm = task.data.frontmatter;

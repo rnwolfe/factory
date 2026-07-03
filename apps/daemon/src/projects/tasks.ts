@@ -701,6 +701,46 @@ export function readTaskFile(target: TaskTarget, taskId: string): Promise<TaskFi
   return taskStoreFor(target).read(taskId);
 }
 
+/**
+ * Resolve a single task together with the pool used to derive its dependency
+ * state — resilient to a remote backend whose `list()` is a live REST call that
+ * can transiently fail (5xx / rate-limit) or lag behind a just-created issue.
+ *
+ * This is the seam that keeps a freshly-promoted task from rendering as "task
+ * not found": right after `createTask` does its `POST /issues`, the follow-up
+ * paginated `list()` can miss or reject the new issue. So we fall back to a
+ * direct single-issue `read()` (`GET /issues/{n}`) to disambiguate:
+ *   - found in the pool          → normal path, full dependency context;
+ *   - not in pool, `read()` hits → transient list miss/lag, return it with a
+ *                                  best-effort (possibly empty) pool;
+ *   - not in pool, `read()` null → genuinely absent → return `null`;
+ *   - not in pool, `read()` throws → transient backend failure → propagate, so
+ *                                    the caller surfaces a retry, not a false
+ *                                    "not found".
+ *
+ * Takes a resolved `TaskStore` (not a target) so it is unit-testable with a
+ * fake store and never touches the global backend registry.
+ */
+export async function resolveTaskWithPool(
+  store: Pick<TaskStore, "list" | "read">,
+  taskId: string,
+): Promise<{ task: TaskFile; pool: TaskFile[] } | null> {
+  let pool: TaskFile[] | null = null;
+  try {
+    pool = await store.list();
+  } catch {
+    pool = null;
+  }
+  const found = pool?.find((t) => t.id === taskId) ?? null;
+  if (found) return { task: found, pool: pool ?? [] };
+  // Not in the pool (list threw, or lags a just-created task). A direct read
+  // disambiguates transient-miss from genuinely-absent — its own error
+  // propagates so the caller can distinguish "retry" from "gone".
+  const single = await store.read(taskId);
+  if (!single) return null;
+  return { task: single, pool: pool ?? [] };
+}
+
 export function createTask(target: TaskTarget, input: CreateTaskInput): Promise<TaskFile> {
   // The single creation seam normalizes EVERY task the same way, so no caller can
   // diverge: (1) guarantee an `## Acceptance` section so the verifier's acceptance

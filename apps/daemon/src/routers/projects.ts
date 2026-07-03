@@ -43,7 +43,9 @@ import {
   openBlockers,
   renderAcceptanceBlock,
   reorderTask,
+  resolveTaskWithPool,
   type TaskFile,
+  taskStoreFor,
   tasksById,
   updateTaskAgent,
   updateTaskBlockedBy,
@@ -212,16 +214,22 @@ const tasksRouter = router({
         .get();
       if (!project) return null;
       // The whole pool resolves this task's dependency state (startable / blocks).
-      const tasks = await listTasks(project);
-      const task = tasks.find((t) => t.id === input.taskId);
-      if (!task) return null;
-      const byId = tasksById(tasks);
+      // But for a remote backend (github-issues) that pool is a live REST call
+      // that can transiently fail or lag behind a just-created issue — so resolve
+      // through the resilient path, which falls back to a direct single read and
+      // only returns null when the task is genuinely absent (see
+      // `resolveTaskWithPool`). A transient backend failure throws through here,
+      // which the client renders as a retry rather than a false "not found".
+      const resolved = await resolveTaskWithPool(taskStoreFor(project), input.taskId);
+      if (!resolved) return null;
+      const { task, pool } = resolved;
+      const byId = tasksById(pool);
       return {
         frontmatter: task.frontmatter,
         body: task.body,
         startable: isStartable(task, byId),
         openBlockers: openBlockers(task, byId),
-        blocks: tasks
+        blocks: pool
           .filter((o) => (o.frontmatter.blockedBy ?? []).includes(task.id))
           .map((o) => o.id),
         projectAgent: project.agent,
