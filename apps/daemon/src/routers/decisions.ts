@@ -311,7 +311,12 @@ export const decisionsRouter = router({
       .where(
         and(
           gte(schema.autonomyEvents.createdAt, since),
-          inArray(schema.autonomyEvents.kind, ["auto_merged", "auto_ran", "trust_promoted"]),
+          inArray(schema.autonomyEvents.kind, [
+            "auto_merged",
+            "auto_ran",
+            "trust_promoted",
+            "milestone_auto_planned",
+          ]),
         ),
       )
       .orderBy(desc(schema.autonomyEvents.createdAt))

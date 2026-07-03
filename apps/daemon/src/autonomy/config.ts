@@ -21,6 +21,7 @@ export type AutonomyEventKind =
   | "auto_retried"
   | "auto_retry_exhausted"
   | "proposal_surfaced"
+  | "milestone_auto_planned"
   | "freeze_blocked"
   | "side_effect_failed";
 
@@ -87,6 +88,9 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
     auto_merged: "push",
     auto_ran: "push",
     proposal_surfaced: "push",
+    // A hands-off project planned + started a whole new milestone unattended —
+    // a significant self-directed action, same tier as auto_ran/auto_merged.
+    milestone_auto_planned: "push",
     trust_promoted: "digest",
     gate_held: "digest",
     gate_passed: "digest",

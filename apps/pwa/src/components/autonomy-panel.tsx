@@ -68,6 +68,7 @@ const ALERT_KINDS: readonly string[] = [
   "auto_retried",
   "auto_retry_exhausted",
   "proposal_surfaced",
+  "milestone_auto_planned",
   "freeze_blocked",
 ];
 
@@ -998,6 +999,7 @@ const EVENT_CHIP: Record<string, string> = {
   auto_ran: "chip-working",
   auto_retried: "chip-working",
   proposal_surfaced: "chip-decompose",
+  milestone_auto_planned: "chip-decompose",
   trust_contracted: "chip-trashed",
   gate_held: "chip-trashed",
   auto_retry_exhausted: "chip-trashed",
