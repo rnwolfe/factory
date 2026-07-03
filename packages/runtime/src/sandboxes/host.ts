@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { controlPlaneUnsetPrefix } from "../env.ts";
 import { followFileLines } from "../tail.ts";
 import { shellQuote, startTmuxSession } from "../tmux.ts";
 import type { SandboxSpec, SpawnHandle, SpawnOpts } from "../types.ts";
@@ -35,7 +36,12 @@ export const hostSandbox: SandboxSpec = {
     // tear down the session — before we attach).
     const quotedArgv = argv.map(shellQuote).join(" ");
     const inner = stdin !== undefined ? `${quotedArgv} < ${shellQuote(stdinPath)}` : quotedArgv;
-    const innerCommand = `sh -c ${shellQuote(`sleep 0.15; ${inner}`)}`;
+    // Unset Factory control-plane vars in the agent's own shell. A tmux pane
+    // inherits the tmux SERVER's environment (the server was started by the
+    // daemon, which has FACTORY_HOME/FACTORY_DB/FACTORY_TMUX_SOCKET set), so
+    // scrubbing the per-pane `-e` overrides alone leaves them visible — the
+    // shell must clear them so a self-hosting run can't reach the live instance.
+    const innerCommand = `sh -c ${shellQuote(`${controlPlaneUnsetPrefix()}sleep 0.15; ${inner}`)}`;
 
     const session = await startTmuxSession({
       sessionName: tmux.sessionName,

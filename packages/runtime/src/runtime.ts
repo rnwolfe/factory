@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { scrubControlPlaneEnv } from "./env.ts";
 import type { RunResult, RunSpec, Runtime, SpawnHandle, StreamEvent } from "./types.ts";
 import {
   attachExistingWorktree,
@@ -204,7 +205,7 @@ class HostRuntime implements Runtime {
         worktreePath: wt.worktreePath,
         argv,
         stdin,
-        env: { ...process.env, ...env } as Record<string, string>,
+        env: { ...scrubControlPlaneEnv(), ...env } as Record<string, string>,
         abort: compositeAbort,
         onLine,
         tmux: { sessionName, logSocketPath: logPath },
