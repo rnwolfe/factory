@@ -9,6 +9,7 @@ import type { FactoryConfig } from "../src/config.ts";
 import { EventBus } from "../src/events.ts";
 import {
   BOT_COMMENT_MARKER,
+  closeIssueForFrozenPlan,
   factoryLinkFooter,
   loadProjectReplyContext,
   runIssueConversationReply,
@@ -287,6 +288,54 @@ function setup() {
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
+
+describe("closeIssueForFrozenPlan — gating", () => {
+  test("no-ops for a non-issue_intake decision (watch-insight plans untouched)", async () => {
+    const h = setup();
+    try {
+      const watchDecisionId = createId();
+      h.db
+        .insert(schema.decisions)
+        .values({
+          id: watchDecisionId,
+          kind: "watch_insight",
+          projectId: "p1",
+          outcome: "insight",
+          payload: { number: 5 },
+          status: "actioned",
+          createdAt: Date.now(),
+        })
+        .run();
+      // Gated on decision.kind === "issue_intake"; a watch_insight decision must
+      // resolve as a clean no-op even though it carries a `number`.
+      await expect(
+        closeIssueForFrozenPlan(
+          { db: h.db, config: h.config },
+          { projectId: "p1", decisionId: watchDecisionId, planId: "plan-1", taskIds: ["10", "11"] },
+        ),
+      ).resolves.toBeUndefined();
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("no-ops (never throws) for an issue_intake decision when the App is unconfigured", async () => {
+    const h = setup();
+    try {
+      // h.decisionId is a pending issue_intake decision (payload.number === 12).
+      // With githubApp null every GitHub call is a best-effort no-op — the helper
+      // must still resolve without throwing.
+      await expect(
+        closeIssueForFrozenPlan(
+          { db: h.db, config: h.config },
+          { projectId: "p1", decisionId: h.decisionId, planId: "plan-2", taskIds: [] },
+        ),
+      ).resolves.toBeUndefined();
+    } finally {
+      h.cleanup();
+    }
+  });
+});
 
 describe("runIssueIntakeReply — auto-triage parity", () => {
   test("persists an agent comment and mirrors the draft onto the decision", async () => {

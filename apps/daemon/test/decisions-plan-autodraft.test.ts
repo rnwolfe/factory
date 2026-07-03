@@ -132,4 +132,117 @@ describe("decisions router plan auto-draft", () => {
       h.cleanup();
     }
   });
+
+  test("approving an issue_intake suggested as a plan seeds a drafting feature_plan", async () => {
+    const h = setupHarness();
+    try {
+      const projectId = createId();
+      const now = Date.now();
+      await h.db.insert(schema.projects).values({
+        id: projectId,
+        slug: "integrated",
+        name: "Integrated",
+        ceremony: "tinker",
+        taskBackend: "github-issues",
+        githubRemote: "https://github.com/rnwolfe/integrated.git",
+        workdirPath: path.join(tmpdir(), "integrated"),
+        createdAt: now,
+        lastActivityAt: now,
+      });
+      const decisionId = createId();
+      await h.db.insert(schema.decisions).values({
+        id: decisionId,
+        kind: "issue_intake",
+        projectId,
+        outcome: "intake",
+        payload: {
+          number: 42,
+          title: "Overhaul the settings surface",
+          author: "alice",
+          draft: {
+            kind: "plan",
+            title: "Overhaul the settings surface",
+            summary: "Multi-step redesign.",
+            reasoning: "Needs decomposition.",
+          },
+        },
+        status: "pending",
+        createdAt: now,
+      });
+
+      const result = await h.caller.action({ decisionId, action: "approve" });
+
+      // A feature_plan was seeded (not an adopt), scheduled, and linked back to
+      // the decision — so freeze can close the source issue.
+      expect(result.planId).toBeString();
+      expect(h.scheduled).toEqual([{ planId: result.planId ?? "" }]);
+      const plan = await h.db
+        .select()
+        .from(schema.plans)
+        .where(eq(schema.plans.id, result.planId ?? ""))
+        .get();
+      expect(plan?.kind).toBe("feature_plan");
+      expect(plan?.status).toBe("drafting");
+      expect(plan?.projectId).toBe(projectId);
+      expect(plan?.decisionId).toBe(decisionId);
+
+      const decision = await h.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, decisionId))
+        .get();
+      expect(decision?.status).toBe("actioned");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("approving an issue_intake suggested as a task takes the adopt path (no plan)", async () => {
+    const h = setupHarness();
+    try {
+      const projectId = createId();
+      const now = Date.now();
+      await h.db.insert(schema.projects).values({
+        id: projectId,
+        slug: "integrated2",
+        name: "Integrated2",
+        ceremony: "tinker",
+        taskBackend: "github-issues",
+        githubRemote: "https://github.com/rnwolfe/integrated2.git",
+        workdirPath: path.join(tmpdir(), "integrated2"),
+        createdAt: now,
+        lastActivityAt: now,
+      });
+      const decisionId = createId();
+      await h.db.insert(schema.decisions).values({
+        id: decisionId,
+        kind: "issue_intake",
+        projectId,
+        outcome: "intake",
+        payload: {
+          number: 7,
+          title: "Fix the typo",
+          author: "alice",
+          draft: { kind: "task", title: "Fix the typo", summary: "One-liner.", reasoning: "" },
+        },
+        status: "pending",
+        createdAt: now,
+      });
+
+      // The App is unconfigured in this harness, so `adoptIssue` returns null and
+      // the task path throws — proving the approve went to adopt, not the plan
+      // seam (which would have created a plan + succeeded). No plan is created.
+      await expect(h.caller.action({ decisionId, action: "approve" })).rejects.toThrow(
+        /could not adopt issue #7/,
+      );
+      const plans = await h.db
+        .select()
+        .from(schema.plans)
+        .where(eq(schema.plans.decisionId, decisionId))
+        .all();
+      expect(plans.length).toBe(0);
+    } finally {
+      h.cleanup();
+    }
+  });
 });
