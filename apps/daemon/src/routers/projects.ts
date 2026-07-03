@@ -268,11 +268,17 @@ const tasksRouter = router({
       if (!updated) throw new Error("task not found");
       // Epic rollup (ADR-023): if this task just went terminal, its parent epic
       // may now be fully complete — auto-close it when the operator opted in.
+      // Best-effort enrichment: never let it fail the primary status update, and
+      // any epic-close file write it makes is captured by the commit just below.
       if (
         CLOSED_TASK_STATUSES.has(input.status) &&
         resolveAutonomyConfig(ctx.db, project.id).hierarchy.epicAutoClose
       ) {
-        await maybeAutoCloseEpics(taskStoreFor(project));
+        try {
+          await maybeAutoCloseEpics(taskStoreFor(project));
+        } catch {
+          // swallow — the status update + commit below must still complete.
+        }
       }
       // Commit on main so the next run's worktree starts clean. Without this,
       // operator-driven status flips dirty the project tree and the next

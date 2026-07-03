@@ -242,9 +242,12 @@ export class GithubIssuesStore implements TaskStore {
    */
   private async fetchParentEdges(headers: Record<string, string>): Promise<Map<number, number>> {
     const edges = new Map<number, number>();
-    const query = `query($owner:String!,$repo:String!,$cursor:String){
+    // Scope to the same `factory` label as the REST `list()` — hierarchy
+    // enrichment should cost O(task set), not O(whole repo), so a large upstream
+    // backlog doesn't blow the GraphQL budget or hit the 10-page cap.
+    const query = `query($owner:String!,$repo:String!,$cursor:String,$label:[String!]){
       repository(owner:$owner,name:$repo){
-        issues(first:100, after:$cursor, states:[OPEN,CLOSED]){
+        issues(first:100, after:$cursor, states:[OPEN,CLOSED], filterBy:{labels:$label}){
           pageInfo{ hasNextPage endCursor }
           nodes{ number parent{ number } }
         }
@@ -258,7 +261,7 @@ export class GithubIssuesStore implements TaskStore {
           headers,
           body: JSON.stringify({
             query,
-            variables: { owner: this.owner, repo: this.repo, cursor },
+            variables: { owner: this.owner, repo: this.repo, cursor, label: [FACTORY_LABEL] },
           }),
         });
         if (!res.ok) return edges; // enrichment only — degrade to "no hierarchy"

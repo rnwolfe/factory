@@ -142,7 +142,17 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
         taskStatusFor(run.status) === "done" &&
         resolveAutonomyConfig(db, project.id).hierarchy.epicAutoClose
       ) {
-        await maybeAutoCloseEpics(taskStoreFor(project));
+        const closed = await maybeAutoCloseEpics(taskStoreFor(project));
+        // File backend writes the epic's task file locally; commit it so the
+        // worktree doesn't go dirty on main (which would break the next
+        // mergeIntoMain). github-issues closes the issue remotely — nothing local.
+        if (closed.length > 0 && project.taskBackend !== "github-issues") {
+          await commitAllChanges(
+            project.workdirPath,
+            `chore: auto-close epic(s) ${closed.join(", ")}`,
+            config.gitAuthor,
+          );
+        }
       }
     } catch {
       // hierarchy read/close is enrichment — swallow and continue.
