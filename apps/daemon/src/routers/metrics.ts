@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { METRIC_CATALOG } from "../metrics/catalog.ts";
+import { computeLiveSnapshot } from "../metrics/snapshot.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
 const OwnerKindEnum = z.enum([
@@ -579,7 +580,16 @@ export const metricsRouter = router({
         .all();
     }),
 
-  /** Latest-day snapshot of every metric for a scope, plus derived ratios (north-star). */
+  /**
+   * Live snapshot of every metric for a scope, plus derived ratios (north-star).
+   *
+   * Computed from the source tables at request time — the catalog is evaluated
+   * against a window ending now (`[UTC-midnight, now)`), NOT read out of the
+   * `metrics_daily` rollup. This keeps the snapshot honest just after UTC
+   * midnight, when the day bucket in `metrics_daily` is empty/near-empty until
+   * the rollup tick refreshes it but the source tables already carry activity.
+   * See `metrics/snapshot.ts`.
+   */
   snapshot: protectedProcedure
     .input(z.object({ projectId: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
@@ -587,34 +597,6 @@ export const metricsRouter = router({
         input?.projectId && input.projectId !== METRICS_PORTFOLIO
           ? input.projectId
           : METRICS_PORTFOLIO;
-      const latest = await ctx.db
-        .select({ d: schema.metricsDaily.date })
-        .from(schema.metricsDaily)
-        .where(eq(schema.metricsDaily.projectId, scope))
-        .orderBy(desc(schema.metricsDaily.date))
-        .limit(1)
-        .get();
-      const metrics: Record<string, number> = {};
-      if (latest) {
-        const rows = await ctx.db
-          .select({ metric: schema.metricsDaily.metric, value: schema.metricsDaily.value })
-          .from(schema.metricsDaily)
-          .where(
-            and(eq(schema.metricsDaily.projectId, scope), eq(schema.metricsDaily.date, latest.d)),
-          )
-          .all();
-        for (const r of rows) metrics[r.metric] = r.value;
-      }
-      const runs = metrics.runs_total ?? 0;
-      const decisions = metrics.decisions_total ?? 0;
-      return {
-        date: latest?.d ?? null,
-        metrics,
-        // Derived north-star + Trust-Ladder health (ratios computed from raw counts).
-        derived: {
-          decisions_per_run: runs ? decisions / runs : 0,
-          auto_ratify_rate: decisions ? (metrics.auto_ratified_total ?? 0) / decisions : 0,
-        },
-      };
+      return computeLiveSnapshot(ctx.db, scope, Date.now());
     }),
 });

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, METRICS_PORTFOLIO, runMigrations, schema } from "@factory/db";
+import { createId } from "@paralleldrive/cuid2";
 import type { DaemonContext } from "../src/context.ts";
 import { metricsRouter } from "../src/routers/metrics.ts";
 import { createCallerFactory } from "../src/trpc.ts";
@@ -71,19 +72,65 @@ describe("metricsRouter time-series API", () => {
     }
   });
 
-  test("snapshot returns the latest day + derived north-star ratios", async () => {
+  test("snapshot reads live from source, ignoring the metrics_daily rollup", async () => {
     const h = setup();
     try {
+      // Rolled-up buckets in metrics_daily must NOT drive the snapshot anymore.
+      // Seed some (they carry different values than the live source tables) and
+      // assert the snapshot ignores them entirely — see metrics-snapshot-live
+      // for the full just-after-midnight regression.
       put(h.db, "2026-06-20", METRICS_PORTFOLIO, "runs_total", 4);
       put(h.db, "2026-06-21", METRICS_PORTFOLIO, "runs_total", 6);
       put(h.db, "2026-06-21", METRICS_PORTFOLIO, "decisions_total", 3);
-      put(h.db, "2026-06-21", METRICS_PORTFOLIO, "auto_ratified_total", 2);
+
+      // Live source activity in the current UTC day.
+      const now = Date.now();
+      const at = Math.max(Math.floor(now / 86_400_000) * 86_400_000 + 1000, now - 1000);
+      const p = createId();
+      h.db
+        .insert(schema.projects)
+        .values({
+          id: p,
+          slug: "alpha",
+          name: "alpha",
+          ceremony: "personal",
+          workdirPath: "/tmp/no-such-alpha",
+          autonomyMode: "collaborative",
+          createdAt: now,
+          lastActivityAt: now,
+        })
+        .run();
+      h.db
+        .insert(schema.runs)
+        .values({
+          id: createId(),
+          projectId: p,
+          status: "completed",
+          branch: "factory/run-x",
+          worktreePath: "/tmp/wt",
+          startedAt: at,
+          endedAt: at + 1000,
+          budgetSeconds: 60,
+        })
+        .run();
+      h.db
+        .insert(schema.decisions)
+        .values({
+          id: createId(),
+          kind: "agent_decision",
+          projectId: p,
+          outcome: "decided: x",
+          payload: { id: "d", decided: "x" },
+          status: "auto_ratified",
+          createdAt: at,
+        })
+        .run();
 
       const snap = await h.caller.snapshot();
-      expect(snap.date).toBe("2026-06-21"); // latest
-      expect(snap.metrics.runs_total).toBe(6);
-      expect(snap.derived.decisions_per_run).toBeCloseTo(3 / 6); // north-star
-      expect(snap.derived.auto_ratify_rate).toBeCloseTo(2 / 3);
+      expect(snap.metrics.runs_total).toBe(1); // live, not the 6 in metrics_daily
+      expect(snap.metrics.decisions_total).toBe(1); // live, not the 3 in metrics_daily
+      expect(snap.derived.decisions_per_run).toBeCloseTo(1 / 1);
+      expect(snap.derived.auto_ratify_rate).toBeCloseTo(1 / 1);
     } finally {
       h.cleanup();
     }
