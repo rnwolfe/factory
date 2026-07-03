@@ -6,7 +6,9 @@ import { createDb, METRICS_PORTFOLIO, runMigrations, schema } from "@factory/db"
 import { createId } from "@paralleldrive/cuid2";
 import { and, eq } from "drizzle-orm";
 import { dayKey, floorToUtcDay, rollupDay } from "../src/metrics/rollup.ts";
+import { computeLiveSnapshot, computeMetricDayBucket } from "../src/metrics/snapshot.ts";
 
+const DAY_MS = 86_400_000;
 const DAY_START = floorToUtcDay(Date.parse("2026-06-20T12:00:00Z")); // a fixed UTC day
 
 function setup() {
@@ -159,6 +161,86 @@ describe("rollupDay", () => {
       const keys = all.map((r) => `${r.date}|${r.projectId}|${r.metric}`);
       expect(new Set(keys).size).toBe(keys.length); // no duplicate (date,project,metric)
       expect(metric(h.db, METRICS_PORTFOLIO, "runs_total")).toBe(1);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  // Task acceptance #3 — a rollup tick that fires in the first seconds of a new
+  // UTC day (before that day's work has landed) writes a near-empty "today"
+  // bucket into metrics_daily. Because the operator-visible surface now reads
+  // LIVE from the source tables (metrics.snapshot / the series' current-day
+  // point), that stale bucket must be structurally incapable of zeroing what the
+  // operator sees. This is the regression the whole "read live" feature exists
+  // to prevent; guard the invariant directly against a real rollup tick.
+  test("a post-midnight rollup tick cannot zero the live operator surface", async () => {
+    const h = setup();
+    try {
+      const p = seedProject(h.db, "alpha", "collaborative");
+
+      // A brand-new UTC midnight, and the rollup tick firing 5s into it.
+      const midnight = floorToUtcDay(Date.parse("2026-06-21T12:00:00Z")) + DAY_MS;
+      const today = dayKey(midnight);
+      const tickAt = midnight + 5_000;
+
+      // Prior-day activity — the cumulative snapshot baseline that must survive
+      // the day rollover, not reset to zero at midnight.
+      seedRun(h.db, p, "completed", midnight - 3_600_000);
+
+      // The rollup tick runs BEFORE today's first run lands: it finalizes
+      // yesterday and refreshes today-so-far from a source table that has no
+      // activity for the new day yet → today's bucket is written as 0.
+      await rollupDay(h.db, midnight - DAY_MS); // finalize yesterday
+      await rollupDay(h.db, tickAt); // refresh today (empty so far)
+      const todayBucketRow = h.db
+        .select({ v: schema.metricsDaily.value })
+        .from(schema.metricsDaily)
+        .where(
+          and(
+            eq(schema.metricsDaily.date, today),
+            eq(schema.metricsDaily.projectId, METRICS_PORTFOLIO),
+            eq(schema.metricsDaily.metric, "runs_total"),
+          ),
+        )
+        .get()?.v;
+      expect(todayBucketRow).toBe(0); // the stale zero the tick persisted
+
+      // NOW today's real work lands, after the tick already ran.
+      seedRun(h.db, p, "completed", midnight + 60_000);
+      seedDecision(h.db, p, "auto_ratified", midnight + 61_000);
+      const now = midnight + 120_000;
+
+      // Operator surface #1 — the live snapshot (cumulative tile). Reflects
+      // yesterday + today, never the stale zero bucket the tick wrote.
+      const snap = await computeLiveSnapshot(h.db, METRICS_PORTFOLIO, now);
+      expect(snap.metrics.runs_total).toBe(2);
+      expect(snap.metrics.decisions_total).toBe(1);
+
+      // Operator surface #2 — the series' current-day point (live day bucket).
+      // It is today's real 1, not the rollup's persisted 0.
+      const liveTodayBucket = await computeMetricDayBucket(
+        h.db,
+        "runs_total",
+        METRICS_PORTFOLIO,
+        now,
+      );
+      expect(liveTodayBucket).toBe(1);
+
+      // And crucially: metrics_daily STILL holds the stale 0 the tick wrote —
+      // proving the surface is decoupled from the rollup, not that a later tick
+      // happened to refresh it. The zero is inert; the live read supersedes it.
+      const stillStale = h.db
+        .select({ v: schema.metricsDaily.value })
+        .from(schema.metricsDaily)
+        .where(
+          and(
+            eq(schema.metricsDaily.date, today),
+            eq(schema.metricsDaily.projectId, METRICS_PORTFOLIO),
+            eq(schema.metricsDaily.metric, "runs_total"),
+          ),
+        )
+        .get()?.v;
+      expect(stillStale).toBe(0);
     } finally {
       h.cleanup();
     }

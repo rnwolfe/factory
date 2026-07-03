@@ -10,6 +10,25 @@ import { gitDayStats } from "./git-stats.ts";
  *
  * `compute` returns a value for one (day-window, scope) — `ctx.project === null`
  * means the portfolio total. Return `null` to write no row.
+ *
+ * ── Time anchors differ per metric (why a day can show commits with 0 runs) ──
+ * These metrics are deliberately anchored on DIFFERENT timestamps, so their
+ * per-day counts do NOT have to move together:
+ *   - `runs_*`            → `runs.started_at` (when a run BEGAN)
+ *   - `decisions_*`       → `decisions.created_at` (when a decision was CREATED)
+ *   - `commits`/`loc_*`   → the git commit/author time of work reachable on the
+ *                           branch (when code LANDED, via {@link gitDayStats})
+ * A quiet run-start day can still show commits (operator-direct commits, or a run
+ * that started the prior day and committed after UTC midnight — a `-0400` evening
+ * commit lands in the *next* UTC day) and portfolio decisions. Observed 2026-07-01
+ * (portfolio `runs_total=0`, `commits=10`, `decisions_total=2`): the 10 commits
+ * were all authored 2026-06-30 evening `-0400` (= 07-01 00:xx UTC) — operator
+ * release commits, not runs; the 2 decisions were project-less `watch_insight`
+ * rows. Not a filter/window bug — the correct output of three independent anchors.
+ *
+ * Corollary: at portfolio scope, `decisions_total` counts rows whose `project_id`
+ * is null (portfolio-level Watch decisions), so the portfolio total can exceed the
+ * sum of the per-project cards. Intended — portfolio-level events have no project.
  */
 
 export interface MetricProject {
