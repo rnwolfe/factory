@@ -4,6 +4,14 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.52.0 — 2026-07-03
+
+### Added
+- **Factory reads and writes GitHub's native epic/sub-issue hierarchy.** Issues organized into epics *on GitHub* (native sub-issues) now surface as epics in Factory — children grouped under their parent with a rollup badge (`epic · 3/5`) and a `↳ #parent` chip — and assigning a task to an epic in Factory writes the native sub-issue link back, so both sides stay one source of truth. Epics are **containers, not runnable work**: auto-advance runs their children, never the epic itself, and "start" is hidden on epic rows. Optional rollup auto-close (`hierarchy.epicAutoClose`, default off) closes an epic once all its children are done or dropped. Task pages gain an "assign to epic" control. (ADR-023)
+
+### Fixed
+- **The verifier gate stops over-holding autonomous runs.** A cross-model *"concerns"* verdict — the advisory hedge the validator is explicitly prompted to emit when unsure — was being treated as a hard failure: it capped otherwise-clean runs at *medium* coverage (never reaching the *high* auto-land bar) and tripped the auto-retry loop into burning its budget against an advisory the validator only re-emits. `concerns` is now a first-class signal with partial credit and no auto-retry, so a clean run clears the bar and lands unattended. Two related knobs are fixed alongside: `gate.minLevel` is now actually honored (it was defined and UI-settable but ignored — the gate always demanded `high`), and the `hands-off` preset relaxes `gate.maxBlastRadius` to `broad` so a trusted project's perfectly-verified schema/auth/lockfile diffs auto-land instead of routing to review.
+
 ## v0.51.0 — 2026-07-03
 
 ### Added
