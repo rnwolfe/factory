@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, runMigrations, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
-import { BUILTIN_AUTONOMY, resolveAutonomyConfig } from "../src/autonomy/config.ts";
+import {
+  AUTONOMY_PRESETS,
+  BUILTIN_AUTONOMY,
+  resolveAutonomyConfig,
+} from "../src/autonomy/config.ts";
 
 function setup() {
   const root = mkdtempSync(path.join(tmpdir(), "autonomy-cfg-"));
@@ -75,6 +79,39 @@ describe("resolveAutonomyConfig", () => {
       expect(cfg.trust.autoContract).toBe(true); // built-in inherited through both
       // and without the project context, the system value still applies:
       expect(resolveAutonomyConfig(db).trust.promoteStreak).toBe(3);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("mergeRemediation: built-in defaults both levers tap-required", () => {
+    const { db, cleanup } = setup();
+    try {
+      expect(resolveAutonomyConfig(db).mergeRemediation).toEqual({
+        dirtyAutoReset: false,
+        conflictAutoResolve: false,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("preset then a single-lever project override diverges only that lever", () => {
+    const { db, cleanup } = setup();
+    try {
+      // Apply the `balanced` preset at the system scope (dirtyAutoReset:true,
+      // conflictAutoResolve:false), then override just the conflict lever at the
+      // project scope — mirroring "force conflictAutoResolve on a balanced project
+      // without moving the whole project to hands-off."
+      setSystem(db, AUTONOMY_PRESETS.balanced);
+      const projectId = addProject(db, { mergeRemediation: { conflictAutoResolve: true } });
+      const cfg = resolveAutonomyConfig(db, projectId);
+      // The overridden lever diverges from the preset's value...
+      expect(cfg.mergeRemediation.conflictAutoResolve).toBe(true);
+      // ...while the other lever stays at the `balanced` preset default (true).
+      const presetDirty = AUTONOMY_PRESETS.balanced.mergeRemediation?.dirtyAutoReset;
+      expect(presetDirty).toBe(true);
+      expect(cfg.mergeRemediation.dirtyAutoReset).toBe(presetDirty ?? false);
     } finally {
       cleanup();
     }
