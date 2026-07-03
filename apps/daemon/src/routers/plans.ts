@@ -4,6 +4,7 @@ import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { closeIssueForFrozenPlan } from "../github/issue-triage.ts";
 import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { applyFeaturePlanFreeze } from "../plans/apply-feature-plan.ts";
 import { applyProjectVisionFreeze } from "../plans/apply-project-vision.ts";
@@ -626,13 +627,34 @@ export const plansRouter = router({
         if (draft.kind !== "feature_plan") {
           throw new Error(`feature_plan ${plan.id} draft kind mismatch: ${draft.kind}`);
         }
-        await applyFeaturePlanFreeze({
+        const { taskIds } = await applyFeaturePlanFreeze({
           config: ctx.config,
           db: ctx.db,
           projectId: plan.projectId,
           draft,
           planId: plan.id,
         });
+        // A feature_plan seeded from an approved issue_intake decision closes its
+        // source GitHub issue now that it's decomposed (best-effort; internally
+        // gated on the decision being issue_intake, so watch-insight plans — which
+        // also carry a decisionId — are left untouched).
+        if (plan.decisionId) {
+          await closeIssueForFrozenPlan(
+            { db: ctx.db, config: ctx.config },
+            {
+              projectId: plan.projectId,
+              decisionId: plan.decisionId,
+              planId: plan.id,
+              taskIds,
+            },
+          ).catch((err) => {
+            console.warn(
+              `[plans] close source issue for frozen plan ${plan.id} failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
+        }
       } else if (plan.kind === "project_vision") {
         if (!plan.projectId) {
           throw new Error("project_vision missing projectId at freeze time");
