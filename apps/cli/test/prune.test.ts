@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { parsePruneArgs } from "../src/commands/prune.ts";
 
 describe("parsePruneArgs", () => {
-  test("defaults are safe: dry-run, completed-only, no project, no age cap", () => {
+  test("defaults are safe: dry-run, completed-only, no project, no age cap, 30d logs", () => {
     const a = parsePruneArgs([]);
     expect(a.apply).toBe(false);
     expect(a.includeFailed).toBe(false);
     expect(a.project).toBeNull();
     expect(a.ageDays).toBe(0);
+    expect(a.logsOlderThan).toBe(30);
     expect(a.help).toBe(false);
   });
 
@@ -29,13 +30,25 @@ describe("parsePruneArgs", () => {
     expect(parsePruneArgs(["--age", "7"]).ageDays).toBe(7);
   });
 
+  test("--logs-older-than supports both = and space forms", () => {
+    expect(parsePruneArgs(["--logs-older-than=7"]).logsOlderThan).toBe(7);
+    expect(parsePruneArgs(["--logs-older-than", "14"]).logsOlderThan).toBe(14);
+  });
+
   test("flags combine without interfering", () => {
-    const a = parsePruneArgs(["--apply", "--include-failed", "--project=factory", "--age=30"]);
+    const a = parsePruneArgs([
+      "--apply",
+      "--include-failed",
+      "--project=factory",
+      "--age=30",
+      "--logs-older-than=7",
+    ]);
     expect(a).toEqual({
       apply: true,
       includeFailed: true,
       project: "factory",
       ageDays: 30,
+      logsOlderThan: 7,
       help: false,
     });
   });
