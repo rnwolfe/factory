@@ -53,6 +53,12 @@ const overrideSchema = z
         verifierBudget: z.number().int().min(0).max(10),
       })
       .partial(),
+    mergeRemediation: z
+      .object({
+        dirtyAutoReset: z.boolean(),
+        conflictAutoResolve: z.boolean(),
+      })
+      .partial(),
     alerts: z.record(z.string(), alertEnum),
   })
   .partial();

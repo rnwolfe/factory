@@ -51,6 +51,17 @@ export interface AutonomyConfig {
      *  it surfaces to the operator. 0 = always surface (today's behavior). */
     verifierBudget: number;
   };
+  /**
+   * Post-run merge remediation — how far the daemon may go, unattended, to land a
+   * run whose auto-merge to `main` failed. Two independent levers; each `false`
+   * means the operator must tap to remediate (the conservative baseline).
+   */
+  mergeRemediation: {
+    /** `main` was dirty on merge → auto-reset it before retrying the merge. */
+    dirtyAutoReset: boolean;
+    /** The merge conflicted → let the daemon attempt an automatic resolution. */
+    conflictAutoResolve: boolean;
+  };
   alerts: Record<AutonomyEventKind, AlertRoute>;
 }
 
@@ -68,6 +79,8 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
     emergencyStop: false,
   },
   retry: { transientBudget: 1, verifierBudget: 2 },
+  // Both levers tap-required by default — the daemon never touches `main` unattended.
+  mergeRemediation: { dirtyAutoReset: false, conflictAutoResolve: false },
   // Resolution: loud on risk, digest the rest (ADR-016 §3).
   alerts: {
     trust_contracted: "push",
@@ -107,17 +120,22 @@ export const AUTONOMY_PRESETS: Record<AutonomyPreset, AutonomyOverride> = {
   conservative: {
     trust: { autoPromote: false, autoContract: true },
     autorun: { enabled: false },
+    mergeRemediation: { dirtyAutoReset: false, conflictAutoResolve: false },
     alerts: { trust_promoted: "push", gate_held: "push", gate_passed: "push" },
   },
   // The defaults: earn promotion, gate auto-merge, no auto-run.
   balanced: {
     trust: { autoPromote: true, promoteStreak: 5, autoContract: true },
     autorun: { enabled: false },
+    // Reset a dirty `main` unattended, but still tap to resolve conflicts.
+    mergeRemediation: { dirtyAutoReset: true, conflictAutoResolve: false },
   },
   // Promote faster and let the smallest-blast-radius work auto-run (still gated).
   "hands-off": {
     trust: { autoPromote: true, promoteStreak: 3, autoContract: true },
     autorun: { enabled: true, maxBlastRadius: "contained" },
+    // Only at hands-off does conflict resolution go fully automatic.
+    mergeRemediation: { dirtyAutoReset: true, conflictAutoResolve: true },
   },
 };
 
@@ -136,6 +154,7 @@ function merge(base: AutonomyConfig, over: DeepPartial<AutonomyConfig> | null): 
       ),
     },
     retry: { ...base.retry, ...over.retry },
+    mergeRemediation: { ...base.mergeRemediation, ...over.mergeRemediation },
     alerts: { ...base.alerts, ...over.alerts },
   };
 }
