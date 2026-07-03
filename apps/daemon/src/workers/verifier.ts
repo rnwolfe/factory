@@ -313,10 +313,11 @@ export function meetsLevel(actual: VerifierLevel, min: VerifierLevel): boolean {
 }
 
 /**
- * The auto-land decision: a run lands unattended only with HIGH verifier coverage
- * AND a diff within the project's `maxBlastRadius` ceiling. Anything less routes to
- * `review`. Conservative on purpose — auto-landing unverified changes is the most
- * dangerous surface in the system.
+ * The auto-land decision: a run lands unattended only when its verifier coverage
+ * meets the project's `minLevel` bar (default `high`) AND its diff is within the
+ * project's `maxBlastRadius` ceiling. Anything less routes to `review`. Conservative
+ * on purpose — auto-landing unverified changes is the most dangerous surface in the
+ * system.
  *
  * `maxBlastRadius` (the project's resolved `gate.maxBlastRadius`, ADR-016) is the
  * operator's opt-in: `"contained"` (default) holds broad diffs for review;
@@ -341,7 +342,7 @@ export function decideAutoLand(
   if (!isWithinBlastCeiling(blast.radius, maxBlastRadius)) {
     return { land: false, reason: `broad blast radius — ${blast.reasons.join("; ")}` };
   }
-  return { land: true, reason: `high verifier coverage + ${blast.radius} diff` };
+  return { land: true, reason: `${report.level} verifier coverage + ${blast.radius} diff` };
 }
 
 /**
@@ -372,8 +373,8 @@ export function renderVerifierFindings(report: VerifierReport | null | undefined
   });
   return `## Verifier gate held your prior run (coverage: ${report.level})
 
-Your prior run completed but the gate held it for review — coverage was below the
-\`high\` bar. Address these before completing. A cross-model **FAIL** is a concrete
+Your prior run completed but the verifier gate held it for review. Resolve the
+signals below to raise coverage before completing. A cross-model **FAIL** is a concrete
 defect another model found in your diff; treat it as authoritative and fix it. A
 **FLAGGED** signal is an advisory concern (address it if quick, but it is not a hard
 defect). A **MISSING** signal is a coverage gap (e.g. no testable acceptance criteria).
