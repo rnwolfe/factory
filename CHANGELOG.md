@@ -4,6 +4,11 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.50.3 — 2026-07-02
+
+### Fixed
+- **Self-hosting runs can no longer touch the live Factory instance — the cause of runs mysteriously going `aborted` ("orphaned by a daemon restart") while still running.** Runs inherited the daemon's environment, including `FACTORY_HOME`/`FACTORY_DB`/`FACTORY_TMUX_SOCKET`, and Factory's DB path resolves from those. So an agent working on the Factory repo itself, running its own `bun run seed` / `bun run db:migrate` / test suite / any daemon boot, operated on the **live production DB** — seeding/migrating it, hitting "database is locked" contention, and (via a startup `reapOrphanedRuns`) marking the operator's genuinely-running runs `aborted` without killing them, leaving zombie processes. The runtime now strips those control-plane vars from every run's environment (and unsets them in the pane shell, since tmux panes inherit the server's env), so a run can never reach the live instance. Non-Factory projects were never at risk.
+
 ## v0.50.2 — 2026-07-02
 
 ### Fixed
