@@ -270,4 +270,142 @@ describe("runtime.spawn (host sandbox)", () => {
     // A grace teardown is NOT an abort — the run keeps its clean exit code.
     expect(result.exitCode).toBe(0);
   }, 30_000);
+
+  test("idle watchdog reaps a silent agent on an unbounded budget", async () => {
+    const project = await gitInitProject();
+    cleanup.push(project);
+    const events: RuntimeEvent[] = [];
+    const ac = new AbortController();
+
+    // Agent that produces NO output and never exits — the exact hang the
+    // watchdog exists to catch. On an infinite budget only the idle watchdog
+    // can end this run.
+    const silentAgent: AgentSpec = {
+      name: "silent",
+      buildArgv() {
+        return { argv: ["sleep", "60"] };
+      },
+      parseLine() {
+        return [];
+      },
+    };
+
+    const start = Date.now();
+    const result = await runtime.spawn({
+      runId: `i${Math.random().toString(36).slice(2, 8)}`,
+      projectPath: project,
+      task: { id: "idle-task", prompt: "" },
+      agent: silentAgent,
+      sandbox: hostSandbox,
+      strategy: { type: "head" },
+      budgetSeconds: 0, // infinite — proves the watchdog is independent of budget
+      idleTimeoutSeconds: 1, // 1s of silence → reap (short for test speed)
+      maxIterations: 1,
+      abort: ac.signal,
+      onEvent: (e) => events.push(e),
+    });
+    const elapsed = Date.now() - start;
+
+    // `sleep 60` would dominate without the watchdog; finishing fast proves the
+    // reap fired.
+    expect(elapsed).toBeLessThan(10_000);
+    expect(events.some((e) => e.kind === "idle_timeout")).toBe(true);
+    expect(events.some((e) => e.kind === "raw" && e.line.includes("reaping idle run"))).toBe(true);
+    // Not an operator abort, so no 130.
+    expect(result.exitCode).toBe(0);
+  }, 20_000);
+
+  test("activity resets the idle clock — a run quiet under the window is NOT reaped", async () => {
+    const project = await gitInitProject();
+    cleanup.push(project);
+    const events: RuntimeEvent[] = [];
+    const ac = new AbortController();
+
+    // Agent that speaks, goes quiet for LESS than the window, speaks again, then
+    // finishes. Total runtime exceeds the idle window but no single silent gap
+    // does — so a correct inactivity timer (reset on every activity) never
+    // reaps it.
+    const chattyAgent: AgentSpec = {
+      name: "chatty",
+      buildArgv() {
+        const sys = JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "chatty_session",
+        });
+        const asst = JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: "still working" }] },
+        });
+        const res = JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "done",
+          session_id: "chatty_session",
+        });
+        const script = `printf '%s\\n' '${sys}'; sleep 1; printf '%s\\n' '${asst}'; sleep 1; printf '%s\\n' '${res}'`;
+        return { argv: ["sh", "-c", script] };
+      },
+      parseLine: makeStubAgent().parseLine,
+    };
+
+    const result = await runtime.spawn({
+      runId: `r${Math.random().toString(36).slice(2, 8)}`,
+      projectPath: project,
+      task: { id: "resume-task", prompt: "" },
+      agent: chattyAgent,
+      sandbox: hostSandbox,
+      strategy: { type: "head" },
+      budgetSeconds: 0,
+      idleTimeoutSeconds: 2, // window (2s) > each gap (1s), < total (~2.4s)
+      maxIterations: 1,
+      abort: ac.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    // The 1s gaps never breach the 2s window, so the run runs to completion.
+    expect(events.some((e) => e.kind === "idle_timeout")).toBe(false);
+    expect(events.some((e) => e.kind === "agent_exit")).toBe(true);
+    expect(result.sessionId).toBe("chatty_session");
+    expect(result.exitCode).toBe(0);
+  }, 20_000);
+
+  test("idleTimeoutSeconds=0 disables the watchdog", async () => {
+    const project = await gitInitProject();
+    cleanup.push(project);
+    const events: RuntimeEvent[] = [];
+    const ac = new AbortController();
+
+    // Silent agent that would be reaped if the watchdog were armed. With
+    // idleTimeoutSeconds=0 the watchdog is off, so we must stop it ourselves
+    // (via abort) — proving nothing else killed it in the meantime.
+    const silentAgent: AgentSpec = {
+      name: "silent-forever",
+      buildArgv() {
+        return { argv: ["sleep", "60"] };
+      },
+      parseLine() {
+        return [];
+      },
+    };
+
+    setTimeout(() => ac.abort(), 1500);
+    await runtime.spawn({
+      runId: `z${Math.random().toString(36).slice(2, 8)}`,
+      projectPath: project,
+      task: { id: "no-watchdog", prompt: "" },
+      agent: silentAgent,
+      sandbox: hostSandbox,
+      strategy: { type: "head" },
+      budgetSeconds: 0,
+      idleTimeoutSeconds: 0, // disabled
+      maxIterations: 1,
+      abort: ac.signal,
+      onEvent: (e) => events.push(e),
+    });
+
+    // No idle_timeout was ever emitted; only our abort ended the run.
+    expect(events.some((e) => e.kind === "idle_timeout")).toBe(false);
+  }, 20_000);
 });

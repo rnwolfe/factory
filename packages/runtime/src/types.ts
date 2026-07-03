@@ -157,6 +157,17 @@ export interface RunSpec {
    * tests override it to a small value.
    */
   agentExitGraceMs?: number;
+  /**
+   * Inactivity watchdog window (seconds). If NO activity — no parsed stream
+   * event and no raw pane/tail byte — is observed for this long, the runtime
+   * emits an `idle_timeout` event and kills the tmux session so a hung agent
+   * can't occupy a worker-pool slot forever. This is an *inactivity* timeout,
+   * not a total-duration cap: the clock resets on every observed activity.
+   * Independent of `budgetSeconds` — it protects unbounded-budget runs too.
+   * Defaults to 20 minutes; `0` disables the watchdog (mirroring the budget
+   * convention). Tests override it to a small value.
+   */
+  idleTimeoutSeconds?: number;
 }
 
 export interface RunResult {

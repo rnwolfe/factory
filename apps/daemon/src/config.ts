@@ -22,6 +22,13 @@ export interface FactoryConfig {
   /** Default budget seconds for runs that don't specify one. */
   defaultRunBudgetSeconds: number;
   /**
+   * Inactivity watchdog window (seconds) for code-changing runs. A run that
+   * produces no output for this long is reaped as a hang and marked `failed`.
+   * Independent of the budget cap — it protects unbounded-budget (`budgetSeconds
+   * = 0`) runs too. Defaults to 1200 (20 min); `0` disables the watchdog.
+   */
+  runIdleTimeoutSeconds: number;
+  /**
    * Wall-clock cap (seconds) for non-run agent invocations: triage, plan
    * iteration, audit iteration, feedback. 0 = unlimited (matches running
    * `claude` directly). Quality is more important than speed by default.
@@ -134,6 +141,7 @@ interface PartialConfig {
   dbPath?: string;
   maxConcurrentRuns?: number;
   defaultRunBudgetSeconds?: number;
+  runIdleTimeoutSeconds?: number;
   agentBudgetSeconds?: number;
   gitAuthor?: { name?: string; email?: string };
   factoryProjectId?: string | null;
@@ -153,6 +161,8 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
     maxConcurrentRuns: p.maxConcurrentRuns ?? Number(process.env.FACTORY_MAX_RUNS ?? 4),
     defaultRunBudgetSeconds:
       p.defaultRunBudgetSeconds ?? Number(process.env.FACTORY_RUN_BUDGET ?? 7200),
+    runIdleTimeoutSeconds:
+      p.runIdleTimeoutSeconds ?? Number(process.env.FACTORY_RUN_IDLE_TIMEOUT ?? 1200),
     agentBudgetSeconds: p.agentBudgetSeconds ?? Number(process.env.FACTORY_AGENT_BUDGET ?? 0),
     gitAuthor: {
       name: p.gitAuthor?.name ?? process.env.FACTORY_GIT_NAME ?? "Factory",
@@ -249,6 +259,7 @@ function serializeConfig(config: FactoryConfig): Record<string, unknown> {
     dbPath: config.dbPath,
     maxConcurrentRuns: config.maxConcurrentRuns,
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,
+    runIdleTimeoutSeconds: config.runIdleTimeoutSeconds,
     gitAuthor: config.gitAuthor,
   };
   if (config.vapid.publicKey && config.vapid.privateKey) {
