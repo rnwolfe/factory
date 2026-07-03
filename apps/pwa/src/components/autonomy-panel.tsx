@@ -483,6 +483,23 @@ export function AutonomyPanelView({
               />
             </KnobGroup>
 
+            <KnobGroup title="merge remediation · unattended">
+              <BoolKnob
+                ctx={ctx}
+                label="dirty auto-reset"
+                get={(c) => c.mergeRemediation.dirtyAutoReset}
+                set={(d, v) => setIn(d, "mergeRemediation", "dirtyAutoReset", v)}
+                drop={(d) => dropIn(d, "mergeRemediation", "dirtyAutoReset")}
+              />
+              <BoolKnob
+                ctx={ctx}
+                label="conflict auto-resolve"
+                get={(c) => c.mergeRemediation.conflictAutoResolve}
+                set={(d, v) => setIn(d, "mergeRemediation", "conflictAutoResolve", v)}
+                drop={(d) => dropIn(d, "mergeRemediation", "conflictAutoResolve")}
+              />
+            </KnobGroup>
+
             <KnobGroup title="alerts · per event">
               <AlertMatrix ctx={ctx} />
             </KnobGroup>
@@ -582,6 +599,10 @@ function ResolvedSummary({ cfg }: { cfg: AutonomyConfig }) {
       `${cfg.autorun.enabled ? "on" : "off · ships dark"} · blast ${cfg.autorun.maxBlastRadius} · classes ${cfg.autorun.classes.length > 0 ? cfg.autorun.classes.join(", ") : "—"}`,
     ],
     ["retry", `transient budget ${cfg.retry.transientBudget}`],
+    [
+      "merge",
+      `dirty-reset ${onOff(cfg.mergeRemediation.dirtyAutoReset)} · conflict-resolve ${onOff(cfg.mergeRemediation.conflictAutoResolve)}`,
+    ],
     ["alerts", `push ${alertCounts.push} · digest ${alertCounts.digest} · off ${alertCounts.off}`],
   ];
   return (
@@ -617,7 +638,7 @@ interface KnobCtx {
   edit: (mutate: (draft: AutonomyOverride) => void) => void;
 }
 
-type Group = "trust" | "gate" | "watch" | "autorun" | "retry";
+type Group = "trust" | "gate" | "watch" | "autorun" | "retry" | "mergeRemediation";
 
 function setIn(draft: AutonomyOverride, group: Group, key: string, value: unknown) {
   const d = draft as Record<string, Record<string, unknown>>;

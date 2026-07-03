@@ -91,6 +91,11 @@ interface DecisionPayload {
     agentSummary: string;
     diffStat: string;
   };
+  // merge remediation (feature plan mnx1zt27): when a `mergeRemediation.*` lever
+  // is on, the daemon remediates unattended and records the decision already-
+  // resolved carrying these markers — the signal for the "auto-resolved" state.
+  remediation?: "dirty-auto-reset" | "conflict-auto-resolved";
+  mergedSha?: string;
   // agent_decision shape
   kind?: "architectural" | "library" | "naming" | "scope" | "tradeoff";
   responseType?: "single" | "multi" | "free";
@@ -160,6 +165,20 @@ export function DecisionDetail() {
         .query()
         .then((rows) => rows.find((r) => r.id === decision.data?.rubricVersionId) ?? null),
     enabled: !!decision.data?.rubricVersionId,
+  });
+
+  // The resolved autonomy policy for this decision's project — read only for
+  // merge_failure, to decide whether the relevant `mergeRemediation.*` lever
+  // resolves to manual (operator taps a reason-specific action) or auto (the
+  // daemon already remediated; we show an informational state). Same resolution
+  // chain the AutonomyPanel reads (built-in ⊕ system ⊕ project).
+  const autonomy = useQuery({
+    queryKey: ["autonomy.config", "decision", decision.data?.projectId ?? ""],
+    queryFn: () =>
+      trpc.autonomy.config.query(
+        decision.data?.projectId ? { projectId: decision.data.projectId } : undefined,
+      ),
+    enabled: decision.data?.kind === "merge_failure" && !!decision.data?.projectId,
   });
 
   const action = useMutation({
@@ -346,6 +365,21 @@ export function DecisionDetail() {
   const isMergeFailure = d.kind === "merge_failure";
   const isAgentDecision = d.kind === "agent_decision";
   const isIssueIntake = d.kind === "issue_intake";
+  // Merge remediation (feature plan mnx1zt27). Each failure reason maps to one
+  // `mergeRemediation.*` lever; the reason-specific manual action is only offered
+  // when that lever resolves to manual (off). wrong-branch / other have no lever
+  // and keep the generic guidance. Undefined config (still loading) → treat as
+  // manual so the action is never wrongly hidden.
+  const mergeRem = autonomy.data?.resolved.mergeRemediation;
+  const relevantLeverAuto =
+    isMergeFailure && payload.reason === "dirty"
+      ? (mergeRem?.dirtyAutoReset ?? false)
+      : isMergeFailure && payload.reason === "conflict"
+        ? (mergeRem?.conflictAutoResolve ?? false)
+        : false;
+  // A resolved merge_failure carrying a remediation marker was handled unattended
+  // (the lever was on) — the informational "auto-resolved" state, not buttons.
+  const autoRemediated = isMergeFailure && !!payload.remediation;
   const isReleaseProposal = d.kind === "release_proposal";
   const isWatchInsight = d.kind === "watch_insight";
   const isPending = d.status === "pending";
@@ -1134,6 +1168,37 @@ export function DecisionDetail() {
 
       {isMergeFailure ? (
         <>
+          {autoRemediated ? (
+            <Section title="auto-resolved">
+              <div className="px-4 py-3 space-y-2 text-[14px] leading-relaxed text-[var(--color-fg-1)]">
+                <p>
+                  Factory{" "}
+                  {payload.remediation === "dirty-auto-reset"
+                    ? "reset a dirty main and merged this run into main unattended"
+                    : "auto-resolved the merge conflict and merged this run into main unattended"}
+                  . The{" "}
+                  <span className="mono text-[12px] text-[var(--color-fg)]">
+                    {payload.reason === "dirty" ? "dirty-auto-reset" : "conflict-auto-resolve"}
+                  </span>{" "}
+                  lever is on for this project, so no tap was needed — this is recorded for the
+                  audit trail.
+                </p>
+                {payload.mergedSha ? (
+                  <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                    merged as {payload.mergedSha.slice(0, 8)}
+                  </p>
+                ) : null}
+                {payload.runId && d.projectId ? (
+                  <Link
+                    to={`/projects/${d.projectId}/runs/${payload.runId}`}
+                    className="btn w-full"
+                  >
+                    view run · diff &amp; transcript
+                  </Link>
+                ) : null}
+              </div>
+            </Section>
+          ) : null}
           {payload.message ? (
             <Section title="git error">
               <p className="px-4 py-3 mono text-[12px] leading-relaxed text-[var(--color-fg-1)] whitespace-pre-wrap break-words">
@@ -1178,10 +1243,12 @@ export function DecisionDetail() {
               {payload.branch ? ` · ${payload.branch}` : ""}
             </p>
           ) : null}
-          <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
-            the agent's commits live on the run's branch — retry merges them into main once the
-            blocker is cleared. dismiss leaves them on the branch.
-          </p>
+          {!autoRemediated ? (
+            <p className="px-2 mono text-[10.5px] text-[var(--color-fg-3)]">
+              the agent's commits live on the run's branch — retry merges them into main once the
+              blocker is cleared. dismiss leaves them on the branch.
+            </p>
+          ) : null}
           {isPending ? <RecoveryPrompt decisionId={id} /> : null}
         </>
       ) : null}
@@ -1277,10 +1344,13 @@ export function DecisionDetail() {
           // project's for merge_failure) so the operator can resolve the
           // problem in-place before retrying.
           <div className="grid grid-cols-3 gap-2">
-            {isMergeFailure && payload.reason === "dirty" ? (
+            {isMergeFailure && payload.reason === "dirty" && !relevantLeverAuto ? (
               // Merge remediation (feature plan mnx1zt27): a dirty main defeats a
               // plain "retry merge" — it re-fails on the still-dirty tree. This
               // one-tap resets main to a clean state and retries in one shot.
+              // Only offered when `dirtyAutoReset` resolves to manual; when it's
+              // auto the daemon already remediated (handled via the auto-resolved
+              // state), so this pending surface falls back to generic guidance.
               <button
                 type="button"
                 className="btn btn-primary col-span-3"
@@ -1291,10 +1361,15 @@ export function DecisionDetail() {
                 {resolveDirty.isPending ? "resetting…" : "reset main & retry"}
               </button>
             ) : null}
-            {isMergeFailure && payload.reason === "conflict" && payload.proposedResolution ? (
+            {isMergeFailure &&
+            payload.reason === "conflict" &&
+            payload.proposedResolution &&
+            !relevantLeverAuto ? (
               // Conflict auto-resolve (feature plan mnx1zt27): an agent already
-              // resolved the conflict on a scratch branch. One tap lands it — the
-              // same mergeIntoMain path the unattended (lever-on) flow uses.
+              // resolved the conflict on a scratch branch (shown in "proposed
+              // resolution" above for review). One tap lands it — the same
+              // mergeIntoMain path the unattended (lever-on) flow uses. Offered
+              // only when `conflictAutoResolve` resolves to manual.
               <button
                 type="button"
                 className="btn btn-primary col-span-3"
