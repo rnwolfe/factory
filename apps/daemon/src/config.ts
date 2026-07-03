@@ -34,6 +34,15 @@ export interface FactoryConfig {
    * `claude` directly). Quality is more important than speed by default.
    */
   agentBudgetSeconds: number;
+  /**
+   * Retention window (days) for the `events` table. A daily janitorial sweep
+   * deletes event rows belonging to runs in a terminal state (completed /
+   * failed / aborted) whose run ended more than this many days ago. Events for
+   * non-terminal runs (queued / running / blocked / …) are never touched,
+   * regardless of age. Default 30; `0` disables the sweep entirely. See
+   * `apps/daemon/src/workers/events-retention.ts`.
+   */
+  eventRetentionDays: number;
   /** Git author identity for project bootstrap commits. */
   gitAuthor: { name: string; email: string };
   /**
@@ -143,6 +152,7 @@ interface PartialConfig {
   defaultRunBudgetSeconds?: number;
   runIdleTimeoutSeconds?: number;
   agentBudgetSeconds?: number;
+  eventRetentionDays?: number;
   gitAuthor?: { name?: string; email?: string };
   factoryProjectId?: string | null;
   vapid?: { publicKey?: string; privateKey?: string; subject?: string };
@@ -164,6 +174,8 @@ function fillDefaults(p: PartialConfig): FactoryConfig {
     runIdleTimeoutSeconds:
       p.runIdleTimeoutSeconds ?? Number(process.env.FACTORY_RUN_IDLE_TIMEOUT ?? 1200),
     agentBudgetSeconds: p.agentBudgetSeconds ?? Number(process.env.FACTORY_AGENT_BUDGET ?? 0),
+    eventRetentionDays:
+      p.eventRetentionDays ?? Number(process.env.FACTORY_EVENT_RETENTION_DAYS ?? 30),
     gitAuthor: {
       name: p.gitAuthor?.name ?? process.env.FACTORY_GIT_NAME ?? "Factory",
       email: p.gitAuthor?.email ?? process.env.FACTORY_GIT_EMAIL ?? "factory@localhost",
@@ -260,6 +272,7 @@ function serializeConfig(config: FactoryConfig): Record<string, unknown> {
     maxConcurrentRuns: config.maxConcurrentRuns,
     defaultRunBudgetSeconds: config.defaultRunBudgetSeconds,
     runIdleTimeoutSeconds: config.runIdleTimeoutSeconds,
+    eventRetentionDays: config.eventRetentionDays,
     gitAuthor: config.gitAuthor,
   };
   if (config.vapid.publicKey && config.vapid.privateKey) {

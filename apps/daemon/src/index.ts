@@ -35,6 +35,7 @@ import { surfaceObservations } from "./watch/observation-inbox.ts";
 import { persistObservations } from "./watch/observation-store.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
 import { type RawObservation, synthesizeObservations } from "./watch/synthesize.ts";
+import { createEventsRetentionJob } from "./workers/events-retention.ts";
 import { startIdleAutoAdvancer } from "./workers/idle-advance.ts";
 import { WorkerPool } from "./workers/pool.ts";
 import { reapOrphanedRuns } from "./workers/recover.ts";
@@ -265,6 +266,9 @@ export async function startDaemon(): Promise<DaemonHandle> {
         saveObservations,
       }),
       createMetricsRollupJob(db),
+      // Janitorial: age out `events` rows for terminal runs past the retention
+      // window so the table doesn't grow without bound. No inbox card.
+      createEventsRetentionJob(db, config.eventRetentionDays),
     ],
   });
 

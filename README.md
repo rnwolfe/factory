@@ -52,6 +52,10 @@ factory doctor                # preflight checks (bun, git, unit, /health, db, e
 
 `~/.factory/config.yaml` (mode 600). Bootstrap-only fields live here: `auth.token`, `port`, `host`, `workdir`, `dbPath`. Everything operator-tunable (git author, run concurrency, GitHub token, factoryProjectId, upgrade channel) is editable from the PWA's `/settings` and persists in the SQLite DB — yaml seeds defaults on first boot, the DB takes precedence afterwards.
 
+yaml-only knobs (not surfaced in `/settings`) include:
+
+- `eventRetentionDays` (default `30`) — a daily janitorial sweep deletes `events` rows belonging to runs in a terminal state (`completed`/`failed`/`aborted`) whose run ended more than this many days ago. Events for non-terminal runs (`queued`/`running`/`blocked`/…) are never deleted, regardless of age. Set `0` to disable the sweep. Overridable via `FACTORY_EVENT_RETENTION_DAYS`.
+
 Environment variable overrides (`FACTORY_PORT`, `FACTORY_HOME`, `FACTORY_TOKEN`, …) work for any field; useful for ephemeral / containerized runs.
 
 ### Using codex (ChatGPT subscription)

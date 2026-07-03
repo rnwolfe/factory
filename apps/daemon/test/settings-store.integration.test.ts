@@ -32,6 +32,7 @@ function setup(): {
     defaultRunBudgetSeconds: 7200,
     runIdleTimeoutSeconds: 1200,
     agentBudgetSeconds: 0,
+    eventRetentionDays: 30,
     gitAuthor: { name: "yaml-name", email: "yaml@example.com" },
     githubToken: null,
     githubApp: null,
