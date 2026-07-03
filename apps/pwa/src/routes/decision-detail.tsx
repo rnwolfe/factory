@@ -182,6 +182,20 @@ export function DecisionDetail() {
     },
   });
 
+  // One-tap merge remediation for a dirty main (feature plan mnx1zt27): reset
+  // main to a clean state and retry the merge in one shot. Distinct from the
+  // plain retry (which re-fails while main is still dirty).
+  const resolveDirty = useMutation({
+    mutationFn: () => trpc.decisions.resolveMergeFailureDirty.mutate({ decisionId: id }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+      qc.invalidateQueries({ queryKey: ["projects.list"] });
+      if (res.projectId) nav(`/projects/${res.projectId}`);
+      else nav("/");
+    },
+  });
+
   type Override =
     | { kind: "single"; choice: string }
     | { kind: "multi"; choices: string[] }
@@ -1238,6 +1252,20 @@ export function DecisionDetail() {
           // project's for merge_failure) so the operator can resolve the
           // problem in-place before retrying.
           <div className="grid grid-cols-3 gap-2">
+            {isMergeFailure && payload.reason === "dirty" ? (
+              // Merge remediation (feature plan mnx1zt27): a dirty main defeats a
+              // plain "retry merge" — it re-fails on the still-dirty tree. This
+              // one-tap resets main to a clean state and retries in one shot.
+              <button
+                type="button"
+                className="btn btn-primary col-span-3"
+                onClick={() => resolveDirty.mutate()}
+                disabled={resolveDirty.isPending || action.isPending || startIntervention.isPending}
+                title="hard-reset main to a clean state (discarding the uncommitted changes that blocked the merge), then retry"
+              >
+                {resolveDirty.isPending ? "resetting…" : "reset main & retry"}
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-primary"

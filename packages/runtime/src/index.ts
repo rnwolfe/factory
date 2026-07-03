@@ -25,4 +25,5 @@ export {
   type MergeResult,
   mergeIntoMain,
   removeWorktree,
+  resetToClean,
 } from "./worktree.ts";

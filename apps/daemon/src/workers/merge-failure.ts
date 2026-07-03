@@ -19,21 +19,33 @@ export async function recordMergeFailure(
     reason: string;
     message: string;
     payload: Record<string, unknown>;
+    /**
+     * When set, the decision is recorded already-`actioned` instead of
+     * `pending` — the audit-trail marker for a remediation that already ran
+     * unattended (merge remediation's `dirtyAutoReset`, ADR mnx1zt27). It does
+     * NOT enter the inbox: no `decision_created` (which would surface it as
+     * "needs you"); a `decision_actioned` is emitted for live surfaces instead.
+     */
+    resolvedOutcome?: string;
   },
 ): Promise<string> {
   const decisionId = createId();
+  const now = Date.now();
+  const resolvedOutcome = params.resolvedOutcome;
+  const resolved = resolvedOutcome !== undefined;
   await db.insert(schema.decisions).values({
     id: decisionId,
     kind: "merge_failure",
     projectId: params.projectId,
-    outcome: `merge:${params.reason}`,
+    outcome: resolvedOutcome ?? `merge:${params.reason}`,
     payload: params.payload,
-    status: "pending",
-    createdAt: Date.now(),
+    status: resolved ? "actioned" : "pending",
+    actionedAt: resolved ? now : null,
+    createdAt: now,
   });
   events.publish({
     channel: "inbox",
-    kind: "decision_created",
+    kind: resolved ? "decision_actioned" : "decision_created",
     decisionId,
     projectId: params.projectId,
   });

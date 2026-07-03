@@ -25,6 +25,7 @@ import { createTask, updateTaskStatus } from "../projects/tasks.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
+import { resetMainAndRetryMerge } from "../workers/merge-remediation.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import { submitRun } from "../workers/submit.ts";
 import { autoContract } from "../workers/trust-ladder.ts";
@@ -833,6 +834,88 @@ export const decisionsRouter = router({
       });
 
       return { ok: true, projectId, retryRunId, mergedSha, planId };
+    }),
+
+  /**
+   * One-tap merge remediation for a dirty `main` (feature plan mnx1zt27). The
+   * plain `action:"approve"` retry re-runs `mergeIntoMain` as-is, which fails
+   * again the moment `main` is still dirty — the operator would then have to
+   * open a tmux and hand-clean it. This procedure instead resets `main` to a
+   * clean state and retries in one shot. It is the operator-approval half of
+   * the `mergeRemediation.dirtyAutoReset` lever: when the lever is off, the
+   * inbox surfaces this as a "Reset main & retry" action; when on, the runner
+   * fires the same primitive unattended.
+   *
+   * Scoped to `merge_failure` decisions whose `reason` is `dirty` — a conflict
+   * needs a real resolution, not a reset. If the reset+retry still fails, the
+   * decision stays pending and the tmux-intervention fallback is untouched
+   * (acceptance §5).
+   */
+  resolveMergeFailureDirty: protectedProcedure
+    .input(z.object({ decisionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const decision = await ctx.db
+        .select()
+        .from(schema.decisions)
+        .where(eq(schema.decisions.id, input.decisionId))
+        .get();
+      if (!decision) throw new TRPCError({ code: "NOT_FOUND", message: "decision not found" });
+      if (decision.kind !== "merge_failure") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `resolveMergeFailureDirty only handles merge_failure (got ${decision.kind})`,
+        });
+      }
+      if (decision.status !== "pending") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `decision already ${decision.status}`,
+        });
+      }
+      const payload = decision.payload as MergeFailurePayload;
+      if (payload.reason !== "dirty") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `reset+retry only applies to a dirty main (reason: ${payload.reason})`,
+        });
+      }
+      if (!decision.projectId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "merge_failure decision missing projectId",
+        });
+      }
+
+      const retry = await resetMainAndRetryMerge(
+        { config: ctx.config, db: ctx.db, events: ctx.events, runs: ctx.runs, pool: ctx.pool },
+        {
+          projectId: decision.projectId,
+          runId: payload.runId,
+          taskId: payload.taskId ?? null,
+          branch: payload.branch,
+        },
+      );
+      if (!retry.ok) {
+        // Leave the decision pending so the operator can intervene via tmux.
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `reset+retry still failing — ${retry.reason}: ${retry.message}`,
+        });
+      }
+
+      const now = Date.now();
+      await ctx.db
+        .update(schema.decisions)
+        .set({ status: "actioned", actionedAt: now, outcome: "merge:dirty-reset-retry" })
+        .where(eq(schema.decisions.id, input.decisionId));
+      ctx.events.publish({
+        channel: "inbox",
+        kind: "decision_actioned",
+        decisionId: input.decisionId,
+        projectId: decision.projectId,
+      });
+
+      return { ok: true, projectId: decision.projectId, mergedSha: retry.sha };
     }),
 
   /**
