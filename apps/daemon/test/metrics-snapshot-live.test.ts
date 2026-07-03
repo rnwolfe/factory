@@ -132,24 +132,59 @@ describe("computeLiveSnapshot (live-from-source)", () => {
       // Derived ratios computed from the live counts, not a rolled-up bucket.
       expect(snap.derived.decisions_per_run).toBeCloseTo(2 / 3);
       expect(snap.derived.auto_ratify_rate).toBeCloseTo(1 / 2);
+      // Every metric echoes back the window it was computed over; rates roll 7d.
+      expect(snap.windows.runs_total).toBe("cumulative");
+      expect(snap.derivedWindow).toBe("rolling_7d");
     } finally {
       h.cleanup();
     }
   });
 
-  test("window ends at request time — activity later today is excluded", async () => {
+  test("cumulative count tiles include prior days; future activity is excluded", async () => {
     const h = setup();
     try {
       const midnight = floorToUtcDay(Date.parse("2026-06-21T00:00:00Z"));
       const now = midnight + 6 * 60 * 60_000; // 06:00 UTC
 
       const p = seedProject(h.db, "alpha");
-      seedRun(h.db, p, "completed", midnight + 1000); // before now → counts
-      seedRun(h.db, p, "completed", now + 60_000); // after now → excluded
-      seedRun(h.db, p, "completed", midnight - 1000); // yesterday → excluded
+      seedRun(h.db, p, "completed", midnight + 1000); // today, before now → counts
+      seedRun(h.db, p, "completed", midnight - 1000); // yesterday → counts (all-time)
+      seedRun(h.db, p, "completed", now + 60_000); // future → excluded (window ends now)
 
       const snap = await computeLiveSnapshot(h.db, METRICS_PORTFOLIO, now);
-      expect(snap.metrics.runs_total).toBe(1);
+      // Cumulative: yesterday + today-so-far, never the future run.
+      expect(snap.metrics.runs_total).toBe(2);
+      expect(snap.windows.runs_total).toBe("cumulative");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("rate ratios use a rolling window while count tiles stay cumulative", async () => {
+    const h = setup();
+    try {
+      // Anchor to the real UTC day so the rolling-7d window (relative to now) is
+      // meaningful; place the "old" activity comfortably outside 7 days.
+      const now = Date.now();
+      const p = seedProject(h.db, "alpha");
+      // Recent (inside 7d): 1 run + 1 auto-ratified decision → drives the rate.
+      seedRun(h.db, p, "completed", now - 3_600_000);
+      seedDecision(h.db, p, "auto_ratified", now - 3_600_000);
+      // Old (10 days ago): counts cumulatively but must NOT touch the 7d ratios.
+      const old = now - 10 * 86_400_000;
+      seedRun(h.db, p, "completed", old);
+      seedRun(h.db, p, "completed", old);
+      seedDecision(h.db, p, "pending", old);
+
+      const snap = await computeLiveSnapshot(h.db, METRICS_PORTFOLIO, now);
+      // Cumulative counts include the old activity (3 runs, 2 decisions total).
+      expect(snap.metrics.runs_total).toBe(3);
+      expect(snap.metrics.decisions_total).toBe(2);
+      expect(snap.windows.decisions_total).toBe("cumulative");
+      // Rolling-7d ratios see only the recent run + decision.
+      expect(snap.derivedWindow).toBe("rolling_7d");
+      expect(snap.derived.decisions_per_run).toBeCloseTo(1 / 1);
+      expect(snap.derived.auto_ratify_rate).toBeCloseTo(1 / 1);
     } finally {
       h.cleanup();
     }
