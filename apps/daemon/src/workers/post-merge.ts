@@ -5,11 +5,21 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import { listTasks, pickNextReadyTask, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
+import { KeyedMutex } from "./keyed-mutex.ts";
 import type { WorkerPool } from "./pool.ts";
 import type { RunRegistry } from "./registry.ts";
 
 type RunStatus = (typeof schema.runStatusEnum)[number];
 type TaskStatus = (typeof schema.taskStatusEnum)[number];
+
+/**
+ * Serializes the auto-advance check-then-submit per project. Module-level so
+ * every `applyPostMergeRunOutcome` invocation (runner finalize, merge_failure
+ * approve, intervention resume) shares one lock keyed by projectId. Two runs on
+ * the same project finalizing concurrently would otherwise both see "no other
+ * active runs" and both submit the same next ready task → duplicate run.
+ */
+const autoAdvanceLock = new KeyedMutex();
 
 /**
  * Single source of truth mapping a terminal run status onto the task status
@@ -120,18 +130,27 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
   // merge_failure-approve path the row was never re-queried so we're
   // safe either way.
   if (project.autoAdvance) {
-    const others = await db
-      .select({ id: schema.runs.id })
-      .from(schema.runs)
-      .where(
-        and(
-          eq(schema.runs.projectId, project.id),
-          inArray(schema.runs.status, ["queued", "running"]),
-          ne(schema.runs.id, runId),
-        ),
-      )
-      .all();
-    if (others.length === 0) {
+    // Hold a per-project lock across the ENTIRE check-then-submit sequence.
+    // bun:sqlite statements are individually atomic, but this logical
+    // "any other active runs? → pick next → submit" chain is not: without the
+    // lock, two concurrent finalizations both read zero active runs and both
+    // submit the same next task (worker-pool concurrency makes this window
+    // real). The lock is held only across the check + submit, never across the
+    // run's execution.
+    await autoAdvanceLock.run(project.id, async () => {
+      const others = await db
+        .select({ id: schema.runs.id })
+        .from(schema.runs)
+        .where(
+          and(
+            eq(schema.runs.projectId, project.id),
+            inArray(schema.runs.status, ["queued", "running"]),
+            ne(schema.runs.id, runId),
+          ),
+        )
+        .all();
+      if (others.length > 0) return;
+
       const tasks = await listTasks(project);
       // Use `pickNextReadyTask` (not `tasks.find`) so auto-advance respects
       // the operator's starting point and doesn't wrap back to an earlier
@@ -139,6 +158,12 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
       // id after `run.taskId`; stops if nothing later is ready.
       const next = pickNextReadyTask(tasks, run.taskId);
       if (next) {
+        // Second line of defense: re-read the picked task now that we hold the
+        // lock. Statuses can have moved (another path started it) while we
+        // waited on the lock — if it's no longer `ready`, don't double-submit.
+        const fresh = await readTaskFile(project, next.id);
+        if (!fresh || fresh.frontmatter.status !== "ready") return;
+
         // Queue is not empty after all — clear any stale queue-empty nudge.
         const { resolveQueueEmptyNudges } = await import("../inbox/queue-empty.ts");
         await resolveQueueEmptyNudges(db, events, project.id);
@@ -155,6 +180,6 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
         const { maybeEmitQueueEmptyNudge } = await import("../inbox/queue-empty.ts");
         await maybeEmitQueueEmptyNudge(db, events, project);
       }
-    }
+    });
   }
 }

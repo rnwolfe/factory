@@ -336,9 +336,12 @@ export async function submitRun(
   // when the source carried one. Either way the runner needs the flag.
   const resume =
     (sessionIdForRow ?? "").length > 0 && Boolean(input.reuseFromRunId || resumeSessionId);
-  void pool.submit(async () => {
-    await executeRun({ config, db, events, runs, pool }, runId, { resume });
-  });
+  void pool.submit(
+    async () => {
+      await executeRun({ config, db, events, runs, pool }, runId, { resume });
+    },
+    { label: runId },
+  );
 
   return { runId };
 }
@@ -362,7 +365,10 @@ export async function resumeOrphanedRun(deps: SubmitRunDeps, runId: string): Pro
     .set({ status: "queued", endedAt: null })
     .where(eq(schema.runs.id, runId));
 
-  void pool.submit(async () => {
-    await executeRun({ config, db, events, runs, pool }, runId, { resume: true });
-  });
+  void pool.submit(
+    async () => {
+      await executeRun({ config, db, events, runs, pool }, runId, { resume: true });
+    },
+    { label: runId },
+  );
 }
