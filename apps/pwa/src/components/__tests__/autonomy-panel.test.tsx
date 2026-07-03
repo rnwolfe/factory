@@ -18,6 +18,7 @@ const RESOLVED = {
   watch: { synthesisCadence: "daily", generatorEnabled: true, inbandGroom: true },
   autorun: { enabled: false, maxBlastRadius: "contained", classes: [] },
   retry: { transientBudget: 1 },
+  mergeRemediation: { dirtyAutoReset: false, conflictAutoResolve: false },
   alerts: {
     trust_promoted: "digest",
     trust_contracted: "push",
@@ -59,9 +60,10 @@ function clickByText(container: HTMLElement, text: string) {
 function response(over?: {
   systemOverride?: unknown;
   projectOverride?: unknown;
+  resolved?: unknown;
 }): AutonomyConfigResponse {
   return {
-    resolved: RESOLVED,
+    resolved: over?.resolved ?? RESOLVED,
     builtin: RESOLVED,
     systemOverride: over?.systemOverride ?? null,
     projectOverride: over?.projectOverride ?? null,
@@ -90,6 +92,36 @@ describe("AutonomyPanelView", () => {
     expect(text).toContain("effective policy");
     expect(text).toContain("min high");
     expect(text).toContain("synthesis daily");
+    // mergeRemediation surfaces through the generic resolved rendering — no
+    // bespoke row component; both levers show their on/off state (mnx1zt27).
+    expect(text).toContain("dirty-reset off");
+    expect(text).toContain("conflict-resolve off");
+  });
+
+  test("mergeRemediation levers surface as inherited when overridden on", () => {
+    // Both levers on via a project override; the summary reflects the resolved
+    // (merged) values. This exercises the same generic ResolvedSummary path
+    // every other group uses — no code specific to these two knobs.
+    const { container } = render(
+      <AutonomyPanelView
+        scope="project"
+        data={response({
+          projectOverride: {
+            mergeRemediation: { dirtyAutoReset: true, conflictAutoResolve: true },
+          },
+          // resolved reflects the override having been merged in
+          resolved: {
+            ...RESOLVED,
+            mergeRemediation: { dirtyAutoReset: true, conflictAutoResolve: true },
+          },
+        })}
+        onApplyPreset={() => {}}
+        onSaveOverride={() => {}}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("dirty-reset on");
+    expect(text).toContain("conflict-resolve on");
   });
 
   test("labels the active preset when the override matches a preset blob", () => {
