@@ -1,4 +1,4 @@
-import { schema } from "@factory/db";
+import { type Db, schema } from "@factory/db";
 import { commitAllChanges, mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
@@ -14,6 +14,8 @@ import {
   resurfaceAnswer,
   resurfaceWorkForDecision,
 } from "../decisions/resurface.ts";
+import type { EventBus } from "../events.ts";
+import { announceIssuePlanSeeded, type IssueDraft } from "../github/issue-triage.ts";
 import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { defaultOperatorMemoryPath, slugify, writeMemoryFact } from "../memory/operator-memory.ts";
 import { seedFeaturePlanDraft, seedProjectSpecDraft } from "../plans/iterate.ts";
@@ -50,6 +52,46 @@ async function commitNewTaskFile(
 ): Promise<void> {
   if (project.taskBackend === "github-issues") return;
   await commitAllChanges(project.workdirPath, message, config.gitAuthor);
+}
+
+/**
+ * Seed (or reuse) a drafting `feature_plan` scoped to a project from an inbox
+ * decision — the shared seam behind watch-insight `draft-feature-plan` and
+ * issue_intake's `plan` suggestion. Idempotent on (decisionId, feature_plan): a
+ * re-approve returns the existing plan id rather than forking a duplicate, and
+ * `plan_created` is emitted only on first insert. The caller schedules the first
+ * iteration and sets the decision's projectId.
+ */
+async function seedFeaturePlanForDecision(
+  deps: { db: Db; events: EventBus },
+  args: { decisionId: string; projectId: string; goal: string },
+): Promise<string> {
+  const existing = await deps.db
+    .select({ id: schema.plans.id })
+    .from(schema.plans)
+    .where(and(eq(schema.plans.decisionId, args.decisionId), eq(schema.plans.kind, "feature_plan")))
+    .get();
+  if (existing) return existing.id;
+  const id = createId();
+  const tnow = Date.now();
+  await deps.db.insert(schema.plans).values({
+    id,
+    kind: "feature_plan",
+    status: "drafting",
+    decisionId: args.decisionId,
+    projectId: args.projectId,
+    goal: args.goal,
+    draft: JSON.stringify(seedFeaturePlanDraft(args.goal)),
+    createdAt: tnow,
+    updatedAt: tnow,
+  });
+  deps.events.publish({
+    channel: "inbox",
+    kind: "plan_created",
+    planId: id,
+    planKind: "feature_plan",
+  });
+  return id;
 }
 
 interface ReleaseProposalPayload {
@@ -596,9 +638,12 @@ export const decisionsRouter = router({
       }
 
       if (input.action === "approve" && decision.kind === "issue_intake") {
-        // Adopt the externally-authored issue as a Factory task: add the
-        // factory + status:ready labels and frontmatter so it joins the
-        // project's task set. Dismiss just leaves the issue untracked.
+        // Honor the intake triage's plan/task classification. When triage said
+        // `task` (or gave no suggestion) we adopt the externally-authored issue
+        // as a single Factory task in-place. When triage said `plan`, the issue
+        // needs decomposition — seed a drafting feature_plan instead of adopting,
+        // and close the source issue when that plan freezes. Dismiss leaves the
+        // issue untracked (handled below by the actioned=dismissed branch).
         if (!decision.projectId) throw new Error("issue_intake decision missing projectId");
         const project = await ctx.db
           .select()
@@ -606,14 +651,37 @@ export const decisionsRouter = router({
           .where(eq(schema.projects.id, decision.projectId))
           .get();
         if (!project) throw new Error("project not found");
-        const payload = decision.payload as { number: number };
-        const adopted = await adoptIssue(ctx.config, project, String(payload.number));
-        if (!adopted) {
-          throw new Error(
-            `could not adopt issue #${payload.number} — App unconfigured or issue missing`,
+        const payload = decision.payload as {
+          number: number;
+          title?: string;
+          draft?: IssueDraft;
+        };
+
+        if (payload.draft?.kind === "plan") {
+          // Triage classified this issue as needing decomposition, not a single
+          // task. Seed a drafting feature_plan (the same seam watch_insight's
+          // draft-feature-plan uses) instead of `adoptIssue`. On freeze the plan
+          // decomposes into tasks — filed as issues, since `createTask` is
+          // backend-agnostic — and the source issue is adopted + closed (see
+          // plans.freeze → closeIssueForFrozenPlan). Echo a bot comment now so
+          // the filer sees a plan is being drafted.
+          const goal = payload.draft.title || payload.title || `Plan for issue #${payload.number}`;
+          planId = await seedFeaturePlanForDecision(
+            { db: ctx.db, events: ctx.events },
+            { decisionId: decision.id, projectId: decision.projectId, goal },
           );
+          schedulePlanIteration(ctx, { planId });
+          void announceIssuePlanSeeded(ctx.config, project, payload.number, planId, decision.id);
+          projectId = project.id;
+        } else {
+          const adopted = await adoptIssue(ctx.config, project, String(payload.number));
+          if (!adopted) {
+            throw new Error(
+              `could not adopt issue #${payload.number} — App unconfigured or issue missing`,
+            );
+          }
+          projectId = project.id;
         }
-        projectId = project.id;
       }
 
       if (input.action === "approve" && decision.kind === "issue_import") {
@@ -633,6 +701,11 @@ export const decisionsRouter = router({
           input.selectedIssues && input.selectedIssues.length > 0
             ? all.filter((c) => input.selectedIssues?.includes(c.number))
             : all;
+        // Bulk reap has no per-issue triage suggestion — import candidates carry
+        // no plan/task classification — so every selected issue defaults to a
+        // task via `adopt`. Plan-vs-task routing is a single-issue intake concern
+        // (see the issue_intake branch above); promoting a bulk-adopted item to a
+        // plan is a follow-up the operator drives from the adopted task.
         // Adopt sequentially; collect failures so a single missing/renamed
         // issue doesn't abort the whole batch. Report only if everything fails.
         const failures: number[] = [];
@@ -765,40 +838,11 @@ export const decisionsRouter = router({
             // Seed a drafting feature_plan the operator iterates to freeze — the
             // same seam as triage→project_spec, but scoped to an existing project.
             // Idempotent on the decision; the freeze gate + vision filter stay intact.
-            const existing = await ctx.db
-              .select({ id: schema.plans.id })
-              .from(schema.plans)
-              .where(
-                and(
-                  eq(schema.plans.decisionId, decision.id),
-                  eq(schema.plans.kind, "feature_plan"),
-                ),
-              )
-              .get();
-            let planId = existing?.id ?? null;
-            if (!planId) {
-              const id = createId();
-              const tnow = Date.now();
-              await ctx.db.insert(schema.plans).values({
-                id,
-                kind: "feature_plan",
-                status: "drafting",
-                decisionId: decision.id,
-                projectId: decision.projectId,
-                goal: payload.title,
-                draft: JSON.stringify(seedFeaturePlanDraft(payload.title)),
-                createdAt: tnow,
-                updatedAt: tnow,
-              });
-              planId = id;
-              ctx.events.publish({
-                channel: "inbox",
-                kind: "plan_created",
-                planId: id,
-                planKind: "feature_plan",
-              });
-            }
-            schedulePlanIteration(ctx, { planId });
+            const featurePlanId = await seedFeaturePlanForDecision(
+              { db: ctx.db, events: ctx.events },
+              { decisionId: decision.id, projectId: decision.projectId, goal: payload.title },
+            );
+            schedulePlanIteration(ctx, { planId: featurePlanId });
             projectId = decision.projectId;
           } else if (
             payload.proposal === "groom-backlog" &&

@@ -18,10 +18,12 @@ import {
 import { extractJsonObject } from "../plans/json-extract.ts";
 import { readAgentInstructions } from "../projects/agents-md.ts";
 import {
+  adoptIssue,
   fetchIssueConversation,
   type IssueConversation,
   postIssueComment,
 } from "../projects/github-task-store.ts";
+import { updateTaskStatus } from "../projects/tasks.ts";
 
 /**
  * Issue-intake triage parity (task-048). Brings the github-issues task backend
@@ -548,4 +550,88 @@ async function persistAgentComment(db: Db, decisionId: string, body: string): Pr
     body,
     createdAt: Date.now(),
   });
+}
+
+/**
+ * Echo a `factory[bot]` comment on the source issue when intake triage's `plan`
+ * suggestion is approved and a drafting feature_plan is seeded. The issue is NOT
+ * adopted yet — it's decomposed into tasks and closed when the plan freezes (see
+ * `closeIssueForFrozenPlan`). Best-effort; never throws — a GitHub hiccup must
+ * not fail the operator's approval.
+ */
+export async function announceIssuePlanSeeded(
+  config: Pick<FactoryConfig, "githubApp" | "publicBaseUrl">,
+  project: IssueIntakeProject,
+  issueNumber: number,
+  planId: string,
+  decisionId: string,
+): Promise<void> {
+  const footer = factoryLinkFooter(config.publicBaseUrl, [
+    { label: "review plan", path: `/plans/${planId}` },
+    { label: "inbox decision", path: `/decisions/${decisionId}` },
+  ]);
+  const body = [
+    "Factory triaged this issue as a **plan** — it needs decomposition rather than a single discrete task.",
+    "A feature plan is being drafted now. When it freezes, this issue is decomposed into tracked tasks (filed as issues) and closed.",
+  ].join("\n\n");
+  await postIssueComment(
+    config,
+    project,
+    String(issueNumber),
+    `${body}${footer}\n\n${BOT_COMMENT_MARKER}`,
+  ).catch(() => false);
+}
+
+/**
+ * On a feature_plan freeze that originated from an approved `issue_intake`
+ * decision, echo a `factory[bot]` comment linking the created tasks, then adopt
+ * + close the source GitHub issue (it's now decomposed). Gated on the plan's
+ * decision being `issue_intake`, so watch-insight feature_plans (which also
+ * carry a `decisionId`) are left untouched. Best-effort; never throws — a GitHub
+ * hiccup must not fail the freeze.
+ */
+export async function closeIssueForFrozenPlan(
+  deps: { db: Db; config: Pick<FactoryConfig, "githubApp" | "publicBaseUrl"> },
+  args: { projectId: string; decisionId: string; planId: string; taskIds: string[] },
+): Promise<void> {
+  const { db, config } = deps;
+  const decision = await db
+    .select()
+    .from(schema.decisions)
+    .where(eq(schema.decisions.id, args.decisionId))
+    .get();
+  if (!decision || decision.kind !== "issue_intake") return;
+  const payload = (decision.payload ?? {}) as { number?: number };
+  if (typeof payload.number !== "number") return;
+  const project = await db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.id, args.projectId))
+    .get();
+  if (!project) return;
+
+  const links =
+    args.taskIds.length > 0 ? args.taskIds.map((t) => `#${t}`).join(", ") : "(none created)";
+  const footer = factoryLinkFooter(config.publicBaseUrl, [
+    { label: "plan", path: `/plans/${args.planId}` },
+    { label: "project", path: `/projects/${project.id}` },
+  ]);
+  const body = [
+    `Factory froze the feature plan for this issue and decomposed it into ${args.taskIds.length} task${
+      args.taskIds.length === 1 ? "" : "s"
+    }: ${links}.`,
+    "Closing this issue as planned — the work is tracked in the linked tasks.",
+  ].join("\n\n");
+  await postIssueComment(
+    config,
+    project,
+    String(payload.number),
+    `${body}${footer}\n\n${BOT_COMMENT_MARKER}`,
+  ).catch(() => false);
+
+  // Adopt (factory label + frontmatter) then close as done — both via the single
+  // task seams, so the source issue lands as a closed, tracked task pointing at
+  // the plan that superseded it.
+  await adoptIssue(config, project, String(payload.number)).catch(() => null);
+  await updateTaskStatus(project, String(payload.number), "done").catch(() => null);
 }
