@@ -229,12 +229,70 @@ export function normalizeBlockedBy(ids: string[] | undefined | null, selfId?: st
  */
 export function isStartable(task: TaskFile, byId: Map<string, TaskFile>): boolean {
   if (task.frontmatter.status !== "ready") return false;
+  // An epic (a task with sub-issues) is a CONTAINER, not runnable work (ADR-023):
+  // its children are what auto-advance picks. Never start an epic directly, even
+  // if it's `ready` — an agent would try to "do the epic" instead of a sub-task.
+  if (isEpic(task, byId)) return false;
   const deps = task.frontmatter.blockedBy ?? [];
   for (const id of deps) {
     const dep = byId.get(id);
     if (dep && !DEP_SATISFIED.has(dep.frontmatter.status)) return false;
   }
   return true;
+}
+
+/** The child tasks of an epic — those whose `parent` is `task.id` (ADR-023). */
+export function childrenOf(task: TaskFile, byId: Map<string, TaskFile>): TaskFile[] {
+  const out: TaskFile[] = [];
+  for (const t of byId.values()) {
+    if (t.frontmatter.parent === task.id) out.push(t);
+  }
+  return out;
+}
+
+/** True when the task has ≥1 child — i.e. it is an epic (a container). */
+export function isEpic(task: TaskFile, byId: Map<string, TaskFile>): boolean {
+  for (const t of byId.values()) {
+    if (t.frontmatter.parent === task.id) return true;
+  }
+  return false;
+}
+
+export interface SubIssuesSummary {
+  total: number;
+  completed: number;
+}
+
+/**
+ * Roll up an epic's children (ADR-023) — the analogue of GitHub's
+ * `subIssuesSummary`, but computed from Factory's own task statuses so it stays
+ * consistent with the board. `completed` counts terminal (`done`/`dropped`) children.
+ */
+export function subIssuesSummary(task: TaskFile, byId: Map<string, TaskFile>): SubIssuesSummary {
+  const children = childrenOf(task, byId);
+  const completed = children.filter((c) => DEP_SATISFIED.has(c.frontmatter.status)).length;
+  return { total: children.length, completed };
+}
+
+/**
+ * Close every epic whose children are ALL terminal (`done`/`dropped`) — the
+ * opt-in rollup auto-close (ADR-023). Idempotent: skips already-terminal epics
+ * and epics with no children. Returns the ids it closed. Callers gate this on
+ * the `hierarchy.epicAutoClose` policy; call it after any child goes terminal.
+ */
+export async function maybeAutoCloseEpics(store: TaskStore): Promise<string[]> {
+  const all = await store.list();
+  const byId = new Map(all.map((t) => [t.id, t] as const));
+  const closed: string[] = [];
+  for (const t of all) {
+    if (DEP_SATISFIED.has(t.frontmatter.status)) continue;
+    const summary = subIssuesSummary(t, byId);
+    if (summary.total > 0 && summary.completed === summary.total) {
+      await store.updateStatus(t.id, "done");
+      closed.push(t.id);
+    }
+  }
+  return closed;
 }
 
 /** The open (non-terminal) subset of a task's dependencies — for UI ("waiting on …"). */
@@ -375,6 +433,12 @@ export interface TaskStore {
   updateBlockedBy(id: string, blockedBy: string[]): Promise<TaskFile | null>;
   /** Set the task's queue-order `rank` key (ADR-021). */
   updateRank(id: string, rank: string): Promise<TaskFile | null>;
+  /**
+   * Set (or clear, when `parentId` is null) the task's epic parent (ADR-023).
+   * On the GitHub backend this is the native sub-issue relation; on the file
+   * backend it is the `parent:` frontmatter field. Rejects cycles.
+   */
+  setParent(id: string, parentId: string | null): Promise<TaskFile | null>;
 
   // --- Remote-discussion / adoption ops. ---------------------------------
   // The issue-backed backend implements these against the GitHub issue's
@@ -540,6 +604,34 @@ export class FileTaskStore implements TaskStore {
       body,
       frontmatter: { ...t.frontmatter, updated: new Date().toISOString() },
     };
+    await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
+    return updated;
+  }
+
+  async setParent(taskId: string, parentId: string | null): Promise<TaskFile | null> {
+    const t = await this.read(taskId);
+    if (!t) return null;
+    if (parentId !== null) {
+      if (parentId === taskId) throw new Error("a task cannot be its own parent");
+      // Cycle guard: walk up the prospective parent's `parent` chain; reaching the
+      // child means this edge closes a loop.
+      const all = await this.list();
+      const byId = new Map(all.map((x) => [x.id, x] as const));
+      let cursor: string | undefined = parentId;
+      const seen = new Set<string>();
+      while (cursor !== undefined && !seen.has(cursor)) {
+        if (cursor === taskId) throw new Error(`setting parent ${parentId} would create a cycle`);
+        seen.add(cursor);
+        cursor = byId.get(cursor)?.frontmatter.parent;
+      }
+    }
+    const nextFrontmatter: TaskFrontmatter = {
+      ...t.frontmatter,
+      updated: new Date().toISOString(),
+    };
+    if (parentId) nextFrontmatter.parent = parentId;
+    else delete nextFrontmatter.parent;
+    const updated: TaskFile = { ...t, frontmatter: nextFrontmatter };
     await writeFile(t.filePath, renderTaskMarkdown(updated), "utf8");
     return updated;
   }

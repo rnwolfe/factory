@@ -123,6 +123,8 @@ export function reconcileStatus(
 }
 
 interface IssueApi {
+  /** GitHub's REST database id — the `sub_issue_id` the sub-issues API expects. */
+  id?: number;
   number: number;
   title: string;
   body: string | null;
@@ -229,6 +231,63 @@ export class GithubIssuesStore implements TaskStore {
     throw new GithubError("network", `${what} failed (${res.status}): ${body}`);
   }
 
+  /**
+   * Fetch GitHub's NATIVE sub-issue hierarchy for the whole repo in one GraphQL
+   * pass: child-issue-number → parent-issue-number (ADR-023). This is the source
+   * of truth for `parent` on the GitHub backend — an issue organized into an epic
+   * *on GitHub* (native sub-issues) is read back faithfully, and Factory's own
+   * `setParent` writes flow through the same native relation, so the two never
+   * drift. Returns an empty map on any GraphQL error — hierarchy is enrichment,
+   * never a reason to fail the whole `list()`.
+   */
+  private async fetchParentEdges(headers: Record<string, string>): Promise<Map<number, number>> {
+    const edges = new Map<number, number>();
+    // Scope to the same `factory` label as the REST `list()` — hierarchy
+    // enrichment should cost O(task set), not O(whole repo), so a large upstream
+    // backlog doesn't blow the GraphQL budget or hit the 10-page cap.
+    const query = `query($owner:String!,$repo:String!,$cursor:String,$label:[String!]){
+      repository(owner:$owner,name:$repo){
+        issues(first:100, after:$cursor, states:[OPEN,CLOSED], filterBy:{labels:$label}){
+          pageInfo{ hasNextPage endCursor }
+          nodes{ number parent{ number } }
+        }
+      }
+    }`;
+    let cursor: string | null = null;
+    try {
+      for (let page = 0; page < 10; page++) {
+        const res = await this.fetchFn(`${API}/graphql`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query,
+            variables: { owner: this.owner, repo: this.repo, cursor, label: [FACTORY_LABEL] },
+          }),
+        });
+        if (!res.ok) return edges; // enrichment only — degrade to "no hierarchy"
+        const json = (await res.json()) as {
+          data?: {
+            repository?: {
+              issues?: {
+                pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+                nodes?: Array<{ number: number; parent?: { number: number } | null }>;
+              };
+            };
+          };
+        };
+        const conn = json.data?.repository?.issues;
+        for (const n of conn?.nodes ?? []) {
+          if (n.parent) edges.set(n.number, n.parent.number);
+        }
+        if (!conn?.pageInfo?.hasNextPage) break;
+        cursor = conn.pageInfo.endCursor ?? null;
+      }
+    } catch {
+      return edges;
+    }
+    return edges;
+  }
+
   async list(): Promise<TaskFile[]> {
     const headers = await this.headers();
     const out: TaskFile[] = [];
@@ -242,6 +301,17 @@ export class GithubIssuesStore implements TaskStore {
         out.push(issueToTaskFile(this.owner, this.repo, issue));
       }
       if (issues.length < 100) break;
+    }
+    // Overlay GitHub's NATIVE sub-issue hierarchy (ADR-023): the native parent is
+    // authoritative for the GitHub backend, so an epic organized directly on GitHub
+    // is read back correctly. Falls back to the meta-block `parent` only when there
+    // is no native edge (Factory-authored links that predate native sub-issues).
+    const parentEdges = await this.fetchParentEdges(headers);
+    if (parentEdges.size > 0) {
+      for (const task of out) {
+        const nativeParent = parentEdges.get(Number(task.id));
+        if (nativeParent !== undefined) task.frontmatter.parent = String(nativeParent);
+      }
     }
     // Canonical queue order: priority, then rank, then id (ADR-021).
     out.sort(compareTaskOrder);
@@ -432,6 +502,83 @@ export class GithubIssuesStore implements TaskStore {
   async updateBody(taskId: string, body: string): Promise<TaskFile | null> {
     const { meta } = parseTaskIssueBody(await this.rawBody(taskId));
     return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
+  }
+
+  /**
+   * Set (or clear, when `parentId` is null) the task's parent via GitHub's NATIVE
+   * sub-issue relation (ADR-023) — the same relation `list()` reads back, so the
+   * hierarchy Factory writes and the hierarchy it displays are one thing. Reparents
+   * cleanly (detaches from any current parent first) and rejects a parent that would
+   * form a cycle. Also mirrors `parent` into the meta block so a backend that later
+   * loses native access still round-trips the link.
+   */
+  async setParent(taskId: string, parentId: string | null): Promise<TaskFile | null> {
+    const childNum = Number(taskId);
+    const edges = await this.fetchParentEdges(await this.headers());
+    const currentParent = edges.get(childNum);
+
+    if (parentId === null) {
+      if (currentParent !== undefined) await this.removeSubIssue(currentParent, childNum);
+    } else {
+      const parentNum = Number(parentId);
+      if (parentNum === childNum) {
+        throw new GithubError("network", "a task cannot be its own parent");
+      }
+      // Cycle guard: walk up the prospective parent's chain; reaching the child
+      // means this edge closes a loop.
+      let cursor: number | undefined = parentNum;
+      const seen = new Set<number>();
+      while (cursor !== undefined && !seen.has(cursor)) {
+        if (cursor === childNum) {
+          throw new GithubError("network", `setting parent #${parentNum} would create a cycle`);
+        }
+        seen.add(cursor);
+        cursor = edges.get(cursor);
+      }
+      if (currentParent !== undefined && currentParent !== parentNum) {
+        await this.removeSubIssue(currentParent, childNum);
+      }
+      if (currentParent !== parentNum) await this.addSubIssue(parentNum, childNum);
+    }
+
+    // Mirror into the meta block for cross-backend durability.
+    const { meta, body } = parseTaskIssueBody(await this.rawBody(taskId));
+    meta.parent = parentId ?? undefined;
+    return this.patch(taskId, { body: renderTaskIssueBody(meta, body) });
+  }
+
+  /** Resolve an issue number → its REST database id (the sub-issues `sub_issue_id`). */
+  private async issueDatabaseId(issueNumber: number): Promise<number> {
+    const headers = await this.headers();
+    const res = await this.fetchFn(`${this.base()}/issues/${issueNumber}`, { headers });
+    if (!res.ok) await this.fail(res, `read issue #${issueNumber}`);
+    const issue = (await res.json()) as IssueApi;
+    if (typeof issue.id !== "number") {
+      throw new GithubError("network", `issue #${issueNumber} has no database id`);
+    }
+    return issue.id;
+  }
+
+  private async addSubIssue(parentNumber: number, childNumber: number): Promise<void> {
+    const headers = await this.headers();
+    const subIssueId = await this.issueDatabaseId(childNumber);
+    const res = await this.fetchFn(`${this.base()}/issues/${parentNumber}/sub_issues`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ sub_issue_id: subIssueId }),
+    });
+    if (!res.ok) await this.fail(res, `add sub-issue #${childNumber} to #${parentNumber}`);
+  }
+
+  private async removeSubIssue(parentNumber: number, childNumber: number): Promise<void> {
+    const headers = await this.headers();
+    const subIssueId = await this.issueDatabaseId(childNumber);
+    const res = await this.fetchFn(`${this.base()}/issues/${parentNumber}/sub_issue`, {
+      method: "DELETE",
+      headers,
+      body: JSON.stringify({ sub_issue_id: subIssueId }),
+    });
+    if (!res.ok) await this.fail(res, `remove sub-issue #${childNumber} from #${parentNumber}`);
   }
 
   /** Fetch the raw issue body (frontmatter included) for an edit round-trip. */

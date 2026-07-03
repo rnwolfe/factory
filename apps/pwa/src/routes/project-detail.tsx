@@ -81,6 +81,11 @@ type TaskSummary = {
   openBlockers?: string[];
   blocks?: string[];
   blockedBy?: string[];
+  // Hierarchy (ADR-023).
+  parent?: string | null;
+  children?: string[];
+  isEpic?: boolean;
+  subIssuesSummary?: { total: number; completed: number };
 };
 
 // Lifecycle lanes for the active-task board (ADR-021), in pipeline order.
@@ -1337,6 +1342,8 @@ function TaskRow({
     task.status !== "done" &&
     task.status !== "in_progress" &&
     task.status !== "needs_triage" &&
+    // An epic is a container (ADR-023) — its children are the runnable work.
+    !task.isEpic &&
     !isGated;
   const modelShort = shortModelLabel(task.model);
   return (
@@ -1360,6 +1367,24 @@ function TaskRow({
               {task.id} · {String(task.estimate ?? "—")}
             </Link>
             <ProvenanceLinks links={task.sourceLinks} />
+            {task.isEpic && task.subIssuesSummary && task.subIssuesSummary.total > 0 ? (
+              <span
+                className="chip mono text-[10px]"
+                title={`${task.subIssuesSummary.completed} of ${task.subIssuesSummary.total} sub-issues done`}
+              >
+                epic · {task.subIssuesSummary.completed}/{task.subIssuesSummary.total}
+              </span>
+            ) : null}
+            {task.parent ? (
+              <Link
+                to={`/projects/${projectId}/tasks/${task.parent}`}
+                className="chip mono text-[10px] hover:text-[var(--color-accent)]"
+                title={`part of epic #${task.parent}`}
+                data-card-skip-open
+              >
+                ↳ #{task.parent}
+              </Link>
+            ) : null}
             {isGated ? (
               <span className="chip chip-parked mono text-[10px]">
                 blocked · waiting on {(task.openBlockers ?? []).join(", ")}

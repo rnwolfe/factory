@@ -126,6 +126,103 @@ describe("GithubIssuesStore.list reconciles GitHub-closed issues", () => {
   });
 });
 
+describe("GithubIssuesStore native hierarchy (ADR-023)", () => {
+  test("list overlays GitHub's native sub-issue parent onto tasks", async () => {
+    // Issues created directly on GitHub with native sub-issues carry NO
+    // factory meta-block `parent` — the hierarchy lives only in GitHub's native
+    // relation. list() must read it back (the reported backbar bug).
+    const store = makeStore(async (url) => {
+      const u = String(url);
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (u.includes("/graphql")) {
+        return json({
+          data: {
+            repository: {
+              issues: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [
+                  { number: 10, parent: null },
+                  { number: 11, parent: { number: 10 } },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (u.includes("/issues?")) {
+        return json([
+          {
+            number: 10,
+            title: "Epic",
+            body: renderTaskIssueBody({ status: "ready" }, "epic"),
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "factory" }],
+          },
+          {
+            number: 11,
+            title: "Child",
+            body: renderTaskIssueBody({ status: "ready" }, "child"),
+            state: "open",
+            state_reason: null,
+            labels: [{ name: "factory" }],
+          },
+        ]);
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+    const tasks = await store.list();
+    expect(tasks.find((t) => t.id === "11")?.frontmatter.parent).toBe("10");
+    expect(tasks.find((t) => t.id === "10")?.frontmatter.parent).toBeUndefined();
+  });
+
+  test("setParent writes the native sub-issue relation and mirrors the meta block", async () => {
+    const added: string[] = [];
+    const store = makeStore(async (url, init) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      const t = tokenRoute(u);
+      if (t) return t;
+      if (u.includes("/graphql")) {
+        // child #11 currently has no parent.
+        return json({
+          data: {
+            repository: {
+              issues: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [{ number: 11, parent: null }],
+              },
+            },
+          },
+        });
+      }
+      if (method === "POST" && u.endsWith("/issues/10/sub_issues")) {
+        added.push(String(init?.body));
+        return json({ number: 10 });
+      }
+      if (/\/issues\/11$/.test(u)) {
+        // GET (database id + raw body) and the final PATCH both resolve here.
+        const body = init?.method === "PATCH" ? JSON.parse(String(init.body)).body : "child";
+        return json({
+          id: 9111,
+          number: 11,
+          title: "Child",
+          body,
+          state: "open",
+          state_reason: null,
+          labels: [{ name: "factory" }],
+        });
+      }
+      throw new Error(`unexpected ${method} ${u}`);
+    });
+    const updated = await store.setParent("11", "10");
+    expect(updated?.frontmatter.parent).toBe("10");
+    // The native add used the child's database id, not its number.
+    expect(added.some((b) => b.includes("9111"))).toBe(true);
+  });
+});
+
 function tokenRoute(url: string): Response | null {
   if (url.includes("/access_tokens")) {
     return json({ token: "ghs_test", expires_at: new Date(99_999_999_999).toISOString() });

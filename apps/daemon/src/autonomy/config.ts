@@ -33,6 +33,12 @@ export interface AutonomyConfig {
   trust: { autoPromote: boolean; promoteStreak: number; autoContract: boolean };
   gate: { minLevel: VerifierLevel; maxBlastRadius: BlastCeiling; crossModel: boolean };
   watch: { synthesisCadence: Cadence; generatorEnabled: boolean; inbandGroom: boolean };
+  /** Epic/sub-issue hierarchy policy (ADR-023). */
+  hierarchy: {
+    /** When all of an epic's children are terminal, auto-close the epic. Off by
+     *  default — an epic stays open until the operator (or this policy) closes it. */
+    epicAutoClose: boolean;
+  };
   autorun: {
     enabled: boolean;
     maxBlastRadius: BlastCeiling;
@@ -71,6 +77,7 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
   trust: { autoPromote: true, promoteStreak: 5, autoContract: true },
   gate: { minLevel: "high", maxBlastRadius: "contained", crossModel: true },
   watch: { synthesisCadence: "daily", generatorEnabled: true, inbandGroom: true },
+  hierarchy: { epicAutoClose: false },
   autorun: {
     enabled: false,
     maxBlastRadius: "contained",
@@ -154,6 +161,7 @@ function merge(base: AutonomyConfig, over: DeepPartial<AutonomyConfig> | null): 
     trust: { ...base.trust, ...over.trust },
     gate: { ...base.gate, ...over.gate },
     watch: { ...base.watch, ...over.watch },
+    hierarchy: { ...base.hierarchy, ...over.hierarchy },
     autorun: {
       ...base.autorun,
       ...over.autorun,

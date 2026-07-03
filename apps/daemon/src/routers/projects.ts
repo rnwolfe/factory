@@ -7,6 +7,7 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { AGENT_NAME_ENUM } from "../agents/registry.ts";
+import { resolveAutonomyConfig } from "../autonomy/config.ts";
 import { enableGithubIssuesBackend } from "../projects/enable-github-backend.ts";
 import { createRepo, GithubError, pushToNewRemote } from "../projects/github.ts";
 import { replyAsOperator, taskThread } from "../projects/github-task-store.ts";
@@ -34,16 +35,20 @@ import {
 } from "../projects/lifecycle.ts";
 import { confirmMilestone, proposeMilestone } from "../projects/milestone-decompose.ts";
 import {
+  childrenOf,
   createTask,
   dependencyCycleExists,
+  isEpic,
   isStartable,
   listTasks,
   MAX_BLOCKED_BY,
+  maybeAutoCloseEpics,
   normalizeBlockedBy,
   openBlockers,
   renderAcceptanceBlock,
   reorderTask,
   resolveTaskWithPool,
+  subIssuesSummary,
   type TaskFile,
   taskStoreFor,
   tasksById,
@@ -176,6 +181,11 @@ function summarizeTasksWithDeps(projectId: string, tasks: TaskFile[]) {
     startable: isStartable(t, byId),
     openBlockers: openBlockers(t, byId),
     blocks: blocksOf.get(t.id) ?? [],
+    // Hierarchy (ADR-023): `children` (inverse of `parent`), a GitHub-style
+    // `subIssuesSummary` rollup, and `isEpic` (has children → a container).
+    children: childrenOf(t, byId).map((c) => c.id),
+    subIssuesSummary: subIssuesSummary(t, byId),
+    isEpic: isEpic(t, byId),
   }));
 }
 
@@ -232,6 +242,9 @@ const tasksRouter = router({
         blocks: pool
           .filter((o) => (o.frontmatter.blockedBy ?? []).includes(task.id))
           .map((o) => o.id),
+        children: childrenOf(task, byId).map((c) => c.id),
+        subIssuesSummary: subIssuesSummary(task, byId),
+        isEpic: isEpic(task, byId),
         projectAgent: project.agent,
         sourceLinks: taskSourceLinks(project.id, task),
       };
@@ -253,6 +266,20 @@ const tasksRouter = router({
       if (!project) throw new Error("project not found");
       const updated = await updateTaskStatus(project, input.taskId, input.status);
       if (!updated) throw new Error("task not found");
+      // Epic rollup (ADR-023): if this task just went terminal, its parent epic
+      // may now be fully complete — auto-close it when the operator opted in.
+      // Best-effort enrichment: never let it fail the primary status update, and
+      // any epic-close file write it makes is captured by the commit just below.
+      if (
+        CLOSED_TASK_STATUSES.has(input.status) &&
+        resolveAutonomyConfig(ctx.db, project.id).hierarchy.epicAutoClose
+      ) {
+        try {
+          await maybeAutoCloseEpics(taskStoreFor(project));
+        } catch {
+          // swallow — the status update + commit below must still complete.
+        }
+      }
       // Commit on main so the next run's worktree starts clean. Without this,
       // operator-driven status flips dirty the project tree and the next
       // mergeIntoMain refuses ("project working tree has uncommitted changes").
@@ -495,6 +522,51 @@ const tasksRouter = router({
       await commitAllChanges(
         project.workdirPath,
         `chore: ${input.taskId} dependencies -> [${next.join(", ")}]`,
+        ctx.config.gitAuthor,
+      );
+      return { frontmatter: updated.frontmatter };
+    }),
+
+  /**
+   * Set (or clear, when `parentId` is null) a task's epic parent (ADR-023). On the
+   * GitHub backend this writes the native sub-issue relation; on the file backend
+   * it writes `parent:` frontmatter. Cycles are rejected. Commits on main so the
+   * next run's worktree starts clean.
+   */
+  setParent: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        taskId: z.string(),
+        parentId: z.string().max(60).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.projectId))
+        .get();
+      if (!project) throw new Error("project not found");
+      const tasks = await listTasks(project);
+      const byId = tasksById(tasks);
+      if (!byId.has(input.taskId)) throw new Error("task not found");
+      if (input.parentId !== null && !byId.has(input.parentId)) {
+        throw new Error("parent task not found");
+      }
+      let updated: TaskFile | null;
+      try {
+        updated = await taskStoreFor(project).setParent(input.taskId, input.parentId);
+      } catch (err) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: err instanceof Error ? err.message : "could not set parent",
+        });
+      }
+      if (!updated) throw new Error("task not found");
+      await commitAllChanges(
+        project.workdirPath,
+        `chore: ${input.taskId} parent -> ${input.parentId ?? "none"}`,
         ctx.config.gitAuthor,
       );
       return { frontmatter: updated.frontmatter };

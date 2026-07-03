@@ -159,6 +159,17 @@ export function TaskDetail() {
     },
   });
 
+  // Epic parent (ADR-023): assign this task under an epic, or clear it. On the
+  // GitHub backend this writes the native sub-issue relation.
+  const setParent = useMutation({
+    mutationFn: (parentId: string | null) =>
+      trpc.projects.tasks.setParent.mutate({ projectId: id, taskId, parentId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects.tasks.get", id, taskId] });
+      qc.invalidateQueries({ queryKey: ["projects.tasks.list", id] });
+    },
+  });
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [editingDeps, setEditingDeps] = useState(false);
@@ -219,6 +230,16 @@ export function TaskDetail() {
   const depCandidates = (projectTasks.data ?? []).filter(
     (t) => t.id !== taskId && t.status !== "done" && t.status !== "dropped",
   );
+
+  // Epic hierarchy (ADR-023): this task's parent + (if it's an epic) its children.
+  const parentId = (fm.parent as string | undefined) ?? null;
+  const children = (task.data.children as string[] | undefined) ?? [];
+  const subSummary = task.data.subIssuesSummary as { total: number; completed: number } | undefined;
+  const epicCandidates = (projectTasks.data ?? []).filter(
+    (t) => t.id !== taskId && !children.includes(t.id),
+  );
+  const titleOf = (tid: string) =>
+    (projectTasks.data ?? []).find((t) => t.id === tid)?.title ?? tid;
   const startEditingDeps = () => {
     setDepDraft(blockedBy);
     setEditingDeps(true);
@@ -494,6 +515,64 @@ export function TaskDetail() {
                 ((updateAgent.error as Error | null) ?? (updateModel.error as Error | null))
                   ?.message
               }
+            </p>
+          ) : null}
+        </div>
+      </section>
+
+      <section>
+        <div className="flex items-center gap-2 px-1 mb-1.5">
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+            epic
+          </span>
+          <div className="hairline flex-1" />
+          {children.length > 0 && subSummary ? (
+            <span className="chip mono text-[10px]">
+              {subSummary.completed}/{subSummary.total} done
+            </span>
+          ) : null}
+        </div>
+        <div className="surface p-3 space-y-2">
+          {children.length > 0 ? (
+            <div className="space-y-1">
+              <p className="mono text-[10.5px] text-[var(--color-fg-3)]">
+                this is an epic — {children.length} sub-issue{children.length === 1 ? "" : "s"} (a
+                container; its children are the runnable work):
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {children.map((cid) => (
+                  <Link
+                    key={cid}
+                    to={`/projects/${id}/tasks/${cid}`}
+                    className="chip mono text-[10.5px] hover:text-[var(--color-accent)]"
+                  >
+                    #{cid} {titleOf(cid).slice(0, 28)}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)] shrink-0">
+              parent epic
+            </span>
+            <select
+              value={parentId ?? ""}
+              disabled={setParent.isPending}
+              onChange={(e) => setParent.mutate(e.target.value === "" ? null : e.target.value)}
+              className="input text-[12px] !h-8 flex-1 min-w-0"
+            >
+              <option value="">— none —</option>
+              {epicCandidates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  #{t.id} {t.title.slice(0, 40)}
+                </option>
+              ))}
+            </select>
+          </div>
+          {setParent.error ? (
+            <p className="text-[11px] text-[var(--color-danger)]">
+              {(setParent.error as Error).message}
             </p>
           ) : null}
         </div>
