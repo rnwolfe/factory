@@ -204,6 +204,71 @@ export function classifyBlastRadius(diff: string): BlastClassification {
   return { radius: reasons.length ? "broad" : "contained", churn, files: files.size, reasons };
 }
 
+/** The subset of a proposed task the plan-time classifier reads. Structurally a
+ *  superset-compatible view of `SpecDecompositionTask` (title/estimate/acceptance). */
+export interface MilestoneTaskLike {
+  title: string;
+  estimate: "small" | "medium" | "large";
+  acceptance: string[];
+}
+
+/** A milestone proposing more than this many tasks is broad — the plan-time
+ *  analogue of `FILE_LIMIT` (breadth of change). */
+const MILESTONE_TASK_LIMIT = 10;
+
+/**
+ * Risk-sensitive TOPICS in a task's prose — the plan-time analogue of
+ * `RISKY_PATH`. A milestone that proposes auth / secrets / migration / infra /
+ * CI / payment work is broad by consequence even before a line of code exists,
+ * exactly as a diff touching those *paths* is. Kept deliberately in lockstep
+ * with `RISKY_PATH`'s intent so "risk-sensitive" means one thing across the
+ * diff-time and plan-time gates.
+ */
+const RISKY_TASK_TOPIC =
+  /\b(auth\w*|login|oauth|sso|secret|credential|password|token|migration|schema\s+change|dockerfile|docker|deploy\w*|infrastructure|infra|environment\s+variable|payment|billing|encryption|workflows?|ci\/cd|webhook)\b|\.env/i;
+
+/**
+ * Classify a milestone DECOMPOSITION (proposed tasks, before any diff exists)
+ * with the same `contained` / `broad` vocabulary as `classifyBlastRadius`. The
+ * three plan-time signals are the analogues of the diff-time ones: task count ↔
+ * file count (`FILE_LIMIT`), a `large` estimate ↔ high churn (`CHURN_LIMIT`),
+ * and a risk-sensitive TOPIC ↔ a risk-sensitive PATH (`RISKY_PATH`). Feeds the
+ * hands-off milestone auto-confirm gate (`autoPlanNextMilestone`), which shares
+ * the ceiling check (`isWithinBlastCeiling`) with the post-run auto-land gate.
+ *
+ * `churn` is 0 (no diff yet) and `files` carries the task count, so the shared
+ * `BlastClassification` shape composes with `isWithinBlastCeiling` unchanged.
+ */
+export function classifyMilestoneBlastRadius(tasks: MilestoneTaskLike[]): BlastClassification {
+  const reasons: string[] = [];
+  if (tasks.length > MILESTONE_TASK_LIMIT) reasons.push(`many tasks (${tasks.length})`);
+  const large = tasks.filter((t) => t.estimate === "large");
+  if (large.length)
+    reasons.push(`large-estimate task${large.length > 1 ? "s" : ""} (${large.length})`);
+  const risky = tasks.filter((t) =>
+    RISKY_TASK_TOPIC.test(`${t.title}\n${t.acceptance.join("\n")}`),
+  );
+  if (risky.length) {
+    reasons.push(
+      `risk-sensitive topics (${risky
+        .slice(0, 3)
+        .map((t) => t.title)
+        .join(", ")})`,
+    );
+  }
+  return { radius: reasons.length ? "broad" : "contained", churn: 0, files: tasks.length, reasons };
+}
+
+/**
+ * Is a classified blast radius within the operator's ceiling? Broad work needs a
+ * `broad` ceiling; contained work always fits. One definition, shared by the
+ * post-run auto-land gate (`decideAutoLand`) and the plan-time milestone
+ * auto-confirm gate — so "within blast radius" means the same thing in both.
+ */
+export function isWithinBlastCeiling(radius: BlastRadius, ceiling: BlastRadius): boolean {
+  return radius !== "broad" || ceiling === "broad";
+}
+
 export interface GateDecision {
   land: boolean;
   reason: string;
@@ -229,7 +294,7 @@ export function decideAutoLand(
   if (report.level !== "high") {
     return { land: false, reason: `verifier coverage ${report.level} (need high)` };
   }
-  if (blast.radius === "broad" && maxBlastRadius !== "broad") {
+  if (!isWithinBlastCeiling(blast.radius, maxBlastRadius)) {
     return { land: false, reason: `broad blast radius — ${blast.reasons.join("; ")}` };
   }
   return { land: true, reason: `high verifier coverage + ${blast.radius} diff` };

@@ -3,9 +3,19 @@ import type { AcceptanceResult } from "../src/workers/factory-status.ts";
 import type { QualityReport } from "../src/workers/quality.ts";
 import {
   classifyBlastRadius,
+  classifyMilestoneBlastRadius,
   computeVerifierReport,
   decideAutoLand,
+  isWithinBlastCeiling,
+  type MilestoneTaskLike,
 } from "../src/workers/verifier.ts";
+
+const mtask = (over: Partial<MilestoneTaskLike> = {}): MilestoneTaskLike => ({
+  title: "Wire the settings row",
+  estimate: "small",
+  acceptance: ["renders", "persists"],
+  ...over,
+});
 
 const met = (n: number): AcceptanceResult[] =>
   Array.from({ length: n }, (_, i) => ({ criterion: `c${i}`, met: true }));
@@ -175,6 +185,63 @@ diff --git a/drizzle/migrations/0001_add_households.sql b/drizzle/migrations/000
     const b = classifyBlastRadius(withMigration);
     expect(b.radius).toBe("broad");
     expect(b.reasons.join(" ")).toContain("migrations");
+  });
+});
+
+describe("classifyMilestoneBlastRadius", () => {
+  test("a handful of small, benign tasks is contained", () => {
+    const b = classifyMilestoneBlastRadius([
+      mtask({ title: "Add the dashboard header" }),
+      mtask({ title: "Wire the empty state" }),
+      mtask({ title: "Persist the last-viewed filter" }),
+    ]);
+    expect(b.radius).toBe("contained");
+    expect(b.files).toBe(3);
+    expect(b.reasons).toHaveLength(0);
+  });
+
+  test("a large-estimate task makes the milestone broad", () => {
+    const b = classifyMilestoneBlastRadius([mtask(), mtask({ estimate: "large" })]);
+    expect(b.radius).toBe("broad");
+    expect(b.reasons.join(" ")).toContain("large-estimate");
+  });
+
+  test("a risk-sensitive TOPIC (the plan-time analogue of RISKY_PATH) is broad", () => {
+    // Mirrors classifyBlastRadius's RISKY_PATH: auth/migration/infra work is broad
+    // by consequence even before a diff exists.
+    for (const title of [
+      "Add OAuth login flow",
+      "Run the users-table migration",
+      "Wire the Stripe billing webhook",
+      "Provision the deploy infrastructure",
+    ]) {
+      const b = classifyMilestoneBlastRadius([mtask({ title })]);
+      expect(b.radius).toBe("broad");
+      expect(b.reasons.join(" ")).toContain("risk-sensitive");
+    }
+  });
+
+  test("a risky topic in a task's acceptance (not just its title) is broad", () => {
+    const b = classifyMilestoneBlastRadius([
+      mtask({ title: "Harden the API", acceptance: ["reads the auth token from the .env file"] }),
+    ]);
+    expect(b.radius).toBe("broad");
+  });
+
+  test("too many tasks is broad (plan-time FILE_LIMIT)", () => {
+    const many = Array.from({ length: 12 }, (_, i) => mtask({ title: `Task ${i}` }));
+    expect(classifyMilestoneBlastRadius(many).radius).toBe("broad");
+  });
+});
+
+describe("isWithinBlastCeiling", () => {
+  test("contained work always fits", () => {
+    expect(isWithinBlastCeiling("contained", "contained")).toBe(true);
+    expect(isWithinBlastCeiling("contained", "broad")).toBe(true);
+  });
+  test("broad work needs a broad ceiling", () => {
+    expect(isWithinBlastCeiling("broad", "contained")).toBe(false);
+    expect(isWithinBlastCeiling("broad", "broad")).toBe(true);
   });
 });
 

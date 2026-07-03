@@ -465,6 +465,26 @@ describe("applyPostMergeRunOutcome · auto-advance", () => {
   });
 });
 
+/**
+ * An agent reply whose decomposition EXCEEDS the "contained" blast-radius bar —
+ * a `large`-estimate task. Structurally valid, non-empty, but not auto-confirmable.
+ */
+function broadDecompositionInvoker(): AgentInvoker {
+  return async () => ({
+    text: JSON.stringify({
+      milestone: "M1",
+      summary: "next milestone",
+      tasks: [{ title: "Rebuild the auth subsystem", estimate: "large", acceptance: ["it works"] }],
+      unknowns: [],
+      risks: [],
+      firstTaskNote: "",
+      roadmap: [{ id: "M1", title: "Onboarding", goal: "ideation" }],
+    }),
+    sessionId: null,
+    metrics: null,
+  });
+}
+
 describe("applyPostMergeRunOutcome · hands-off auto-plan on queue drain", () => {
   // Criteria 1 + 3: hands-off preset + auto-advance → on drain, confirmMilestone
   // runs with no PWA interaction, and the new task is picked up by the chain.
@@ -580,6 +600,53 @@ describe("applyPostMergeRunOutcome · hands-off auto-plan on queue drain", () =>
       }
     });
   }
+
+  // Criterion 2: a decomposition that EXCEEDS the contained blast-radius bar is
+  // NOT auto-confirmed — it's left for manual review (the queue-empty nudge),
+  // matching pre-existing manual-confirm behavior. Same hands-off preset as the
+  // auto-confirm test above; only the decomposition's blast radius differs.
+  test("hands-off but broad decomposition → not auto-confirmed, falls back to nudge", async () => {
+    const h = setupHarness();
+    const submitSpy = spyOn(h.pool, "submit").mockResolvedValue(undefined);
+    try {
+      h.db
+        .insert(schema.settings)
+        .values({ key: "notify-on-queue-empty", value: "true", updatedAt: Date.now() })
+        .run();
+      seedMilestonePrompt(h);
+
+      const seed = await seedProject(h, {
+        autoAdvance: true,
+        autonomyConfig: HANDS_OFF_CONFIG,
+        withSpec: true,
+        justFinishedId: "task-001",
+        tasks: [{ id: "task-001", status: "done" }],
+      });
+
+      await callPostMerge(h, seed.runId, broadDecompositionInvoker());
+
+      // No milestone task was created — the broad decomposition was held back.
+      expect(submitSpy).not.toHaveBeenCalled();
+      const tasks = await listTasks({ workdirPath: seed.workdirPath, taskBackend: "file" });
+      expect(tasks.filter((t) => t.frontmatter.labels?.includes("milestone-task"))).toHaveLength(0);
+      // …and the manual queue-empty nudge fired, so the operator can review/confirm.
+      const nudges = h.db
+        .select()
+        .from(schema.decisions)
+        .where(
+          and(
+            eq(schema.decisions.projectId, seed.projectId),
+            eq(schema.decisions.kind, "queue_empty"),
+          ),
+        )
+        .all();
+      expect(nudges.length).toBe(1);
+      expect(nudges[0]?.status).toBe("pending");
+    } finally {
+      submitSpy.mockRestore();
+      h.cleanup();
+    }
+  });
 
   // Precondition: an EMPTY decomposition is not confirmed — falls back to nudge.
   test("hands-off but empty decomposition → no tasks, falls back to nudge", async () => {
