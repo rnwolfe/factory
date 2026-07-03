@@ -43,6 +43,7 @@ function setupHarness(): Harness {
     defaultRunBudgetSeconds: 60,
     runIdleTimeoutSeconds: 1200,
     agentBudgetSeconds: 0,
+    eventRetentionDays: 30,
     gitAuthor: { name: "Test", email: "test@test" },
     githubToken: null,
     githubApp: null,
