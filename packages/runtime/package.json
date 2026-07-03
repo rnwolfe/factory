@@ -13,7 +13,6 @@
     "dev-spawn": "bun run src/bin/dev-spawn.ts"
   },
   "dependencies": {
-    "@factory/shared": "workspace:*",
     "@paralleldrive/cuid2": "^3.3.0"
   }
 }
