@@ -107,6 +107,77 @@ export function useScopedChannel(scope: ChannelScope | null, opts: UseChannelOpt
 }
 
 /**
+ * Open a raw WebSocket to `path` (e.g. `/ws/inbox`) with the auth token
+ * appended, handing each message frame to `onMessage`. Applies the same
+ * reconnect discipline as {@link useScopedChannel}: exponential backoff on
+ * close (1s, 2s, 4s, … up to 30s), clean teardown on unmount, and no
+ * reconnect after an intentional close.
+ *
+ * Unlike `useScopedChannel`, this does no invalidation of its own — the
+ * consumer owns all message handling in `onMessage`. Use it for the bespoke
+ * `/ws/inbox` channel whose event shapes and invalidation don't fit the
+ * scoped `/ws/events` model. Pass `path = null` to hold the socket closed
+ * (e.g. before an id is known). `onMessage` is captured in a ref, so an
+ * inline closure never churns the connection.
+ */
+export function useRawSocket(path: string | null, onMessage: (event: MessageEvent) => void): void {
+  const handlerRef = useRef(onMessage);
+  handlerRef.current = onMessage;
+
+  useEffect(() => {
+    if (!path) return;
+    const token = getToken();
+    if (!token) return;
+
+    let ws: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    let cancelled = false;
+
+    const connect = () => {
+      if (cancelled) return;
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const url = `${proto}://${location.host}${path}?token=${encodeURIComponent(token)}`;
+
+      try {
+        ws = new WebSocket(url);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+
+      ws.onopen = () => {
+        attempt = 0;
+      };
+      ws.onmessage = (msg) => {
+        handlerRef.current(msg);
+      };
+      ws.onclose = () => {
+        scheduleReconnect();
+      };
+      ws.onerror = () => {
+        // ignore — `onclose` runs after and triggers reconnect
+      };
+    };
+
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+      const delay = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
+      attempt += 1;
+      retryTimer = setTimeout(connect, delay);
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (ws) ws.close();
+    };
+  }, [path]);
+}
+
+/**
  * Track the live connection state of a scoped channel. Used by the shell
  * header to render the "live" dot.
  */
