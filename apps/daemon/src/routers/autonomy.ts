@@ -37,6 +37,7 @@ const overrideSchema = z
         inbandGroom: z.boolean(),
       })
       .partial(),
+    hierarchy: z.object({ epicAutoClose: z.boolean() }).partial(),
     autorun: z
       .object({
         enabled: z.boolean(),

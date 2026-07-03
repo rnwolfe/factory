@@ -2,11 +2,18 @@ import type { Db, Project } from "@factory/db";
 import { schema } from "@factory/db";
 import { commitAllChanges } from "@factory/runtime";
 import { and, eq, inArray, ne } from "drizzle-orm";
-import { matchingAutonomyPreset } from "../autonomy/config.ts";
+import { matchingAutonomyPreset, resolveAutonomyConfig } from "../autonomy/config.ts";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
 import type { InvokeClaudeResult } from "../plans/invoke-claude.ts";
-import { listTasks, pickNextReadyTask, readTaskFile, updateTaskStatus } from "../projects/tasks.ts";
+import {
+  listTasks,
+  maybeAutoCloseEpics,
+  pickNextReadyTask,
+  readTaskFile,
+  taskStoreFor,
+  updateTaskStatus,
+} from "../projects/tasks.ts";
 import { KeyedMutex } from "./keyed-mutex.ts";
 import type { WorkerPool } from "./pool.ts";
 import type { RunRegistry } from "./registry.ts";
@@ -126,6 +133,19 @@ export async function applyPostMergeRunOutcome(deps: PostMergeDeps, runId: strin
       // task file may be missing on main (e.g. operator deleted it during
       // intervention). Don't fail the whole post-merge path — auto-advance
       // can still fire on the remaining ready tasks.
+    }
+    // Epic rollup (ADR-023): a completed run may have closed the last open child
+    // of an epic — auto-close the epic when the operator opted in. Best-effort;
+    // never blocks auto-advance.
+    try {
+      if (
+        taskStatusFor(run.status) === "done" &&
+        resolveAutonomyConfig(db, project.id).hierarchy.epicAutoClose
+      ) {
+        await maybeAutoCloseEpics(taskStoreFor(project));
+      }
+    } catch {
+      // hierarchy read/close is enrichment — swallow and continue.
     }
   }
 

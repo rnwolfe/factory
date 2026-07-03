@@ -103,6 +103,7 @@ function mergeConfig(
     trust: { ...base.trust, ...over.trust },
     gate: { ...base.gate, ...over.gate },
     watch: { ...base.watch, ...over.watch },
+    hierarchy: { ...base.hierarchy, ...over.hierarchy },
     autorun: {
       ...base.autorun,
       ...over.autorun,
