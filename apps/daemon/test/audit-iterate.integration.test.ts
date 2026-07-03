@@ -295,9 +295,18 @@ describe("runAuditIteration (mock agent)", () => {
         status: "running",
         startedAt: now,
       });
+      // A parse failure must fail the turn — and must NOT be retried. The
+      // null-parse-fail discipline is intentional; a malformed-JSON turn is a
+      // visible failure, not a transient one to re-roll. Assert the invoker
+      // ran exactly once.
+      let invokerCalls = 0;
       const result = await runAuditIteration(db, auditId, {
-        agentInvoker: async () => ({ text: "not json at all", sessionId: null }),
+        agentInvoker: async () => {
+          invokerCalls++;
+          return { text: "not json at all", sessionId: null };
+        },
       });
+      expect(invokerCalls).toBe(1);
       expect(result.reportPersisted).toBe(false);
       expect(result.audit.status).toBe("failed");
       expect(result.parseError).toContain("parse failed");
