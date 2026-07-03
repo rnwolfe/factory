@@ -6,6 +6,7 @@ import { getAgentBudgetSeconds } from "../agent-budget.ts";
 import { resolveAgent } from "../agents/resolve.ts";
 import { recordAgentMetrics } from "../metrics/record.ts";
 import { type AgentName, invokeClaudeJson } from "../plans/invoke-claude.ts";
+import { extractJsonObject } from "../plans/json-extract.ts";
 import { selectRubricKey } from "./select-rubric.ts";
 
 export interface TriageInput {
@@ -116,79 +117,6 @@ async function invokeTriageAgent(
   return { text: inv.text, metrics: inv.metrics ?? null };
 }
 
-/**
- * Walk `text` and return the first balanced `{...}` object as a string.
- * Tracks string boundaries and escapes so braces inside JSON string values
- * don't throw the depth count off. Returns null if no balanced object is
- * found — handles the case where the agent emitted prose containing braces
- * before the JSON, or wrapped its answer in a Markdown fence we missed.
- */
-function findBalancedJsonObject(text: string): string | null {
-  let start = -1;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (ch === "{") {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (ch === "}") {
-      if (depth > 0) {
-        depth--;
-        if (depth === 0 && start !== -1) {
-          return text.slice(start, i + 1);
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function extractJson(text: string): TriageDecisionPayload {
-  // Try the raw text first — bracket-walking handles prose-around-JSON.
-  // Fall back to fenced-block extraction if the raw text doesn't yield a
-  // balanced object (some agents wrap the JSON in ```json … ``` despite the
-  // prompt's instructions).
-  const candidates: string[] = [text];
-  const fence = /```(?:json)?\s*([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
-  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iter
-  while ((match = fence.exec(text)) !== null) {
-    candidates.push(match[1] ?? "");
-  }
-
-  let firstParseError: string | null = null;
-  for (const candidate of candidates) {
-    const slice = findBalancedJsonObject(candidate);
-    if (!slice) continue;
-    try {
-      return JSON.parse(slice) as TriageDecisionPayload;
-    } catch (err) {
-      if (firstParseError === null) {
-        firstParseError = err instanceof Error ? err.message : String(err);
-      }
-    }
-  }
-
-  const head = text.slice(0, 240).replace(/\s+/g, " ").trim();
-  const detail = firstParseError ? `JSON parse error: ${firstParseError}` : "no balanced JSON";
-  throw new Error(`${detail} (agent output len=${text.length}, head: ${head})`);
-}
-
 export async function runTriage(
   db: Db,
   input: TriageInput,
@@ -243,7 +171,7 @@ export async function runTriage(
   }
 
   // 4. Parse JSON payload.
-  const payload = extractJson(responseText);
+  const payload = extractJsonObject<TriageDecisionPayload>(responseText);
 
   // 5. Persist as a decisions row.
   const decisionId = createId();
@@ -392,7 +320,7 @@ export async function runFollowupTriage(
     metrics = inv.metrics;
   }
 
-  const payload = extractJson(responseText);
+  const payload = extractJsonObject<TriageDecisionPayload>(responseText);
   const verdictChanged = payload.outcome !== priorPayload.outcome;
 
   // Persist the updated payload + score + uncertainty + (possibly) outcome on
