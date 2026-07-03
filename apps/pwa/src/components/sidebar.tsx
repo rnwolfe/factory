@@ -30,7 +30,7 @@ const PRIMARY: NavItem[] = [
   { to: "/memory", label: "memory", icon: BookMarked },
 ];
 
-export function Sidebar({ inboxCount }: { inboxCount: number }) {
+export function Sidebar({ needsYouCount }: { needsYouCount: number }) {
   return (
     <aside className="hidden md:flex w-[240px] flex-shrink-0 flex-col border-r border-[var(--color-line)] sticky top-0 h-screen bg-[var(--color-bg)]">
       <div className="px-4 h-12 border-b border-[var(--color-line)] flex items-center gap-3">
@@ -45,7 +45,7 @@ export function Sidebar({ inboxCount }: { inboxCount: number }) {
           <SidebarLink
             key={item.to}
             item={item}
-            badge={item.to === "/" && inboxCount > 0 ? inboxCount : null}
+            badge={item.to === "/" && needsYouCount > 0 ? needsYouCount : null}
           />
         ))}
       </nav>

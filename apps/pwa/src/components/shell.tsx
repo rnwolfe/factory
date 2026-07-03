@@ -3,7 +3,6 @@ import { Cog, Inbox as InboxIcon, Layers, LineChart, PenLine } from "lucide-reac
 import { type ReactNode, useCallback } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../lib/cn.ts";
-import { useInboxCount } from "../lib/use-inbox-count.ts";
 import { useNeedsYouCount } from "../lib/use-needs-you-count.ts";
 import { DashboardTickerMobile } from "./dashboard-ticker.tsx";
 import { DesktopTopBar } from "./desktop-top-bar.tsx";
@@ -31,9 +30,9 @@ export function Shell({ children }: { children: ReactNode }) {
     "/settings": "settings",
   };
   const title = titleByRoute[loc.pathname] ?? "Heimdall";
-  const inboxCount = useInboxCount(true);
-  // The mobile nav badge is amber = "needs you", so it tracks only pending
-  // decisions, not the all-feeds total the desktop sidebar shows.
+  // One "needs you" count feeds every badge (desktop sidebar, mobile nav, and
+  // the app-icon badge via useAppBadge) so they can't drift. Amber is rationed
+  // to "a decision is yours"; the count is pending, non-snoozed decisions only.
   const needsYouCount = useNeedsYouCount(true);
 
   // Pull-to-refresh refetches the active route's data without per-route
@@ -54,7 +53,7 @@ export function Shell({ children }: { children: ReactNode }) {
     // full physical screen, so the nav reaches the true bottom edge. (ADR-007
     // nav investigation — confirmed on-device: scr932 / dvh873 / lvh932.)
     <div className="h-[100lvh] flex overflow-hidden">
-      <Sidebar inboxCount={inboxCount} />
+      <Sidebar needsYouCount={needsYouCount} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <DesktopTopBar />

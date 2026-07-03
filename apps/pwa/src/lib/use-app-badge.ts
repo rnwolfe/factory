@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import { useInboxCount } from "./use-inbox-count.ts";
+import { useNeedsYouCount } from "./use-needs-you-count.ts";
 
 export function useAppBadge(enabled: boolean) {
-  const total = useInboxCount(enabled);
+  const total = useNeedsYouCount(enabled);
 
   useEffect(() => {
     if (typeof navigator.setAppBadge !== "function") return;

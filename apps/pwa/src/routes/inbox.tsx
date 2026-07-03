@@ -175,6 +175,9 @@ export function Inbox() {
     qc.invalidateQueries({ queryKey: ["feedback.inbox"] });
     qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
     qc.invalidateQueries({ queryKey: ["decisions.ambient"] });
+    // Push the shared "needs you" badge count too, so every badge surface
+    // updates on inbox-channel events instead of waiting for its slow poll.
+    qc.invalidateQueries({ queryKey: ["decisions.needsYouCount"] });
   });
 
   const action = useMutation({
