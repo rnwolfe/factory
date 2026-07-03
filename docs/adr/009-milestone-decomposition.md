@@ -119,3 +119,50 @@ roadmap, decomposing each milestone with the same rigor as the first."
   `feature_plan` / the `project_vision` roadmap as today.
 - **−** Derived progression can be ambiguous if tasks are added outside the
   milestone flow; the operator can always pick the target milestone explicitly.
+
+## Amendment (2026-07-02) — the hands-off-preset auto-confirm exception
+
+Decision §2 makes the operator `ReviewStep` the confirm gate: a milestone
+decomposition is proposed, the operator reviews/edits it, and only then does it
+materialize into tasks. That manual gate is still the default and still applies
+to every preset **except one**.
+
+**The exception.** For a project whose autonomy configuration resolves to the
+`hands-off` preset (i.e. `matchingAutonomyPreset(db, projectId) === 'hands-off'`,
+`AutonomyPreset` in `apps/daemon/src/autonomy/config.ts`), the post-merge
+queue-drain path auto-plans **and auto-confirms** the next milestone with no
+`ReviewStep` interaction: `autoPlanNextMilestone` (`apps/daemon/src/projects/auto-milestone.ts`)
+runs the same `spec-decompose-milestone-v1` decompose engine, then calls
+`confirmMilestone` directly. This is the deliberate point of the `hands-off`
+preset — the operator has opted the project into unattended planning *and*
+execution, so pausing on a human review gate would defeat the preset. Every
+other preset (`conservative`, `balanced`) keeps the manual queue-empty nudge and
+the `ReviewStep` gate exactly as Decision §2 specifies.
+
+**The mitigation — the contained-blast-radius guardrail.** Skipping human review
+is only safe because the auto-confirm is *gated on plan-time blast radius*, not
+unconditional. Before it confirms, `autoPlanNextMilestone` classifies the
+proposed decomposition with `classifyMilestoneBlastRadius`
+(`apps/daemon/src/workers/verifier.ts`) — the plan-time analogue of the
+diff-time `classifyBlastRadius`: task count ↔ file count (`MILESTONE_TASK_LIMIT`),
+a `large` estimate ↔ high churn, and a risk-sensitive topic
+(auth / secrets / migration / infra / CI / payment) ↔ a risk-sensitive path. It
+then applies the **same ceiling** hands-off already enforces on autorun
+(`autorun.maxBlastRadius`, `"contained"`) via the shared `isWithinBlastCeiling`
+predicate. A `contained` decomposition is auto-confirmed; a `broad` one
+(large-estimate task, risk-sensitive topic, or too many tasks) returns
+`created: 0` / `outcome: "blast_exceeded"` and falls back to the manual
+queue-empty nudge — i.e. it degrades to exactly the pre-existing
+manual-confirm behavior and leaves the next milestone for the operator to
+review. Unattended planning is thus capped at the same contained blast radius as
+unattended execution: broad work always still passes through a human.
+
+**Scope — this is not a general precedent.** This exception is scoped to
+`autonomyPreset === 'hands-off'` and to milestone decomposition specifically. It
+does **not** license skipping operator review anywhere else: the spec-import
+`ReviewStep`, `feature_plan` iteration, audit-report promotion, and every other
+confirm gate remain manual regardless of preset. The `hands-off` preset is an
+explicit operator opt-in with a bounded blast-radius guarantee, not a signal
+that review gates are optional in general. If a future change wants to auto-skip
+a different review gate, it needs its own ADR and its own guardrail — do not cite
+this amendment as cover.
