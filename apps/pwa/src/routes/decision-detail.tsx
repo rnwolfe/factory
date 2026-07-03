@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { type DecisionRow, decisionProjectLabel } from "../components/decision-card.tsx";
 import { HeimdallMark } from "../components/heimdall-mark.tsx";
@@ -11,9 +11,9 @@ import { type AgentName, useAgentRegistry } from "../components/model-picker.tsx
 import { RecoveryPrompt } from "../components/recovery-prompt.tsx";
 import { SourceIssueLink, sourceIssueLabel } from "../components/source-link.tsx";
 import { VerifierReport, type VerifierReportView } from "../components/verifier-report.tsx";
-import { getToken } from "../lib/auth.ts";
 import { cn } from "../lib/cn.ts";
 import { trpc } from "../lib/trpc.ts";
+import { useRawSocket } from "../lib/use-channel.ts";
 
 interface DecisionComment {
   id: string;
@@ -302,43 +302,30 @@ export function DecisionDetail() {
 
   // /ws/inbox carries comment_added and decision_updated. Filter to this
   // decisionId and invalidate so the thread + header pick up agent replies
-  // without the operator refreshing.
-  useEffect(() => {
-    const token = getToken();
-    if (!token || !id) return;
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/inbox?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket | null = null;
+  // without the operator refreshing. Reconnect/backoff lives in useRawSocket;
+  // passing null when there's no id yet holds the socket closed.
+  useRawSocket(id ? "/ws/inbox" : null, (msg) => {
     try {
-      ws = new WebSocket(url);
-      ws.onmessage = (msg) => {
-        try {
-          const evt = JSON.parse(msg.data) as { kind?: string; decisionId?: string };
-          if (evt.decisionId !== id) return;
-          if (evt.kind === "comment_added") {
-            qc.invalidateQueries({ queryKey: ["decisions.comments", id] });
-          }
-          if (evt.kind === "decision_updated") {
-            qc.invalidateQueries({ queryKey: ["decisions.get", id] });
-            // Interventions emit decision_updated on start/cancel/orphan
-            // so the pane shows up / goes away without a refresh.
-            qc.invalidateQueries({ queryKey: ["interventions.forDecision", id] });
-          }
-          if (evt.kind === "decision_actioned") {
-            qc.invalidateQueries({ queryKey: ["decisions.get", id] });
-            qc.invalidateQueries({ queryKey: ["interventions.forDecision", id] });
-            qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
-          }
-        } catch {
-          // non-JSON frame; ignore
-        }
-      };
+      const evt = JSON.parse(msg.data) as { kind?: string; decisionId?: string };
+      if (evt.decisionId !== id) return;
+      if (evt.kind === "comment_added") {
+        qc.invalidateQueries({ queryKey: ["decisions.comments", id] });
+      }
+      if (evt.kind === "decision_updated") {
+        qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+        // Interventions emit decision_updated on start/cancel/orphan
+        // so the pane shows up / goes away without a refresh.
+        qc.invalidateQueries({ queryKey: ["interventions.forDecision", id] });
+      }
+      if (evt.kind === "decision_actioned") {
+        qc.invalidateQueries({ queryKey: ["decisions.get", id] });
+        qc.invalidateQueries({ queryKey: ["interventions.forDecision", id] });
+        qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+      }
     } catch {
-      // socket unavailable — query refetches still cover us
+      // non-JSON frame; ignore
     }
-    return () => {
-      ws?.close();
-    };
-  }, [id, qc]);
+  });
 
   if (decision.isLoading) return <DecisionSkeleton />;
   if (!decision.data) {

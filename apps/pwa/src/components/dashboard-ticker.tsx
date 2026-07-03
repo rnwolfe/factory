@@ -3,6 +3,13 @@ import { Activity } from "lucide-react";
 import { Link } from "react-router-dom";
 import { trpc } from "../lib/trpc.ts";
 import { useScopedChannel } from "../lib/use-channel.ts";
+import { useMediaQuery } from "../lib/use-media-query.ts";
+
+// Matches Tailwind's `md` breakpoint — the same 768px the two ticker variants
+// use to hide/show via `md:flex` / `md:hidden`. Gating each ticker's ops
+// subscription on its own visibility keeps exactly one `/ws/events` ops-scope
+// connection open per app, no matter that both are always mounted.
+const DESKTOP_QUERY = "(min-width: 768px)";
 
 interface UsageBucket {
   inputTokens: number;
@@ -49,7 +56,12 @@ export function DashboardTicker() {
     refetchInterval: 30_000,
   });
 
-  useScopedChannel({ kind: "ops", id: "" }, { invalidate: [["ops.snapshot"]] });
+  // Only the desktop ticker (visible at ≥768px) holds the ops socket; the
+  // mobile variant is CSS-hidden here, so it drops its subscription.
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  useScopedChannel(isDesktop ? { kind: "ops", id: "" } : null, {
+    invalidate: [["ops.snapshot"]],
+  });
 
   if (!snap.data) return null;
   const { running, queued, usage } = snap.data;
@@ -93,7 +105,12 @@ export function DashboardTickerMobile() {
     refetchInterval: 30_000,
   });
 
-  useScopedChannel({ kind: "ops", id: "" }, { invalidate: [["ops.snapshot"]] });
+  // Mirror of the desktop ticker: only subscribe when the mobile variant is
+  // the visible one (<768px), so the two never both hold an ops socket.
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  useScopedChannel(!isDesktop ? { kind: "ops", id: "" } : null, {
+    invalidate: [["ops.snapshot"]],
+  });
 
   if (!snap.data) return null;
   const { running, queued, usage } = snap.data;

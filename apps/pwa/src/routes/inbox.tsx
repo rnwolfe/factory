@@ -19,8 +19,8 @@ import { DecisionCard, type DecisionRow } from "../components/decision-card.tsx"
 import { HeimdallMark } from "../components/heimdall-mark.tsx";
 import { type InboxDetailItem, InboxDetailPane } from "../components/inbox-detail-pane.tsx";
 import { PlanCard, type PlanRow } from "../components/plan-card.tsx";
-import { getToken } from "../lib/auth.ts";
 import { trpc } from "../lib/trpc.ts";
+import { useRawSocket } from "../lib/use-channel.ts";
 
 interface AmbientRun {
   runId: string;
@@ -163,32 +163,19 @@ export function Inbox() {
     refetchInterval: 30_000,
   });
 
-  // Live push: subscribe to /ws/inbox for instant updates.
-  useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/inbox?token=${encodeURIComponent(token)}`;
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(url);
-      ws.onmessage = () => {
-        // Coarse invalidation — inbox + plan inbox + triaging + audit + feedback
-        // all refetch on any inbox-channel event. Set is small and queries
-        // are cheap.
-        qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
-        qc.invalidateQueries({ queryKey: ["plans.inbox"] });
-        qc.invalidateQueries({ queryKey: ["audits.inbox"] });
-        qc.invalidateQueries({ queryKey: ["feedback.inbox"] });
-        qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
-        qc.invalidateQueries({ queryKey: ["decisions.ambient"] });
-      };
-    } catch {
-      // ignore — polling still covers us
-    }
-    return () => {
-      ws?.close();
-    };
-  }, [qc]);
+  // Live push: subscribe to /ws/inbox for instant updates. Reconnect/backoff
+  // discipline lives in useRawSocket; polling above stays as the safety net.
+  useRawSocket("/ws/inbox", () => {
+    // Coarse invalidation — inbox + plan inbox + triaging + audit + feedback
+    // all refetch on any inbox-channel event. Set is small and queries
+    // are cheap.
+    qc.invalidateQueries({ queryKey: ["decisions.inbox"] });
+    qc.invalidateQueries({ queryKey: ["plans.inbox"] });
+    qc.invalidateQueries({ queryKey: ["audits.inbox"] });
+    qc.invalidateQueries({ queryKey: ["feedback.inbox"] });
+    qc.invalidateQueries({ queryKey: ["ideas.triaging"] });
+    qc.invalidateQueries({ queryKey: ["decisions.ambient"] });
+  });
 
   const action = useMutation({
     mutationFn: (vars: {
