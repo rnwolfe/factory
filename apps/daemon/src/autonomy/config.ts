@@ -137,6 +137,11 @@ export const AUTONOMY_PRESETS: Record<AutonomyPreset, AutonomyOverride> = {
   // Promote faster and let the smallest-blast-radius work auto-run (still gated).
   "hands-off": {
     trust: { autoPromote: true, promoteStreak: 3, autoContract: true },
+    // A project trusted enough for hands-off auto-lands even risk-sensitive/large
+    // diffs — but still only with high verifier coverage (the gate never yields on
+    // coverage here). Without this, perfectly-verified schema/auth/lockfile diffs
+    // still route to review, which is the bulk of a hands-off project's held runs.
+    gate: { maxBlastRadius: "broad" },
     autorun: { enabled: true, maxBlastRadius: "contained" },
     // Only at hands-off does conflict resolution go fully automatic.
     mergeRemediation: { dirtyAutoReset: true, conflictAutoResolve: true },

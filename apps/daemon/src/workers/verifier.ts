@@ -7,15 +7,19 @@ import type { QualityReport } from "./quality.ts";
  * report from signals that already exist, so "is this safe to land unattended?" is a
  * MEASURED score rather than an assumption baked into `finalStatus === "completed"`.
  *
- * Coverage is three-state, not two: `absent` ("nothing checked this") contributes ZERO
- * — a completed run with all signals absent scores 0 and is NOT autonomy-eligible. That
- * three-way distinction is the operational core of "autonomy = verifier coverage" (MM1).
+ * Coverage is four-state, not two. `absent` ("nothing checked this") and a hard `fail`
+ * both contribute ZERO — a completed run with all signals absent scores 0 and is NOT
+ * autonomy-eligible. A `concern` (a validator hedge — "probably ok, a human might want to
+ * glance") earns PARTIAL credit: it is not a defect and must not cap an otherwise-clean run
+ * below the `high` bar, but it isn't a clean pass either. That distinction is the operational
+ * core of "autonomy = verifier coverage" (MM1) — and it keeps advisory hedges out of the
+ * actionable-defect / auto-retry path (see `hasActionableDefect`).
  *
  * This module only COMPUTES. It changes no routing — auto-merge still gates on
  * `completed`. Gating on the score is a deliberate follow-up slice (ADR-014 §sequencing).
  */
 
-export type CoverageState = "pass" | "fail" | "absent";
+export type CoverageState = "pass" | "concern" | "fail" | "absent";
 export type VerifierLevel = "none" | "low" | "medium" | "high";
 
 export interface VerifierSignal {
@@ -38,6 +42,15 @@ export interface VerifierReport {
 const WEIGHTS_2: Record<string, number> = { acceptance: 0.6, quality: 0.4 };
 const WEIGHTS_3: Record<string, number> = { acceptance: 0.4, quality: 0.3, "cross-model": 0.3 };
 
+/**
+ * Fraction of its weight a `concern` earns. A validator that hedges "concerns when
+ * unsure" (its prompt tells it to, rather than rubber-stamp) is not reporting a defect —
+ * so at half credit, acceptance-pass + quality-pass + cross-model-concern = 0.85 still
+ * clears the `high` (≥0.8) bar and auto-lands, instead of being capped at 0.7/medium and
+ * ground through the retry loop against an advisory it will only re-emit.
+ */
+const CONCERN_CREDIT = 0.5;
+
 export interface VerifierInput {
   acceptance: AcceptanceResult[];
   qualityReport: QualityReport | null;
@@ -57,11 +70,14 @@ export function computeVerifierReport(input: VerifierInput): VerifierReport {
   if (includeCrossModel) signals.push(crossModelSignal(input.crossModel ?? null));
 
   const weights = includeCrossModel ? WEIGHTS_3 : WEIGHTS_2;
-  // `pass` earns its weight; `fail` and `absent` earn nothing (both are "no positive
-  // coverage" — the state distinction is for the operator-facing narrative).
+  // `pass` earns full weight; `concern` earns partial credit (an advisory hedge, not a
+  // defect); `fail` and `absent` earn nothing (both are "no positive coverage"). The
+  // fail-vs-absent distinction is for the operator-facing narrative; concern also gates
+  // the auto-retry path (`hasActionableDefect`).
   let score = 0;
   for (const s of signals) {
     if (s.state === "pass") score += weights[s.key] ?? 0;
+    else if (s.state === "concern") score += (weights[s.key] ?? 0) * CONCERN_CREDIT;
   }
   score = Math.round(score * 100) / 100;
   return { score, level: levelFor(score), signals };
@@ -85,6 +101,21 @@ function crossModelSignal(v: CrossModelVerdict | null): VerifierSignal {
         0,
         200,
       ),
+    };
+  }
+  // `concerns` is an advisory hedge ("probably ok, a human should glance"), NOT a defect —
+  // partial credit, and deliberately not actionable. Only a hard `fail` is a concrete
+  // defect another model found: zero credit, and it drives the auto-retry loop.
+  if (v.state === "concerns") {
+    return {
+      key: "cross-model",
+      label: "Cross-model review",
+      state: "concern",
+      detail:
+        `${v.validator} flagged concerns (${Math.round(v.confidence * 100)}%): ${v.reasoning}`.slice(
+          0,
+          200,
+        ),
     };
   }
   return {
@@ -274,6 +305,13 @@ export interface GateDecision {
   reason: string;
 }
 
+const LEVEL_RANK: Record<VerifierLevel, number> = { none: 0, low: 1, medium: 2, high: 3 };
+
+/** Does an actual coverage level meet (≥) the required minimum? */
+export function meetsLevel(actual: VerifierLevel, min: VerifierLevel): boolean {
+  return LEVEL_RANK[actual] >= LEVEL_RANK[min];
+}
+
 /**
  * The auto-land decision: a run lands unattended only with HIGH verifier coverage
  * AND a diff within the project's `maxBlastRadius` ceiling. Anything less routes to
@@ -283,16 +321,22 @@ export interface GateDecision {
  * `maxBlastRadius` (the project's resolved `gate.maxBlastRadius`, ADR-016) is the
  * operator's opt-in: `"contained"` (default) holds broad diffs for review;
  * `"broad"` lets an operator who trusts a project auto-land even risk-sensitive /
- * large diffs (still requiring high coverage). Defaults to `"contained"` so any
+ * large diffs (still requiring the coverage bar). Defaults to `"contained"` so any
+ * caller that doesn't pass it keeps the strict behavior.
+ *
+ * `minLevel` (the project's resolved `gate.minLevel`, ADR-016) is the coverage bar:
+ * `"high"` (default) is the strict baseline; a project the operator trusts can lower
+ * it to `"medium"` to auto-land partially-verified work. Defaults to `"high"` so any
  * caller that doesn't pass it keeps the strict behavior.
  */
 export function decideAutoLand(
   report: VerifierReport,
   blast: BlastClassification,
   maxBlastRadius: BlastRadius = "contained",
+  minLevel: VerifierLevel = "high",
 ): GateDecision {
-  if (report.level !== "high") {
-    return { land: false, reason: `verifier coverage ${report.level} (need high)` };
+  if (!meetsLevel(report.level, minLevel)) {
+    return { land: false, reason: `verifier coverage ${report.level} (need ${minLevel})` };
   }
   if (!isWithinBlastCeiling(blast.radius, maxBlastRadius)) {
     return { land: false, reason: `broad blast radius — ${blast.reasons.join("; ")}` };
@@ -318,10 +362,12 @@ export function hasActionableDefect(report: VerifierReport): boolean {
  */
 export function renderVerifierFindings(report: VerifierReport | null | undefined): string {
   if (!report) return "";
-  const failing = report.signals.filter((s) => s.state === "fail" || s.state === "absent");
+  const failing = report.signals.filter(
+    (s) => s.state === "fail" || s.state === "absent" || s.state === "concern",
+  );
   if (failing.length === 0) return "";
   const lines = failing.map((s) => {
-    const verb = s.state === "fail" ? "FAILED" : "MISSING";
+    const verb = s.state === "fail" ? "FAILED" : s.state === "concern" ? "FLAGGED" : "MISSING";
     return `- **${s.label} — ${verb}.** ${s.detail}`;
   });
   return `## Verifier gate held your prior run (coverage: ${report.level})
@@ -329,7 +375,8 @@ export function renderVerifierFindings(report: VerifierReport | null | undefined
 Your prior run completed but the gate held it for review — coverage was below the
 \`high\` bar. Address these before completing. A cross-model **FAIL** is a concrete
 defect another model found in your diff; treat it as authoritative and fix it. A
-**MISSING** signal is a coverage gap (e.g. no testable acceptance criteria).
+**FLAGGED** signal is an advisory concern (address it if quick, but it is not a hard
+defect). A **MISSING** signal is a coverage gap (e.g. no testable acceptance criteria).
 
 ${lines.join("\n")}`;
 }
