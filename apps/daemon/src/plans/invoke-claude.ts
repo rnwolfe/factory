@@ -6,6 +6,7 @@ import {
   getAgentDescriptor,
   requireAgentDescriptor,
 } from "../agents/registry.ts";
+import { TransientInvokeError, withInvokeRetry } from "./invoke-retry.ts";
 
 /**
  * Re-exports kept thin so callers can `import { AgentName } from "./invoke-claude.ts"`
@@ -122,10 +123,33 @@ export async function invokeClaudeJson(
   const agentName: AgentName = opts.agent ?? "claude-code";
   const agent = agentByName(agentName);
 
+  // Resume against an unsupporting agent is a programming error, not a
+  // transient failure — surface it on the first attempt, never retry.
   if (opts.resumeSessionId && !agentSupportsResume(agentName)) {
     throw new ResumeUnsupportedError(agentName);
   }
 
+  // These invocations are read-only (`--print`, no worktree, no commits), so a
+  // process-level transient failure is safe to re-roll. Parse failures live in
+  // the callers and never reach this loop — see invoke-retry.ts. 3 attempts
+  // total, short backoff: the operator is often waiting interactively.
+  return withInvokeRetry(() => invokeAgentOnce(prompt, opts, agentName, agent), {
+    label: `${agentName}${opts.resumeSessionId ? " (resume)" : ""}`,
+  });
+}
+
+/**
+ * A single headless invocation attempt. Throws {@link TransientInvokeError} for
+ * process-level failures (spawn/stream/pipe error, non-zero exit with no
+ * output, empty output where output was expected) so the retry wrapper can
+ * re-roll them; returns the result otherwise.
+ */
+async function invokeAgentOnce(
+  prompt: string,
+  opts: InvokeClaudeOptions,
+  agentName: AgentName,
+  agent: AgentSpec,
+): Promise<InvokeClaudeResult> {
   const ac = new AbortController();
   // budgetSeconds=0 means unlimited (matches running the CLI directly).
   const timer =
@@ -135,20 +159,6 @@ export async function invokeClaudeJson(
     resumeSessionId: opts.resumeSessionId,
     model: opts.model ?? undefined,
   });
-  const proc = bunSpawn({
-    cmd: argv as string[],
-    cwd: opts.cwd,
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-    signal: ac.signal,
-  });
-  if (proc.stdin) {
-    if (stdin !== undefined) {
-      proc.stdin.write(stdin);
-    }
-    await proc.stdin.end();
-  }
 
   // Streamed assistant text vs. the `result` envelope's `final` copy of it.
   // The two duplicate each other, so we keep them apart and return the streamed
@@ -158,9 +168,6 @@ export async function invokeClaudeJson(
   let finalText = "";
   let sessionId: string | null = null;
   let metrics: AgentMetrics | null = null;
-  const reader = proc.stdout.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
   const handleEvents = (events: readonly StreamEvent[]) => {
     for (const e of events) {
       if (e.kind === "text") {
@@ -170,32 +177,69 @@ export async function invokeClaudeJson(
       else if (e.kind === "metrics") metrics = e.metrics;
     }
   };
+
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let idx = buf.indexOf("\n");
-      while (idx !== -1) {
-        const line = buf.slice(0, idx);
-        buf = buf.slice(idx + 1);
-        handleEvents(agent.parseLine(line));
-        idx = buf.indexOf("\n");
+    const proc = bunSpawn({
+      cmd: argv as string[],
+      cwd: opts.cwd,
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      signal: ac.signal,
+    });
+    if (proc.stdin) {
+      if (stdin !== undefined) {
+        proc.stdin.write(stdin);
       }
+      await proc.stdin.end();
     }
-    if (buf.length > 0) {
-      handleEvents(agent.parseLine(buf));
+
+    const reader = proc.stdout.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx = buf.indexOf("\n");
+        while (idx !== -1) {
+          const line = buf.slice(0, idx);
+          buf = buf.slice(idx + 1);
+          handleEvents(agent.parseLine(line));
+          idx = buf.indexOf("\n");
+        }
+      }
+      if (buf.length > 0) {
+        handleEvents(agent.parseLine(buf));
+      }
+    } finally {
+      reader.releaseLock();
     }
+
+    const text = streamedText || finalText;
+    const exitCode = await proc.exited;
+    // Empty output where output was expected — whether the process exited
+    // non-zero (crash) or zero-but-silent (dropped stream) — is a transient
+    // failure worth re-rolling. A non-zero exit that still produced text is
+    // tolerated (the caller parses the text), matching prior behavior.
+    if (!text) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new TransientInvokeError(
+        `${agentName} produced no output (exit ${exitCode}): ${stderr.trim().slice(0, 200)}`,
+      );
+    }
+    return { text, sessionId, metrics };
+  } catch (err) {
+    // The no-output case above is already transient; anything else here is a
+    // spawn error, dropped stream, or budget-abort — also process-level and
+    // safe to re-roll on a read-only invocation.
+    if (err instanceof TransientInvokeError) throw err;
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new TransientInvokeError(`${agentName} spawn/stream error: ${detail.slice(0, 200)}`, {
+      cause: err,
+    });
   } finally {
     if (timer) clearTimeout(timer);
-    reader.releaseLock();
   }
-
-  const text = streamedText || finalText;
-  const exitCode = await proc.exited;
-  if (exitCode !== 0 && !text) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`${agentName} exited ${exitCode}: ${stderr.trim().slice(0, 200)}`);
-  }
-  return { text, sessionId, metrics };
 }
