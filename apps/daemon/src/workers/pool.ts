@@ -11,16 +11,30 @@ export class WorkerPool {
 
   constructor(public concurrency: number) {}
 
-  /** Submit a task. Resolves when the task finishes (success or failure). */
-  submit(task: () => Promise<void>): Promise<void> {
+  /**
+   * Submit a task. Resolves when the task finishes (success or failure).
+   *
+   * `opts.label` (typically a runId) is only used to attribute a thrown error
+   * in the logs. Normal task failures self-report inside `executeRun`; this
+   * catch is a backstop for a throw *before* a run's own error handling begins
+   * (in the submit wrapper itself) — without the log it would vanish silently.
+   */
+  submit(task: () => Promise<void>, opts?: { label?: string }): Promise<void> {
     if (this.draining) return Promise.reject(new Error("pool is draining"));
     return new Promise<void>((resolve) => {
       const run = async () => {
         this.active++;
         try {
           await task();
-        } catch {
-          // failures are surfaced inside task; pool just yields the slot
+        } catch (err) {
+          // Task-level failures are surfaced inside the task (executeRun
+          // self-reports). Anything reaching here threw before that handling
+          // began — log it so it isn't swallowed, but never rethrow: the pool
+          // loop must survive and keep draining the queue.
+          console.error(
+            `[pool] task${opts?.label ? ` ${opts.label}` : ""} threw before its own error handling`,
+            err,
+          );
         } finally {
           this.active--;
           this.next();
