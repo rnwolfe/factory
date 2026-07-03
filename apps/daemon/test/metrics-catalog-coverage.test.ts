@@ -138,6 +138,46 @@ function seedDecision(
     .run();
 }
 
+/**
+ * Seed a `merge_failure` decision the way `recordMergeFailure` + the resolution
+ * sites do: reason + captured lever values in the payload, and a resolution-path
+ * outcome once actioned. Drives the `merge_failures_*` catalog metrics.
+ */
+function seedMergeFailure(
+  db: Db,
+  projectId: string,
+  opts: {
+    reason: "dirty" | "conflict" | "other";
+    status: "pending" | "actioned" | "dismissed";
+    outcome: string;
+    dirtyAutoReset: boolean;
+    conflictAutoResolve: boolean;
+    createdAt: number;
+  },
+): void {
+  db.insert(schema.decisions)
+    .values({
+      id: createId(),
+      kind: "merge_failure",
+      projectId,
+      outcome: opts.outcome,
+      payload: {
+        runId: createId(),
+        branch: "factory/run-x",
+        reason: opts.reason,
+        message: "merge refused",
+        levers: {
+          dirtyAutoReset: opts.dirtyAutoReset,
+          conflictAutoResolve: opts.conflictAutoResolve,
+        },
+      },
+      status: opts.status,
+      actionedAt: opts.status === "pending" ? null : opts.createdAt,
+      createdAt: opts.createdAt,
+    })
+    .run();
+}
+
 function seedAutonomyEvent(
   db: Db,
   projectId: string | null,
@@ -213,6 +253,69 @@ describe("METRIC_CATALOG fixture coverage (every metric, both scopes)", () => {
       seedDecision(db, null, "auto_ratified", MID + 3_000); // portfolio-only (the 07-01 shape)
       seedDecision(db, alpha, "auto_ratified", BEFORE); // out of window → excluded
 
+      // ── merge failures (feature plan mnx1zt27): distinct per-scope reason /
+      //    resolution-path / lever mixes so a mis-keyed compute can't pass.
+      //    alpha: dirty→auto-reset (lever on), conflict→operator (lever off),
+      //           dirty→unresolved (lever off).
+      seedMergeFailure(db, alpha, {
+        reason: "dirty",
+        status: "actioned",
+        outcome: "merge:dirty-auto-reset",
+        dirtyAutoReset: true,
+        conflictAutoResolve: false,
+        createdAt: MID,
+      });
+      seedMergeFailure(db, alpha, {
+        reason: "conflict",
+        status: "actioned",
+        outcome: "merge:conflict-resolved",
+        dirtyAutoReset: false,
+        conflictAutoResolve: false,
+        createdAt: MID + 1_000,
+      });
+      seedMergeFailure(db, alpha, {
+        reason: "dirty",
+        status: "pending",
+        outcome: "merge:dirty",
+        dirtyAutoReset: false,
+        conflictAutoResolve: false,
+        createdAt: MID + 2_000,
+      });
+      //    beta: conflict→auto-resolve (lever on), conflict→manual tmux (lever off),
+      //          dirty→operator approved-retry (lever off).
+      seedMergeFailure(db, beta, {
+        reason: "conflict",
+        status: "actioned",
+        outcome: "merge:conflict-auto-resolved",
+        dirtyAutoReset: true,
+        conflictAutoResolve: true,
+        createdAt: MID,
+      });
+      seedMergeFailure(db, beta, {
+        reason: "conflict",
+        status: "actioned",
+        outcome: "merge:manual-intervention",
+        dirtyAutoReset: false,
+        conflictAutoResolve: false,
+        createdAt: MID + 1_000,
+      });
+      seedMergeFailure(db, beta, {
+        reason: "dirty",
+        status: "actioned",
+        outcome: "merge:approved-retry",
+        dirtyAutoReset: false,
+        conflictAutoResolve: false,
+        createdAt: MID + 2_000,
+      });
+      seedMergeFailure(db, alpha, {
+        reason: "dirty",
+        status: "actioned",
+        outcome: "merge:dirty-auto-reset",
+        dirtyAutoReset: true,
+        conflictAutoResolve: false,
+        createdAt: BEFORE, // out of window → excluded
+      });
+
       // ── autonomy events: distinct (alpha,beta) counts per kind so a mis-keyed
       //    compute can't accidentally pass.
       const evs: Array<[string, number, number]> = [
@@ -243,9 +346,10 @@ describe("METRIC_CATALOG fixture coverage (every metric, both scopes)", () => {
         runs_total: { p: 5, a: 4, b: 1 },
         runs_completed: { p: 4, a: 3, b: 1 },
         runs_failed: { p: 1, a: 1, b: 0 },
-        // decisions — portfolio (4) intentionally exceeds alpha+beta (3): the
-        // null-project decision counts only at portfolio, exactly the 07-01 case.
-        decisions_total: { p: 4, a: 2, b: 1 },
+        // decisions — portfolio (10) exceeds alpha(5)+beta(4): the null-project
+        // decision counts only at portfolio (the 07-01 case). Each scope's total
+        // includes its merge_failure decisions (3 per project, in window).
+        decisions_total: { p: 10, a: 5, b: 4 },
         auto_ratified_total: { p: 3, a: 1, b: 1 },
         // git flow — real repos
         commits: { p: 3, a: 1, b: 2 },
@@ -266,6 +370,18 @@ describe("METRIC_CATALOG fixture coverage (every metric, both scopes)", () => {
         auto_retries: { p: 4, a: 2, b: 2 },
         auto_retry_exhausted: { p: 2, a: 1, b: 1 },
         auto_retry_resolved: { p: 1, a: 1, b: 0 },
+        // merge failures (feature plan mnx1zt27) — total = Σ(reasons) = Σ(paths)
+        //   = Σ(lever on/off) for every scope.
+        merge_failures_total: { p: 6, a: 3, b: 3 },
+        merge_failures_dirty: { p: 3, a: 2, b: 1 },
+        merge_failures_conflict: { p: 3, a: 1, b: 2 },
+        merge_failures_resolved_auto_dirty_reset: { p: 1, a: 1, b: 0 },
+        merge_failures_resolved_auto_agent_resolve: { p: 1, a: 0, b: 1 },
+        merge_failures_resolved_operator_agent_resolve: { p: 2, a: 1, b: 1 },
+        merge_failures_resolved_manual_tmux: { p: 1, a: 0, b: 1 },
+        merge_failures_unresolved: { p: 1, a: 1, b: 0 },
+        merge_failures_lever_on: { p: 2, a: 1, b: 1 },
+        merge_failures_lever_off: { p: 4, a: 2, b: 2 },
       };
 
       // Guard: fail loudly if the catalog grows a metric with no fixture.

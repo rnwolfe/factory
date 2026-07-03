@@ -16,6 +16,7 @@ import { spawn as bunSpawn } from "bun";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
 import type { EventBus } from "../events.ts";
+import { MERGE_FAILURE_OUTCOME } from "../workers/merge-failure.ts";
 import type { WorkerPool } from "../workers/pool.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
 import type { RunRegistry } from "../workers/registry.ts";
@@ -616,7 +617,9 @@ async function finalizeMergeFailureResume(
     .where(eq(schema.interventions.id, intervention.id));
   await db
     .update(schema.decisions)
-    .set({ status: "actioned", actionedAt: now })
+    // Stamp the resolution path so the ops metric can attribute this failure to
+    // the manual-tmux bucket (feature plan mnx1zt27), not the "unresolved" default.
+    .set({ status: "actioned", actionedAt: now, outcome: MERGE_FAILURE_OUTCOME.manualIntervention })
     .where(eq(schema.decisions.id, intervention.decisionId));
   events.publish({
     channel: "inbox",
