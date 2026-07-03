@@ -6,6 +6,7 @@ import {
   classifyMilestoneBlastRadius,
   computeVerifierReport,
   decideAutoLand,
+  hasActionableDefect,
   isWithinBlastCeiling,
   type MilestoneTaskLike,
 } from "../src/workers/verifier.ts";
@@ -113,7 +114,10 @@ describe("computeVerifierReport", () => {
     expect(r.score).toBe(0.7); // 0.4 + 0.3 + 0 (cross-model absent)
   });
 
-  test("cross-model concerns/fail → fail signal, no positive coverage", () => {
+  test("cross-model concerns → concern signal, partial credit still clears high", () => {
+    // An advisory hedge is not a defect: acceptance(0.4) + quality(0.3) +
+    // concern(0.3 × 0.5 = 0.15) = 0.85 → high. It auto-lands instead of being capped
+    // at medium and ground through the retry loop.
     const r = computeVerifierReport({
       acceptance: met(1),
       qualityReport: quality("pass"),
@@ -124,8 +128,38 @@ describe("computeVerifierReport", () => {
         reasoning: "risky",
       },
     });
+    expect(sig(r, "cross-model")?.state).toBe("concern");
+    expect(r.score).toBe(0.85);
+    expect(r.level).toBe("high");
+  });
+
+  test("cross-model hard fail → fail signal, zero credit (a real defect)", () => {
+    const r = computeVerifierReport({
+      acceptance: met(1),
+      qualityReport: quality("pass"),
+      crossModel: { validator: "codex", state: "fail", confidence: 0.9, reasoning: "bug" },
+    });
     expect(sig(r, "cross-model")?.state).toBe("fail");
-    expect(r.score).toBe(0.7);
+    expect(r.score).toBe(0.7); // 0.4 + 0.3 + 0
+    expect(r.level).toBe("medium");
+  });
+});
+
+describe("hasActionableDefect", () => {
+  const base = { acceptance: met(1), qualityReport: quality("pass") };
+  test("a hard fail is actionable (drives auto-retry)", () => {
+    const r = computeVerifierReport({
+      ...base,
+      crossModel: { validator: "codex", state: "fail", confidence: 0.9, reasoning: "bug" },
+    });
+    expect(hasActionableDefect(r)).toBe(true);
+  });
+  test("a concern is NOT actionable (surface, don't grind retries)", () => {
+    const r = computeVerifierReport({
+      ...base,
+      crossModel: { validator: "codex", state: "concerns", confidence: 0.4, reasoning: "eh" },
+    });
+    expect(hasActionableDefect(r)).toBe(false);
   });
 });
 
@@ -280,5 +314,17 @@ describe("decideAutoLand", () => {
     expect(decideAutoLand(high, broad, "broad").land).toBe(true);
     // …but coverage still gates: medium never lands regardless of ceiling.
     expect(decideAutoLand(medium, broad, "broad").land).toBe(false);
+  });
+
+  test("minLevel is honored — a trusted project can auto-land at medium", () => {
+    const contained = classifyBlastRadius(SMALL_DIFF);
+    // Default bar (high) holds medium…
+    expect(decideAutoLand(medium, contained).land).toBe(false);
+    // …but lowering the bar to medium lands it (the knob is no longer dead).
+    const d = decideAutoLand(medium, contained, "contained", "medium");
+    expect(d.land).toBe(true);
+    // A lower bar never overrides blast radius, and never lands below-bar coverage.
+    const none = computeVerifierReport({ acceptance: [], qualityReport: null }); // 0 / none
+    expect(decideAutoLand(none, contained, "contained", "medium").land).toBe(false);
   });
 });

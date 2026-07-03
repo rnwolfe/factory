@@ -897,11 +897,17 @@ export async function executeRun(
       // v0.1 (the operator is already in the loop).
       if (autonomyMode === "autonomous") {
         const blast = classifyBlastRadius(diff);
-        // The project's resolved blast ceiling (ADR-016): an operator can set
-        // `gate.maxBlastRadius: "broad"` to auto-land even risk-sensitive diffs
-        // (still requiring high coverage). Defaults to "contained".
-        const maxBlastRadius = resolveAutonomyConfig(db, project.id).gate.maxBlastRadius;
-        const gate = decideAutoLand(verifierReport, blast, maxBlastRadius);
+        // The project's resolved gate policy (ADR-016): `gate.maxBlastRadius` is the
+        // blast ceiling (an operator can set "broad" to auto-land even risk-sensitive
+        // diffs) and `gate.minLevel` is the coverage bar (lowerable to "medium" for a
+        // trusted project). Both default strict ("contained" / "high").
+        const gateCfg = resolveAutonomyConfig(db, project.id).gate;
+        const gate = decideAutoLand(
+          verifierReport,
+          blast,
+          gateCfg.maxBlastRadius,
+          gateCfg.minLevel,
+        );
         if (!gate.land) {
           finalStatus = "needs_review";
           gateHeldReport = verifierReport;
