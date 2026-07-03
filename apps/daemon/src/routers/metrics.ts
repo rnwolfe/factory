@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { METRIC_CATALOG } from "../metrics/catalog.ts";
+import { dayKey } from "../metrics/rollup.ts";
 import { computeLiveSnapshot } from "../metrics/snapshot.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
@@ -550,7 +551,18 @@ export const metricsRouter = router({
     METRIC_CATALOG.map((m) => ({ key: m.key, scope: m.scope })),
   ),
 
-  /** Daily time-series for one metric at a scope (a project id, or omit/"*" for portfolio). */
+  /**
+   * Daily time-series for one metric at a scope (a project id, or omit/"*" for
+   * portfolio).
+   *
+   * Finalized days (strictly before the current UTC day) come straight from the
+   * `metrics_daily` rollup, unchanged. The current-day point is NOT read from
+   * that table — its bucket lags behind the source tables until the rollup tick
+   * refreshes it (empty/near-empty just after UTC midnight). Instead today is
+   * computed live via the *same* path `metrics.snapshot` uses
+   * ({@link computeLiveSnapshot}), so a run/decision recorded a second ago is
+   * already reflected and the series never shows a stale zero-dip for today.
+   */
   series: protectedProcedure
     .input(
       z.object({
@@ -566,18 +578,34 @@ export const metricsRouter = router({
         input.projectId && input.projectId !== METRICS_PORTFOLIO
           ? input.projectId
           : METRICS_PORTFOLIO;
+      const now = Date.now();
+      const today = dayKey(now);
+
+      // Finalized days only — never today's still-mutating bucket.
       const conds = [
         eq(schema.metricsDaily.metric, input.metric),
         eq(schema.metricsDaily.projectId, scope),
+        lt(schema.metricsDaily.date, today),
       ];
       if (input.from) conds.push(gte(schema.metricsDaily.date, input.from));
       if (input.to) conds.push(lte(schema.metricsDaily.date, input.to));
-      return ctx.db
+      const finalized = ctx.db
         .select({ date: schema.metricsDaily.date, value: schema.metricsDaily.value })
         .from(schema.metricsDaily)
         .where(and(...conds))
         .orderBy(asc(schema.metricsDaily.date))
         .all();
+
+      // Today only participates when it falls inside the requested bounds.
+      const inRange = (!input.from || today >= input.from) && (!input.to || today <= input.to);
+      if (!inRange) return finalized;
+
+      const snapshot = await computeLiveSnapshot(ctx.db, scope, now);
+      const todayValue = snapshot.metrics[input.metric];
+      // Absent from the snapshot ⇒ the metric doesn't apply to this scope (or
+      // computed null). Mirror the rollup, which writes no row in that case.
+      if (todayValue == null) return finalized;
+      return [...finalized, { date: today, value: todayValue }];
     }),
 
   /**
