@@ -121,10 +121,28 @@ function fmtDate(ts: number | null | undefined): string {
   return new Date(ts).toISOString().replace("T", " ").slice(0, 16);
 }
 
-export function PlanDetail() {
-  const { id = "" } = useParams<{ id: string }>();
+/**
+ * Embedded mode: the inbox renders this detail inside its Gmail-style side pane
+ * (all data, not a truncated preview), passing the selected `id` explicitly and
+ * clearing the pane selection via `onResolved` on a return-to-inbox action.
+ */
+interface DetailPaneProps {
+  id?: string;
+  embedded?: boolean;
+  onResolved?: () => void;
+}
+
+export function PlanDetail({ id: idProp, embedded = false, onResolved }: DetailPaneProps = {}) {
+  const params = useParams<{ id: string }>();
+  const id = idProp ?? params.id ?? "";
   const nav = useNavigate();
   const qc = useQueryClient();
+  // Embedded in the inbox's Gmail pane: return-to-inbox clears the selection
+  // instead of navigating (see DetailPaneProps).
+  const returnToInbox = () => {
+    if (embedded) onResolved?.();
+    else nav("/");
+  };
 
   const plan = useQuery({
     queryKey: ["plans.get", id],
@@ -171,13 +189,13 @@ export function PlanDetail() {
       qc.invalidateQueries({ queryKey: ["plans.inbox"] });
       qc.invalidateQueries({ queryKey: ["plans.get", id] });
       if (current?.status === "drafting") {
-        nav("/");
+        returnToInbox();
       } else if (current?.projectId && current.taskId) {
         nav(`/projects/${current.projectId}/tasks/${current.taskId}`);
       } else if (current?.projectId) {
         nav(`/projects/${current.projectId}`);
       } else {
-        nav("/");
+        returnToInbox();
       }
     },
   });
@@ -232,12 +250,16 @@ export function PlanDetail() {
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
       <header className="surface p-4">
         <div className="flex items-center justify-between gap-2">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
-          >
-            <ArrowLeft size={11} /> inbox
-          </Link>
+          {embedded ? (
+            <span />
+          ) : (
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+            >
+              <ArrowLeft size={11} /> inbox
+            </Link>
+          )}
           <PlanOverflowMenu
             action={dropAction}
             enabled={canDropPlan}

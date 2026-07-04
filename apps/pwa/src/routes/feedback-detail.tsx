@@ -82,11 +82,28 @@ function draftChipClass(kind: FeedbackDraft["kind"]): string {
   return "chip-parked";
 }
 
-export function FeedbackDetail() {
-  const { id = "" } = useParams<{ id: string }>();
+/**
+ * Embedded mode: the inbox renders this detail inside its Gmail-style side pane
+ * (all data, not a truncated preview), passing the selected `id` explicitly and
+ * clearing the pane selection via `onResolved` on a return-to-inbox action.
+ */
+interface DetailPaneProps {
+  id?: string;
+  embedded?: boolean;
+  onResolved?: () => void;
+}
+
+export function FeedbackDetail({ id: idProp, embedded = false, onResolved }: DetailPaneProps = {}) {
+  const params = useParams<{ id: string }>();
+  const id = idProp ?? params.id ?? "";
   const nav = useNavigate();
   const qc = useQueryClient();
   const [body, setBody] = useState("");
+  // Embedded in the inbox pane: return-to-inbox clears the selection.
+  const returnToInbox = () => {
+    if (embedded) onResolved?.();
+    else nav("/");
+  };
 
   const row = useQuery({
     queryKey: ["feedback.get", id],
@@ -131,7 +148,7 @@ export function FeedbackDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["feedback.inbox"] });
       qc.invalidateQueries({ queryKey: ["feedback.get", id] });
-      nav("/");
+      returnToInbox();
     },
   });
 
@@ -196,12 +213,14 @@ export function FeedbackDetail() {
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
       <header className="surface p-4">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
-        >
-          <ArrowLeft size={11} /> inbox
-        </Link>
+        {embedded ? null : (
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+          >
+            <ArrowLeft size={11} /> inbox
+          </Link>
+        )}
         <div className="display text-[20px] leading-snug text-[var(--color-fg)] mt-2 flex items-center gap-2 flex-wrap">
           {r.vote === "up" ? <ThumbsUp size={16} /> : <ThumbsDown size={16} />}
           <span>feedback</span>

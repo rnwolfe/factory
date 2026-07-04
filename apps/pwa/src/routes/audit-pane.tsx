@@ -42,10 +42,20 @@ function fmtDate(ts: number): string {
   return d.toISOString().replace("T", " ").slice(0, 16);
 }
 
-export function AuditPane() {
+/**
+ * Embedded mode: the inbox renders this report inside its Gmail-style side pane
+ * (all data, not a truncated preview), passing the selected audit + project ids
+ * explicitly instead of via the URL params.
+ */
+interface AuditPaneProps {
+  auditId?: string;
+  projectId?: string;
+}
+
+export function AuditPane({ auditId: auditIdProp, projectId: projectIdProp }: AuditPaneProps = {}) {
   const params = useParams();
-  const auditId = params.auditId ?? "";
-  const projectId = params.id ?? "";
+  const auditId = auditIdProp ?? params.auditId ?? "";
+  const projectId = projectIdProp ?? params.id ?? "";
   const nav = useNavigate();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
