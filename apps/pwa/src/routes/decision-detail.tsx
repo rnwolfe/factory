@@ -140,9 +140,30 @@ interface DecisionPayload {
 
 type Action = "approve" | "park" | "trash" | "decompose" | "dismiss" | "scaffold_skill";
 
-export function DecisionDetail() {
-  const { id = "" } = useParams<{ id: string }>();
+/**
+ * Embedded mode: the inbox renders each detail route inside its Gmail-style
+ * side pane (all data, not a truncated preview). The pane passes the selected
+ * `id` explicitly instead of via the URL param, and `onResolved` lets a
+ * return-to-inbox action clear the pane selection rather than navigate.
+ */
+interface DetailPaneProps {
+  id?: string;
+  embedded?: boolean;
+  onResolved?: () => void;
+}
+
+export function DecisionDetail({ id: idProp, embedded = false, onResolved }: DetailPaneProps = {}) {
+  const params = useParams<{ id: string }>();
+  const id = idProp ?? params.id ?? "";
   const nav = useNavigate();
+  // In the inbox's Gmail pane the detail is embedded beside the list, so a
+  // resolving action (dismiss/park/etc.) that would return to the inbox instead
+  // clears the pane's selection; navigations that carry momentum (into a new
+  // plan/project/task) still route as normal.
+  const returnToInbox = () => {
+    if (embedded) onResolved?.();
+    else nav("/");
+  };
   const qc = useQueryClient();
   const agentRegistry = useAgentRegistry();
 
@@ -208,7 +229,7 @@ export function DecisionDetail() {
       } else if (res.projectId) {
         nav(`/projects/${res.projectId}`);
       } else {
-        nav("/");
+        returnToInbox();
       }
     },
   });
@@ -223,7 +244,7 @@ export function DecisionDetail() {
       qc.invalidateQueries({ queryKey: ["decisions.get", id] });
       qc.invalidateQueries({ queryKey: ["projects.list"] });
       if (res.projectId) nav(`/projects/${res.projectId}`);
-      else nav("/");
+      else returnToInbox();
     },
   });
 
@@ -237,7 +258,7 @@ export function DecisionDetail() {
       qc.invalidateQueries({ queryKey: ["decisions.get", id] });
       qc.invalidateQueries({ queryKey: ["projects.list"] });
       if (res.projectId) nav(`/projects/${res.projectId}`);
-      else nav("/");
+      else returnToInbox();
     },
   });
 
@@ -434,14 +455,16 @@ export function DecisionDetail() {
   if (d.kind === "issue_import") {
     return (
       <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
-        <header className="surface p-4">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
-          >
-            <ArrowLeft size={11} /> inbox
-          </Link>
-        </header>
+        {embedded ? null : (
+          <header className="surface p-4">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+            >
+              <ArrowLeft size={11} /> inbox
+            </Link>
+          </header>
+        )}
         {isPending ? (
           <div className="surface p-5">
             <IssueImportDetail
@@ -462,12 +485,14 @@ export function DecisionDetail() {
   return (
     <div className="space-y-3 pb-4 md:max-w-3xl md:mx-auto">
       <header className="surface p-4">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
-        >
-          <ArrowLeft size={11} /> inbox
-        </Link>
+        {embedded ? null : (
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1 mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)]"
+          >
+            <ArrowLeft size={11} /> inbox
+          </Link>
+        )}
 
         <div className="flex items-center gap-2 mt-3 mb-2 flex-wrap">
           <span className={cn("chip", verdictTone(d.outcome))}>{d.outcome}</span>

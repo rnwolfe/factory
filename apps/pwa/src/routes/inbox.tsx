@@ -21,6 +21,10 @@ import { HeimdallMark } from "../components/heimdall-mark.tsx";
 import { PlanCard, type PlanRow } from "../components/plan-card.tsx";
 import { trpc } from "../lib/trpc.ts";
 import { useRawSocket } from "../lib/use-channel.ts";
+import { AuditPane } from "./audit-pane.tsx";
+import { DecisionDetail } from "./decision-detail.tsx";
+import { FeedbackDetail } from "./feedback-detail.tsx";
+import { PlanDetail } from "./plan-detail.tsx";
 
 interface AmbientRun {
   runId: string;
@@ -80,6 +84,16 @@ type InboxItem =
   | { kind: "audit"; row: AuditRow }
   | { kind: "feedback"; row: FeedbackInboxRow };
 
+// The item currently open in the desktop reading pane. Audits need their
+// projectId too, since the report is fetched per (project, audit).
+type SelectedItem =
+  | { kind: "decision" | "plan" | "feedback"; id: string }
+  | { kind: "audit"; id: string; projectId: string };
+
+function isDesktopViewport(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+}
+
 type InboxView = "active" | "snoozed";
 type SnoozeTarget = InboxItem["kind"];
 type SnoozeVars = { kind: SnoozeTarget; id: string; snoozedUntil: number | null };
@@ -96,6 +110,11 @@ export function Inbox() {
   const qc = useQueryClient();
   const nav = useNavigate();
   const [view, setView] = useState<InboxView>("active");
+  // Desktop reading pane (Gmail-style): a row click on a wide viewport opens the
+  // item's full detail here beside the list instead of navigating away. On
+  // phone widths there's no room, so clicks navigate to the full route (the
+  // phone-first invariant). null = nothing open yet.
+  const [selected, setSelected] = useState<SelectedItem | null>(null);
 
   const inbox = useQuery({
     queryKey: ["decisions.inbox", view],
@@ -352,6 +371,15 @@ export function Inbox() {
   const inFlight = view === "active" ? (ambient.data?.inFlight ?? []) : [];
   const unattended = view === "active" ? (ambient.data?.unattended ?? []) : [];
 
+  // Drop the pane selection if its item left the list (e.g. the operator
+  // approved/dismissed it, or it snoozed out of view). Set-during-render is
+  // safe when next state is null and depends only on current props/state.
+  const selectedStillPresent =
+    selected !== null && merged.some((m) => m.kind === selected.kind && m.row.id === selected.id);
+  if (selected !== null && !selectedStillPresent) {
+    setSelected(null);
+  }
+
   if (
     merged.length === 0 &&
     triagingRows.length === 0 &&
@@ -402,106 +430,124 @@ export function Inbox() {
     );
   }
 
-  // A row click goes straight to the item's full detail view on every
-  // viewport. There used to be a desktop side pane, but it duplicated the
-  // full page in less space and wasn't useful — the full view is the one
-  // canonical detail surface now.
-  const openDecision = (row: DecisionRow) => nav(`/decisions/${row.id}`);
-  const openPlan = (row: PlanRow) => nav(`/plans/${row.id}`);
-  const openAudit = (row: AuditRow) => nav(`/projects/${row.projectId}/audits/${row.id}`);
-  const openFeedback = (row: FeedbackInboxRow) => nav(`/feedback/${row.id}`);
+  // On desktop a row click opens the item's full detail in the reading pane
+  // beside the list (Gmail-style — the pane shows *all* the data, the same
+  // component the full route renders, not a truncated preview). On phone widths
+  // there's no room for a pane, so the click navigates to the full route.
+  const openDecision = (row: DecisionRow) => {
+    if (isDesktopViewport()) setSelected({ kind: "decision", id: row.id });
+    else nav(`/decisions/${row.id}`);
+  };
+  const openPlan = (row: PlanRow) => {
+    if (isDesktopViewport()) setSelected({ kind: "plan", id: row.id });
+    else nav(`/plans/${row.id}`);
+  };
+  const openAudit = (row: AuditRow) => {
+    if (isDesktopViewport()) setSelected({ kind: "audit", id: row.id, projectId: row.projectId });
+    else nav(`/projects/${row.projectId}/audits/${row.id}`);
+  };
+  const openFeedback = (row: FeedbackInboxRow) => {
+    if (isDesktopViewport()) setSelected({ kind: "feedback", id: row.id });
+    else nav(`/feedback/${row.id}`);
+  };
 
   // One inbox item → its card. Shared between the grouped active view and the
-  // flat snoozed view.
+  // flat snoozed view. On desktop the card matching the open pane is ringed.
   const renderItem = (item: InboxItem, i: number) => {
+    const isSelected =
+      selected !== null && selected.kind === item.kind && selected.id === item.row.id;
     if (item.kind === "decision") {
       const d = item.row;
       return (
-        <DecisionCard
-          key={d.id}
-          decision={d}
-          ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
-          index={i}
-          onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
-          onOpen={() => openDecision(d)}
-          snoozeControl={
-            <SnoozeControl
-              view={view}
-              disabled={snooze.isPending}
-              snoozedUntil={d.snoozedUntil ?? null}
-              onSnooze={(until) => handleSnooze("decision", d.id, until)}
-            />
-          }
-        />
+        <SelectableWrapper key={d.id} active={isSelected}>
+          <DecisionCard
+            decision={d}
+            ideaText={d.ideaId ? (ideasById.get(d.ideaId) ?? null) : null}
+            index={i}
+            onAction={(a) => action.mutate({ decisionId: d.id, action: a })}
+            onOpen={() => openDecision(d)}
+            snoozeControl={
+              <SnoozeControl
+                view={view}
+                disabled={snooze.isPending}
+                snoozedUntil={d.snoozedUntil ?? null}
+                onSnooze={(until) => handleSnooze("decision", d.id, until)}
+              />
+            }
+          />
+        </SelectableWrapper>
       );
     }
     if (item.kind === "plan") {
       const p = item.row;
       return (
-        <PlanCard
-          key={p.id}
-          plan={p}
-          index={i}
-          onOpen={() => openPlan(p)}
-          snoozeControl={
-            <SnoozeControl
-              view={view}
-              disabled={snooze.isPending}
-              snoozedUntil={p.snoozedUntil ?? null}
-              onSnooze={(until) => handleSnooze("plan", p.id, until)}
-            />
-          }
-        />
+        <SelectableWrapper key={p.id} active={isSelected}>
+          <PlanCard
+            plan={p}
+            index={i}
+            onOpen={() => openPlan(p)}
+            snoozeControl={
+              <SnoozeControl
+                view={view}
+                disabled={snooze.isPending}
+                snoozedUntil={p.snoozedUntil ?? null}
+                onSnooze={(until) => handleSnooze("plan", p.id, until)}
+              />
+            }
+          />
+        </SelectableWrapper>
       );
     }
     if (item.kind === "feedback") {
       return (
-        <FeedbackCard
-          key={item.row.id}
-          row={item.row}
-          onOpen={() => openFeedback(item.row)}
-          snoozeControl={
-            <SnoozeControl
-              view={view}
-              disabled={snooze.isPending}
-              snoozedUntil={item.row.snoozedUntil ?? null}
-              onSnooze={(until) => handleSnooze("feedback", item.row.id, until)}
-            />
-          }
-        />
+        <SelectableWrapper key={item.row.id} active={isSelected}>
+          <FeedbackCard
+            row={item.row}
+            onOpen={() => openFeedback(item.row)}
+            snoozeControl={
+              <SnoozeControl
+                view={view}
+                disabled={snooze.isPending}
+                snoozedUntil={item.row.snoozedUntil ?? null}
+                onSnooze={(until) => handleSnooze("feedback", item.row.id, until)}
+              />
+            }
+          />
+        </SelectableWrapper>
       );
     }
     const a = item.row;
     return (
-      <AuditCard
-        key={a.id}
-        audit={a}
-        projectName={projectNameById.get(a.projectId) ?? null}
-        index={i}
-        onOpen={() => openAudit(a)}
-        snoozeControl={
-          <SnoozeControl
-            view={view}
-            disabled={snooze.isPending}
-            snoozedUntil={a.snoozedUntil ?? null}
-            onSnooze={(until) => handleSnooze("audit", a.id, until)}
-          />
-        }
-      />
+      <SelectableWrapper key={a.id} active={isSelected}>
+        <AuditCard
+          audit={a}
+          projectName={projectNameById.get(a.projectId) ?? null}
+          index={i}
+          onOpen={() => openAudit(a)}
+          snoozeControl={
+            <SnoozeControl
+              view={view}
+              disabled={snooze.isPending}
+              snoozedUntil={a.snoozedUntil ?? null}
+              onSnooze={(until) => handleSnooze("audit", a.id, until)}
+            />
+          }
+        />
+      </SelectableWrapper>
     );
   };
 
   const inFlightCount = triagingRows.length + inFlight.length;
 
   return (
-    <div className="md:max-w-[680px] md:mx-auto">
+    <div className="md:grid md:grid-cols-[minmax(340px,420px)_minmax(0,1fr)] md:gap-6 md:items-start">
       {reconnecting ? (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-50 chip mono text-[10.5px] bg-[var(--color-bg-1)] border border-[var(--color-line)] flex items-center gap-1.5">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-verdict-parked)] animate-pulse" />
           reconnecting…
         </div>
       ) : null}
-      <div className="space-y-3">
+      <div className="space-y-3 md:min-w-0">
         <WatchStrip
           running={opsSnap.data?.running.length ?? inFlight.length}
           queued={opsSnap.data?.queued.length ?? 0}
@@ -563,8 +609,50 @@ export function Inbox() {
           merged.map((item, i) => renderItem(item, i))
         )}
       </div>
+
+      {/* Desktop reading pane — the full detail for the open row, docked beside
+          the list like a Gmail thread panel. Hidden on phone (clicks navigate
+          to the full route there). */}
+      <div className="hidden md:block md:sticky md:top-5 md:min-w-0">
+        <InboxPane selected={selected} onResolved={() => setSelected(null)} />
+      </div>
     </div>
   );
+}
+
+/**
+ * The Gmail-style reading pane: renders the selected item's *actual* full
+ * detail component (all data — the same one its route renders), not a truncated
+ * preview. Keyed by id so switching rows remounts cleanly (fresh queries, no
+ * carried-over draft/checkbox state). Empty until the operator picks a row.
+ */
+function InboxPane({
+  selected,
+  onResolved,
+}: {
+  selected: SelectedItem | null;
+  onResolved: () => void;
+}) {
+  if (!selected) {
+    return (
+      <div className="surface flex flex-col items-center justify-center text-center px-6 py-16 min-h-[280px]">
+        <div className="display text-[15px] text-[var(--color-fg-2)] mb-1.5">nothing selected</div>
+        <p className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+          pick a card on the left
+        </p>
+      </div>
+    );
+  }
+  switch (selected.kind) {
+    case "decision":
+      return <DecisionDetail key={selected.id} id={selected.id} embedded onResolved={onResolved} />;
+    case "plan":
+      return <PlanDetail key={selected.id} id={selected.id} embedded onResolved={onResolved} />;
+    case "feedback":
+      return <FeedbackDetail key={selected.id} id={selected.id} embedded onResolved={onResolved} />;
+    case "audit":
+      return <AuditPane key={selected.id} auditId={selected.id} projectId={selected.projectId} />;
+  }
 }
 
 /**
@@ -755,6 +843,22 @@ function ViewToggle({ view, onChange }: { view: InboxView; onChange: (v: InboxVi
           {v}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Rings the card whose detail is open in the desktop reading pane. No-op on
+ *  phone widths, where there is no pane. */
+function SelectableWrapper({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={
+        active
+          ? "md:ring-1 md:ring-[var(--color-line-bright)] md:rounded-sm md:transition"
+          : "md:transition"
+      }
+    >
+      {children}
     </div>
   );
 }
