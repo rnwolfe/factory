@@ -264,6 +264,55 @@ describe("sessions orchestrate", () => {
     }
   });
 
+  test("fromRunId with a missing worktree falls back to a fresh worktree off main", async () => {
+    if (!(await tmuxAvailable())) return;
+    const h = await setupHarness();
+    try {
+      const projectId = await seedProject(h);
+      const project = h.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, projectId))
+        .get();
+      // Insert a run row whose worktree path never existed on disk (simulating
+      // a run whose per-run worktree was already cleaned up).
+      const runId = createId();
+      const now = Date.now();
+      h.db
+        .insert(schema.runs)
+        .values({
+          id: runId,
+          projectId,
+          taskId: null,
+          status: "completed",
+          branch: `factory/run-${runId.slice(0, 12)}`,
+          worktreePath: path.join(h.root, "worktrees", "demo", "gone-run"),
+          baseRef: null,
+          startedAt: now,
+          budgetSeconds: 60,
+        })
+        .run();
+
+      const res = await startSession(h.config, h.db, h.events, {
+        projectId,
+        mode: "shell",
+        fromRunId: runId,
+      });
+      // Fell back to a fresh adhoc worktree rather than throwing invalid_input.
+      expect(res.branchName.startsWith("factory/adhoc-")).toBe(true);
+      expect(res.worktreePath).not.toBe(project?.workdirPath);
+      const row = h.db.select().from(schema.sessions).where(eq(schema.sessions.id, res.id)).get();
+      expect(row?.status).toBe("running");
+      // The fresh worktree is based off main — its HEAD matches main's HEAD.
+      const mainHead = await git(["rev-parse", "main"], project?.workdirPath ?? "");
+      const wtHead = await git(["rev-parse", "HEAD"], res.worktreePath);
+      expect(wtHead.stdout.trim()).toBe(mainHead.stdout.trim());
+      await endSession(h.config, h.db, h.events, res.id, { abort: true });
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("recoverOrphanedSessions marks running rows as aborted", async () => {
     const h = await setupHarness();
     try {

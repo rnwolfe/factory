@@ -30,10 +30,13 @@ const INTERACTIVE_MODES = new Set(["claude-code", "codex"]);
  * triage, agent_decision). Callers can always render this; it disappears
  * gracefully.
  *
- * The "open in agent session" path is a planned follow-up — it needs the
- * session-attach-to-existing-worktree wiring that ad-hoc sessions don't
- * have yet (today's `sessions.start` creates a fresh worktree off main).
- * Copy-paste is the supported v1 path.
+ * Two recovery affordances: copy-paste (drive the recovery in an agent
+ * running anywhere) and "open in agent session" (spins up an interactive
+ * session attached to the run's worktree via `sessions.start`'s `fromRunId`,
+ * with this prompt pre-typed). When the source run's worktree has already
+ * been cleaned up, `sessions.start` transparently falls back to a fresh
+ * worktree off main — so the button always lands the operator in a live
+ * session rather than erroring.
  */
 export function RecoveryPrompt({ decisionId }: { decisionId: string }) {
   const q = useQuery({
