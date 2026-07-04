@@ -1,0 +1,1 @@
+ALTER TABLE `autonomy_events` ADD `acknowledged_at` integer;

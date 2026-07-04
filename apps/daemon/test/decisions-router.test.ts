@@ -495,6 +495,78 @@ describe("decisionsRouter", () => {
     }
   });
 
+  test("ambient digest hides acknowledged rows; acknowledgeAmbient dismisses them", async () => {
+    const h = setupHarness();
+    try {
+      const now = Date.now();
+      const liveId = createId();
+      const otherLiveId = createId();
+      const preAckedId = createId();
+      const staleId = createId();
+      await h.db.insert(schema.autonomyEvents).values([
+        {
+          id: liveId,
+          projectId: null,
+          runId: null,
+          kind: "auto_merged",
+          message: "merged run",
+          createdAt: now - 1_000,
+        },
+        {
+          id: otherLiveId,
+          projectId: null,
+          runId: null,
+          kind: "trust_promoted",
+          message: "promoted",
+          createdAt: now - 2_000,
+        },
+        {
+          // Already acknowledged → must never appear in the digest.
+          id: preAckedId,
+          projectId: null,
+          runId: null,
+          kind: "auto_ran",
+          message: "already dismissed",
+          createdAt: now - 500,
+          acknowledgedAt: now - 100,
+        },
+        {
+          // Older than the 48h window → excluded regardless of ack state.
+          id: staleId,
+          projectId: null,
+          runId: null,
+          kind: "auto_merged",
+          message: "ancient",
+          createdAt: now - 49 * 60 * 60 * 1000,
+        },
+      ]);
+
+      const before = await h.caller.ambient();
+      const beforeIds = before.unattended.map((e) => e.id);
+      expect(beforeIds).toContain(liveId);
+      expect(beforeIds).toContain(otherLiveId);
+      expect(beforeIds).not.toContain(preAckedId);
+      expect(beforeIds).not.toContain(staleId);
+
+      await h.caller.acknowledgeAmbient({ ids: [liveId] });
+
+      const after = await h.caller.ambient();
+      const afterIds = after.unattended.map((e) => e.id);
+      expect(afterIds).not.toContain(liveId);
+      expect(afterIds).toContain(otherLiveId);
+
+      // The event is stamped, not deleted — /ops history + metrics are unaffected.
+      const row = h.db
+        .select()
+        .from(schema.autonomyEvents)
+        .where(eq(schema.autonomyEvents.id, liveId))
+        .get();
+      expect(typeof row?.acknowledgedAt).toBe("number");
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("snooze view filters the default inbox and exposes snoozed items", async () => {
     const h = setupHarness();
     try {

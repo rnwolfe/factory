@@ -9,6 +9,7 @@ import {
   RotateCcw,
   ThumbsDown,
   ThumbsUp,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -279,6 +280,31 @@ export function Inbox() {
     },
     [snooze],
   );
+
+  // Dismiss "done while you were away" FYI rows. These are ambient autonomy
+  // events, not decisions — acknowledging hides them from the digest (the
+  // event stays in the /ops log). Optimistically drop the acknowledged ids
+  // from the cached `ambient.unattended` list so the row leaves instantly.
+  const acknowledgeAmbient = useMutation<unknown, Error, string[], { prev?: unknown }>({
+    mutationFn: (ids) => trpc.decisions.acknowledgeAmbient.mutate({ ids }),
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: ["decisions.ambient"] });
+      const prev = qc.getQueryData(["decisions.ambient"]);
+      const drop = new Set(ids);
+      qc.setQueryData<{ inFlight: AmbientRun[]; unattended: AmbientEvent[] }>(
+        ["decisions.ambient"],
+        (data) =>
+          data ? { ...data, unattended: data.unattended.filter((e) => !drop.has(e.id)) } : data,
+      );
+      return { prev };
+    },
+    onError: (_e, _ids, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["decisions.ambient"], ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["decisions.ambient"] });
+    },
+  });
 
   // Triaging ideas are live work, not snoozed items — only show them in the
   // active view.
@@ -575,9 +601,24 @@ export function Inbox() {
                   label="done while you were away"
                   count={unattended.length}
                   tone="unattended"
+                  action={
+                    <button
+                      type="button"
+                      disabled={acknowledgeAmbient.isPending}
+                      onClick={() => acknowledgeAmbient.mutate(unattended.map((e) => e.id))}
+                      className="mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)] disabled:opacity-50"
+                    >
+                      clear
+                    </button>
+                  }
                 />
                 {unattended.map((e) => (
-                  <UnattendedRow key={e.id} event={e} />
+                  <UnattendedRow
+                    key={e.id}
+                    event={e}
+                    onDismiss={() => acknowledgeAmbient.mutate([e.id])}
+                    dismissing={acknowledgeAmbient.isPending}
+                  />
                 ))}
               </section>
             ) : null}
@@ -688,8 +729,20 @@ const UNATTENDED_CHIP: Record<string, { label: string; icon: typeof GitMerge }> 
   milestone_auto_planned: { label: "auto · milestone", icon: ArrowUpRight },
 };
 
-/** A thing the system did unattended while you were away. FYI only, no action. */
-function UnattendedRow({ event }: { event: AmbientEvent }) {
+/**
+ * A thing the system did unattended while you were away. FYI only — no
+ * approve/park verdict, just an acknowledge (the ✕) that clears it from the
+ * digest. The event stays in the /ops history log regardless.
+ */
+function UnattendedRow({
+  event,
+  onDismiss,
+  dismissing,
+}: {
+  event: AmbientEvent;
+  onDismiss: () => void;
+  dismissing?: boolean;
+}) {
   const elapsed = Math.max(0, Math.floor((Date.now() - event.createdAt) / 1000));
   const ago =
     elapsed < 60
@@ -710,30 +763,44 @@ function UnattendedRow({ event }: { event: AmbientEvent }) {
         ? `/projects/${event.projectId}`
         : "/ops";
   return (
-    <Link
-      to={href}
-      className="block px-4 py-2.5 rounded-[10px] border active:bg-[var(--color-bg-2)]"
+    <div
+      className="relative rounded-[10px] border active:bg-[var(--color-bg-2)]"
       style={{
         background: "var(--color-working-tint)",
         borderColor: "var(--color-working-tint-line)",
       }}
     >
-      <div className="flex items-center gap-2">
-        <AutoChip>
-          <Icon size={9} />
-          {chip.label}
-        </AutoChip>
-        {event.projectName ? (
-          <span className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
-            {event.projectName}
-          </span>
-        ) : null}
-        <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">{ago} ago</span>
-      </div>
-      <p className="text-[13px] text-[var(--color-fg-2)] leading-snug mt-1 line-clamp-2">
-        {event.message}
-      </p>
-    </Link>
+      <Link to={href} className="block px-4 py-2.5 pr-10">
+        <div className="flex items-center gap-2">
+          <AutoChip>
+            <Icon size={9} />
+            {chip.label}
+          </AutoChip>
+          {event.projectName ? (
+            <span className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+              {event.projectName}
+            </span>
+          ) : null}
+          <span className="mono text-[10.5px] text-[var(--color-fg-3)] ml-auto">{ago} ago</span>
+        </div>
+        <p className="text-[13px] text-[var(--color-fg-2)] leading-snug mt-1 line-clamp-2">
+          {event.message}
+        </p>
+      </Link>
+      <button
+        type="button"
+        aria-label="dismiss"
+        disabled={dismissing}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDismiss();
+        }}
+        className="absolute right-2 top-2 h-7 w-7 inline-flex items-center justify-center text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)] disabled:opacity-50"
+      >
+        <X size={14} />
+      </button>
+    </div>
   );
 }
 

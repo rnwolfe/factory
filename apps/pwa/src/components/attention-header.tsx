@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn.ts";
 
 /**
@@ -40,11 +41,14 @@ export function AttentionHeader({
   count,
   tone,
   className,
+  action,
 }: {
   label: string;
   count?: number;
   tone: AttentionTone;
   className?: string;
+  /** Optional trailing control, rendered after the hairline (e.g. "clear"). */
+  action?: ReactNode;
 }) {
   const t = TONE[tone];
   return (
@@ -55,6 +59,7 @@ export function AttentionHeader({
         <span className={cn("mono text-[10.5px] tabular-nums", t.text)}>{count}</span>
       ) : null}
       <span className={cn("flex-1 h-px", t.line)} />
+      {action}
     </div>
   );
 }
