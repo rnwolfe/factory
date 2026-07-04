@@ -69,6 +69,11 @@ const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
 // list doesn't grow into a wall as projects accumulate completed work.
 const ARCHIVED_TASK_STATUSES = new Set(["done", "dropped"]);
 
+// Plans split the same way: live plans (drafting/frozen) the operator acts on,
+// and terminal ones (superseded/abandoned) folded behind a toggle so the
+// supersession audit trail is preserved without walling off the active plan.
+const TERMINAL_PLAN_STATUSES = new Set(["superseded", "abandoned"]);
+
 // Task summary as returned by projects.tasks.list (with derived dep state).
 type TaskSummary = {
   id: string;
@@ -105,6 +110,36 @@ const TASK_LANES: Array<{ id: TaskLane; label: string }> = [
 // is bounded; this is purely a paint/readability cut.
 const RUNS_DEFAULT_VISIBLE = 15;
 
+// One row in the project's plans list. Shared by the active and archived
+// groups so both render identically; the status chip color keys off status.
+function ProjectPlanRow({ plan }: { plan: PlanRow }) {
+  return (
+    <Link
+      to={`/plans/${plan.id}`}
+      className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
+    >
+      <ListTree size={12} className="text-[var(--color-fg-3)] shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[14px] truncate">{plan.goal || "(unnamed plan)"}</div>
+        <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
+          {plan.kind} · {plan.taskId ?? "—"}
+        </div>
+      </div>
+      <span
+        className={`chip ${
+          plan.status === "drafting"
+            ? "chip-decompose"
+            : plan.status === "frozen"
+              ? "chip-greenlit"
+              : ""
+        }`}
+      >
+        {plan.status}
+      </span>
+    </Link>
+  );
+}
+
 function githubHtmlUrlFromClone(cloneUrl: string): string {
   // GitHub HTTPS clone URLs are `https://github.com/<owner>/<name>.git`.
   return cloneUrl.replace(/\.git$/, "");
@@ -130,6 +165,7 @@ export function ProjectDetail() {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showReleasePicker, setShowReleasePicker] = useState(false);
   const [showArchivedTasks, setShowArchivedTasks] = useState(false);
+  const [showArchivedPlans, setShowArchivedPlans] = useState(false);
   const [showAllRuns, setShowAllRuns] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get("tab") ?? "overview") as ProjectTab;
@@ -867,42 +903,52 @@ export function ProjectDetail() {
           ) : null}
         </section>
 
-        {projectPlans.data && projectPlans.data.length > 0 ? (
-          <section>
-            <SectionHeader
-              title="plans"
-              count={projectPlans.data.filter((p) => p.status === "drafting").length}
-            />
-            <div className="surface divide-y divide-[var(--color-line)]">
-              {projectPlans.data.map((p) => (
-                <Link
-                  key={p.id}
-                  to={`/plans/${p.id}`}
-                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--color-bg-2)]"
-                >
-                  <ListTree size={12} className="text-[var(--color-fg-3)] shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[14px] truncate">{p.goal || "(unnamed plan)"}</div>
-                    <div className="mono text-[10.5px] text-[var(--color-fg-3)] truncate">
-                      {p.kind} · {p.taskId ?? "—"}
+        {projectPlans.data && projectPlans.data.length > 0
+          ? (() => {
+              const activePlans = projectPlans.data.filter(
+                (p) => !TERMINAL_PLAN_STATUSES.has(p.status),
+              );
+              const archivedPlans = projectPlans.data.filter((p) =>
+                TERMINAL_PLAN_STATUSES.has(p.status),
+              );
+              return (
+                <section>
+                  <SectionHeader title="plans" count={activePlans.length} />
+                  {activePlans.length > 0 ? (
+                    <div className="surface divide-y divide-[var(--color-line)]">
+                      {activePlans.map((p) => (
+                        <ProjectPlanRow key={p.id} plan={p} />
+                      ))}
                     </div>
-                  </div>
-                  <span
-                    className={`chip ${
-                      p.status === "drafting"
-                        ? "chip-decompose"
-                        : p.status === "frozen"
-                          ? "chip-greenlit"
-                          : ""
-                    }`}
-                  >
-                    {p.status}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </section>
-        ) : null}
+                  ) : (
+                    <div className="surface px-3 py-4 text-[13px] text-[var(--color-fg-3)]">
+                      no active plans — all {archivedPlans.length} superseded or abandoned.
+                    </div>
+                  )}
+
+                  {archivedPlans.length > 0 ? (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowArchivedPlans((v) => !v)}
+                        className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-fg-1)] px-1"
+                      >
+                        {showArchivedPlans ? "hide" : "show"} {archivedPlans.length}{" "}
+                        superseded/abandoned
+                      </button>
+                      {showArchivedPlans ? (
+                        <div className="surface divide-y divide-[var(--color-line)] mt-2">
+                          {archivedPlans.map((p) => (
+                            <ProjectPlanRow key={p.id} plan={p} />
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })()
+          : null}
       </ProjectTabPanel>
 
       <ProjectTabPanel value="runs" active={activeTab}>
