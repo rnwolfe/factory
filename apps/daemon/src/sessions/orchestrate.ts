@@ -210,11 +210,25 @@ export async function startSession(
         worktreePath: run.worktreePath,
         branch: run.branch,
       });
-    } catch (err) {
-      throw new SessionError("invalid_input", (err as Error).message);
+      branchName = run.branch;
+      attachedFromRunId = run.id;
+    } catch {
+      // The run's worktree has been cleaned up (or its branch/path drifted).
+      // Rather than hard-failing the recovery, fall back to a fresh adhoc
+      // worktree off the project's main branch. The recovery prompt still
+      // carries the full context (worktree/branch/base ref, conflicted files,
+      // task body) — the operator lands in a clean slate off main instead of
+      // getting an `invalid_input` error or being rooted at the live project
+      // workdir. `attachedFromRunId` stays null so the tmux-failure cleanup
+      // below treats this like any other fresh worktree.
+      branchName = `factory/adhoc-${sessionId.slice(0, 12)}`;
+      wt = await ensureWorktree({
+        projectPath: project.workdirPath,
+        branch: branchName,
+        baseRef: "main",
+        worktreePath: path.join(config.worktreesRoot, project.slug, sessionId),
+      });
     }
-    branchName = run.branch;
-    attachedFromRunId = run.id;
   } else {
     branchName = `factory/adhoc-${sessionId.slice(0, 12)}`;
     wt = await ensureWorktree({
