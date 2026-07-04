@@ -336,6 +336,29 @@ body {
 }
 .textarea:focus { border-color: var(--color-accent); outline: none; }
 
+/*
+ * iOS focus-zoom guard.
+ *
+ * The viewport meta intentionally allows pinch-to-zoom (no maximum-scale /
+ * user-scalable=no). The side effect: iOS Safari auto-zooms into any form
+ * control whose computed font-size is < 16px when it gains focus. We keep the
+ * denser 14/15px sizing on desktop (fine pointer, no auto-zoom there) and bump
+ * every native focusable control to 16px only on touch devices — the exact set
+ * of devices where the auto-zoom fires. This block is unlayered, so it wins
+ * over both the base .input/.textarea sizes above and any Tailwind text-[…px]
+ * utility on an input; source order after those rules settles the tie. Result:
+ * pinch-to-zoom stays, focus-zoom is gone.
+ */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select,
+  .input,
+  .textarea {
+    font-size: 16px;
+  }
+}
+
 /* skeleton — avoids spinners */
 .skel {
   background: linear-gradient(
