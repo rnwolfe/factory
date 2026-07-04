@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -345,6 +345,57 @@ describe("interventions orchestrate · blocked_run", () => {
         .where(eq(schema.decisions.id, decisionId))
         .get();
       expect(decision?.status).toBe("pending");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("worktree gone → roots tmux at a fresh worktree off main, not the missing path or project workdir", async () => {
+    if (!(await tmuxAvailable())) return;
+    const h = await setupHarness();
+    try {
+      const project = await seedProject(h);
+      const { decisionId, runWorktree } = await seedBlockedRunWithDecision(
+        h,
+        project.id,
+        project.workdirPath,
+      );
+
+      // Simulate the ephemeral per-run worktree having been reaped (later
+      // run cleanup / `git worktree prune` / manual sweep) while the blocked
+      // decision still sits in the inbox.
+      await git(["worktree", "remove", "--force", runWorktree], project.workdirPath);
+      expect(existsSync(runWorktree)).toBe(false);
+
+      const started = await startIntervention(
+        { config: h.config, db: h.db, events: h.events, runs: h.runs, pool: h.pool },
+        decisionId,
+      );
+
+      // The session must be rooted in a NEW worktree — never the missing
+      // path, and never the live project workdir (editing there would dirty
+      // main and break the next auto-merge).
+      expect(started.worktreePath).not.toBe(runWorktree);
+      expect(started.worktreePath).not.toBe(project.workdirPath);
+      expect(existsSync(started.worktreePath)).toBe(true);
+      // The fallback worktree lives under the configured worktrees root.
+      expect(started.worktreePath.startsWith(h.config.worktreesRoot)).toBe(true);
+
+      // It's a real git worktree checked out off main (fresh intervene branch).
+      const branch = await git(["symbolic-ref", "--short", "HEAD"], started.worktreePath);
+      expect(branch.stdout.trim()).toMatch(/^factory\/intervene-/);
+
+      const row = h.db
+        .select()
+        .from(schema.interventions)
+        .where(eq(schema.interventions.id, started.interventionId))
+        .get();
+      expect(row?.worktreePath).toBe(started.worktreePath);
+
+      await cancelIntervention(
+        { config: h.config, db: h.db, events: h.events, runs: h.runs, pool: h.pool },
+        started.interventionId,
+      );
     } finally {
       h.cleanup();
     }
