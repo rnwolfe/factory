@@ -4,6 +4,20 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.53.0 — 2026-07-04
+
+### Added
+- **Watch can scaffold a reusable skill from a project-less insight.** An insight that isn't tied to any project — a technique, a convention, a reusable pattern worth keeping — can now be turned into a standalone skill straight from the Watch surface, instead of being dropped or force-fit into a project. (ADR-024)
+- **GitHub-backend issue intake honors triage's plan suggestion.** When triage recommends a plan for an incoming GitHub issue, that suggestion now carries through on the GitHub Issues backend the same way it does for the file backend — so approving an intake lands the suggested plan rather than a bare task.
+- **Dismiss digest rows from the inbox.** The "done while you were away" section is now clearable — operators can dismiss individual digest rows once they've read them, so the awareness feed doesn't accumulate stale entries.
+
+### Changed
+- **Project detail folds terminal plans behind a toggle.** Completed and superseded plans are collapsed by default and revealed on tap, so a project's active plan work stays front-and-center instead of scrolling past a long tail of finished and replaced plans.
+
+### Fixed
+- **Recovery and intervene runs survive a missing worktree.** When a run's original worktree was already gone (pruned, cleaned up, or never rematerialized), "open in session" recovery and intervene-on-a-blocked-run both dead-ended. Both paths now fall back to a fresh worktree cut off `main`, so you can always pick a stranded run back up.
+- **iOS no longer auto-zooms on input focus — and pinch-zoom still works.** Focusing a text input on iOS Safari/PWA yanked the viewport into a zoom; the fix stops that focus-zoom without re-disabling pinch-to-zoom (the WCAG 1.4.4 accessibility guarantee restored in v0.51.0 stays intact).
+
 ## v0.52.0 — 2026-07-03
 
 ### Added
