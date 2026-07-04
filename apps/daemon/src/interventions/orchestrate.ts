@@ -1,8 +1,10 @@
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type Db, schema } from "@factory/db";
 import {
   commitAllChanges,
+  ensureWorktree,
   followFileBytes,
   mergeIntoMain,
   shellQuote,
@@ -61,6 +63,7 @@ export class InterventionError extends Error {
       | "intervention_already_active"
       | "source_run_not_found"
       | "project_not_found"
+      | "worktree_failed"
       | "tmux_failed"
       | "no_tmux"
       | "no_session_id"
@@ -147,7 +150,7 @@ export async function startIntervention(
   deps: InterventionOrchestrateDeps,
   decisionId: string,
 ): Promise<StartedIntervention> {
-  const { db, events } = deps;
+  const { config, db, events } = deps;
 
   if (!(await tmuxAvailable())) {
     throw new InterventionError("no_tmux", "tmux is not available on PATH");
@@ -192,6 +195,8 @@ export async function startIntervention(
     );
   }
 
+  const interventionId = createId();
+
   // Resolve worktreePath + sourceRunId based on kind.
   let worktreePath: string;
   let sourceRunId: string | null = null;
@@ -213,9 +218,50 @@ export async function startIntervention(
     if (!sourceRun) {
       throw new InterventionError("source_run_not_found", `source run ${payload.runId} not found`);
     }
-    worktreePath = sourceRun.worktreePath;
     sourceRunId = sourceRun.id;
     projectId = sourceRun.projectId;
+
+    // The source run's worktree is the operator's default repair surface —
+    // the exact filesystem state (including gitignored artifacts) the agent
+    // left behind. But per-run worktrees are ephemeral: a later run's
+    // cleanup, a `git worktree prune`, or a manual sweep can remove it while
+    // the blocked decision still sits in the inbox. If it's gone, DON'T fall
+    // back to the live project workdir — an operator editing there would
+    // dirty `main` and break the next auto-merge. Instead cut a fresh
+    // throwaway worktree off `main` and root the session there.
+    if (existsSync(sourceRun.worktreePath)) {
+      worktreePath = sourceRun.worktreePath;
+    } else {
+      const project = await db
+        .select({ slug: schema.projects.slug, workdirPath: schema.projects.workdirPath })
+        .from(schema.projects)
+        .where(eq(schema.projects.id, sourceRun.projectId))
+        .get();
+      if (!project) {
+        throw new InterventionError(
+          "project_not_found",
+          `project ${sourceRun.projectId} not found`,
+        );
+      }
+      try {
+        const fresh = await ensureWorktree({
+          projectPath: project.workdirPath,
+          branch: `factory/intervene-${interventionId.slice(0, 12)}`,
+          baseRef: "main",
+          worktreePath: path.join(
+            config.worktreesRoot,
+            project.slug,
+            `intervene-${interventionId}`,
+          ),
+        });
+        worktreePath = fresh.worktreePath;
+      } catch (err) {
+        throw new InterventionError(
+          "worktree_failed",
+          `source run worktree is gone and a fresh fallback worktree could not be created: ${(err as Error).message}`,
+        );
+      }
+    }
   } else {
     // merge_failure: tmux over the project's main workdir — that's where
     // the merge failed, and where the operator needs to reconcile state.
@@ -238,7 +284,6 @@ export async function startIntervention(
     sourceRunId = payload.runId ?? null;
   }
 
-  const interventionId = createId();
   const tmuxSessionName = `factoryd-intervene-${interventionId.slice(0, 12)}`;
 
   // Pane log file → followFileBytes → /ws/pane fanout, mirroring sessions.
