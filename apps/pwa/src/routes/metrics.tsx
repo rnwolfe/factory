@@ -495,7 +495,13 @@ export function Metrics() {
           Token throughput (input ↑ / output ↓), wall-clock runtime, and cost across every agent
           invocation Heimdall has driven — drillable by project, agent, and model.
         </p>
-        {runtimeQ.data ? (
+        {runtimeQ.isLoading ? (
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="skel h-10 rounded" />
+            <div className="skel h-10 rounded" />
+            <div className="skel h-10 rounded" />
+          </div>
+        ) : runtimeQ.data ? (
           <div className="mt-4 grid grid-cols-3 gap-3">
             <HeadlineStat
               label="agent work (all time)"
