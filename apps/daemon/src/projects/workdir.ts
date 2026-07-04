@@ -3,6 +3,29 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { spawn as bunSpawn } from "bun";
 
+/**
+ * Sync status of the workdir's current branch vs. its configured upstream.
+ *
+ * Ahead/behind are computed against the local remote-tracking ref
+ * (`@{upstream}`, i.e. as-of-last-fetch) — the snapshot NEVER triggers a
+ * network fetch. When the branch has no configured upstream (detached HEAD,
+ * a fresh local branch, or no remote), `configured` is false and `state` is
+ * `no_remote`; the computation never throws.
+ */
+export interface UpstreamStatus {
+  /** True when the current branch has a configured upstream tracking ref. */
+  configured: boolean;
+  /** Local branch name, or null when detached / unknown. */
+  branch: string | null;
+  /** Upstream tracking ref (e.g. `origin/main`), or null when unconfigured. */
+  remoteRef: string | null;
+  /** Commits on HEAD not yet on the remote-tracking ref. */
+  ahead: number;
+  /** Commits on the remote-tracking ref not yet on HEAD. */
+  behind: number;
+  state: "up_to_date" | "ahead" | "behind" | "diverged" | "no_remote";
+}
+
 export interface WorkdirSnapshot {
   exists: boolean;
   branch: string | null;
@@ -13,7 +36,17 @@ export interface WorkdirSnapshot {
   commits: Array<{ sha: string; subject: string; ts: number; author: string }>;
   worktrees: Array<{ path: string; branch: string | null; head: string | null }>;
   tree: Array<{ path: string; type: "file" | "dir"; size: number | null }>;
+  upstream: UpstreamStatus;
 }
+
+const NO_REMOTE: UpstreamStatus = {
+  configured: false,
+  branch: null,
+  remoteRef: null,
+  ahead: 0,
+  behind: 0,
+  state: "no_remote",
+};
 
 const TREE_IGNORE = new Set([
   ".git",
@@ -100,6 +133,54 @@ function parseWorktreeList(stdout: string): WorkdirSnapshot["worktrees"] {
   return out;
 }
 
+function deriveUpstreamState(ahead: number, behind: number): UpstreamStatus["state"] {
+  if (ahead > 0 && behind > 0) return "diverged";
+  if (ahead > 0) return "ahead";
+  if (behind > 0) return "behind";
+  return "up_to_date";
+}
+
+/**
+ * Compute ahead/behind against the branch's configured upstream tracking ref.
+ * Reads only local refs (no fetch). Returns NO_REMOTE when the branch has no
+ * upstream, when HEAD is detached, or on any git error — never throws.
+ */
+async function computeUpstream(workdirPath: string): Promise<UpstreamStatus> {
+  // `@{upstream}` resolves to the tracking ref (e.g. origin/main) for the
+  // current branch; exits non-zero when none is configured or HEAD is detached.
+  const upstream = await git(
+    ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+    workdirPath,
+  );
+  if (upstream.exitCode !== 0) return NO_REMOTE;
+  const remoteRef = upstream.stdout.trim();
+  if (remoteRef.length === 0) return NO_REMOTE;
+
+  const branchRes = await git(["rev-parse", "--abbrev-ref", "HEAD"], workdirPath);
+  const branch = branchRes.exitCode === 0 ? branchRes.stdout.trim() || null : null;
+
+  // `--left-right --count <upstream>...HEAD` → "<behind>\t<ahead>"
+  //   left  (upstream not in HEAD) = behind
+  //   right (HEAD not in upstream) = ahead
+  const counts = await git(
+    ["rev-list", "--left-right", "--count", `${remoteRef}...HEAD`],
+    workdirPath,
+  );
+  if (counts.exitCode !== 0) return NO_REMOTE;
+  const parts = counts.stdout.trim().split(/\s+/);
+  const behind = Number.parseInt(parts[0] ?? "0", 10) || 0;
+  const ahead = Number.parseInt(parts[1] ?? "0", 10) || 0;
+
+  return {
+    configured: true,
+    branch,
+    remoteRef,
+    ahead,
+    behind,
+    state: deriveUpstreamState(ahead, behind),
+  };
+}
+
 async function shallowTree(root: string): Promise<WorkdirSnapshot["tree"]> {
   let entries: string[];
   try {
@@ -142,16 +223,18 @@ export async function snapshotWorkdir(workdirPath: string): Promise<WorkdirSnaps
       commits: [],
       worktrees: [],
       tree: [],
+      upstream: NO_REMOTE,
     };
   }
 
-  const [branch, head, porcelain, log, worktrees, tree] = await Promise.all([
+  const [branch, head, porcelain, log, worktrees, tree, upstream] = await Promise.all([
     git(["rev-parse", "--abbrev-ref", "HEAD"], workdirPath),
     git(["rev-parse", "HEAD"], workdirPath),
     git(["status", "--porcelain=v1"], workdirPath),
     git(["log", "-n", "15", "--all", "--pretty=format:%H%x09%s%x09%at%x09%an"], workdirPath),
     git(["worktree", "list", "--porcelain"], workdirPath),
     shallowTree(workdirPath),
+    computeUpstream(workdirPath),
   ]);
 
   const status = porcelain.exitCode === 0 ? parsePorcelain(porcelain.stdout) : [];
@@ -165,5 +248,6 @@ export async function snapshotWorkdir(workdirPath: string): Promise<WorkdirSnaps
     commits: log.exitCode === 0 ? parseLog(log.stdout) : [],
     worktrees: worktrees.exitCode === 0 ? parseWorktreeList(worktrees.stdout) : [],
     tree,
+    upstream,
   };
 }
