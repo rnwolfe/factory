@@ -138,7 +138,7 @@ interface DecisionPayload {
   resurfacedTaskId?: string | null;
 }
 
-type Action = "approve" | "park" | "trash" | "decompose" | "dismiss";
+type Action = "approve" | "park" | "trash" | "decompose" | "dismiss" | "scaffold_skill";
 
 export function DecisionDetail() {
   const { id = "" } = useParams<{ id: string }>();
@@ -182,12 +182,18 @@ export function DecisionDetail() {
   });
 
   const action = useMutation({
-    mutationFn: (vars: { action: Action; agent?: AgentName; selectedIssues?: number[] }) =>
+    mutationFn: (vars: {
+      action: Action;
+      agent?: AgentName;
+      selectedIssues?: number[];
+      note?: string;
+    }) =>
       trpc.decisions.action.mutate({
         decisionId: id,
         action: vars.action,
         agent: vars.agent,
         selectedIssues: vars.selectedIssues,
+        note: vars.note,
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["decisions.inbox"] });

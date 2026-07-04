@@ -426,6 +426,75 @@ describe("decisionsRouter", () => {
     }
   });
 
+  test("watch_insight scaffold_skill without a designated skills project errors", async () => {
+    const h = setupHarness();
+    try {
+      // A project-less, note-only insight (the screenshot case) — no skills
+      // registry set, so the action must surface a precondition error.
+      const { decisionId } = seedWatchInsight(h);
+      await expect(h.caller.action({ decisionId, action: "scaffold_skill" })).rejects.toThrow(
+        /skills registry/i,
+      );
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  test("watch_insight scaffold_skill files a skill task on the designated registry", async () => {
+    const h = setupHarness();
+    try {
+      // A git-backed skills-registry project, designated via the setting.
+      const skillsId = createId();
+      const skillsPath = path.join(h.root, "skillsreg");
+      mkdirSync(path.join(skillsPath, ".factory", "work"), { recursive: true });
+      for (const args of [
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "t@t"],
+        ["config", "user.name", "t"],
+      ]) {
+        Bun.spawnSync({ cmd: ["git", ...args], cwd: skillsPath });
+      }
+      const now = Date.now();
+      await h.db.insert(schema.projects).values({
+        id: skillsId,
+        slug: "skillsreg",
+        name: "Skills",
+        ceremony: "personal",
+        workdirPath: skillsPath,
+        createdAt: now,
+        lastActivityAt: now,
+      });
+      h.db
+        .insert(schema.settings)
+        .values({ key: "skills-project-id", value: skillsId, updatedAt: now })
+        .run();
+
+      // A project-less note-only insight — nothing else could action it.
+      const { decisionId, obsId } = seedWatchInsight(h);
+      await h.caller.action({
+        decisionId,
+        action: "scaffold_skill",
+        note: "own the whole upgrade surface",
+      });
+
+      // A skill-authoring task landed on the skills registry…
+      const tasks = await listTasks({ workdirPath: skillsPath });
+      const skillTask = tasks.find((t) => t.frontmatter.title.startsWith("Skill:"));
+      expect(skillTask).toBeDefined();
+      expect(skillTask?.body).toContain("own the whole upgrade surface");
+      expect(skillTask?.body).toContain("SKILL.md");
+      // …and the observation is marked adopted (off the inbox).
+      const obs = await h.db
+        .select()
+        .from(schema.watchObservations)
+        .where(eq(schema.watchObservations.id, obsId))
+        .get();
+      expect(obs?.status).toBe("adopted");
+    } finally {
+      h.cleanup();
+    }
+  });
+
   test("snooze view filters the default inbox and exposes snoozed items", async () => {
     const h = setupHarness();
     try {

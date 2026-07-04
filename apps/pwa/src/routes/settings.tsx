@@ -17,6 +17,7 @@ interface SettingsSnapshot {
   githubReplyAllowlist: string[];
   publicBaseUrl: string | null;
   factoryProjectId: string | null;
+  skillsProjectId: string | null;
   notifyOnRunComplete: boolean;
   ops: {
     landingRoute: "inbox" | "ops";
@@ -169,6 +170,10 @@ export function Settings() {
             <FactoryProjectRow
               currentId={settings.data.factoryProjectId}
               overridden={settings.data.overridden["factory-project-id"] ?? false}
+              projects={projects.data ?? []}
+            />
+            <SkillsProjectRow
+              currentId={settings.data.skillsProjectId}
               projects={projects.data ?? []}
             />
           </>
@@ -860,6 +865,58 @@ function FactoryProjectRow({
           set this to enable feedback → plan/task promotion
         </div>
       )}
+      {save.isError ? (
+        <div className="mt-1 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
+          {(save.error as Error).message}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SkillsProjectRow({
+  currentId,
+  projects,
+}: {
+  currentId: string | null;
+  projects: ProjectRow[];
+}) {
+  const qc = useQueryClient();
+  const save = useMutation({
+    mutationFn: (id: string) =>
+      trpc.settings.set.mutate({ key: "skills-project-id" as never, value: id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings.get"] });
+    },
+  });
+  const current = projects.find((p) => p.id === currentId);
+  return (
+    <div className="px-3 py-2 border-b border-[var(--color-line)] last:border-b-0">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] text-[var(--color-fg-1)]">skills registry</span>
+        {save.isPending ? (
+          <Loader2 size={11} className="animate-spin text-[var(--color-fg-3)]" />
+        ) : null}
+      </div>
+      <div className="mt-1.5">
+        <select
+          value={currentId ?? ""}
+          onChange={(e) => save.mutate(e.target.value)}
+          className="w-full mono text-[12px] bg-[var(--color-bg-2)] border border-[var(--color-line)] rounded px-2 py-1.5"
+        >
+          <option value="">— none (scaffold-skill disabled) —</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.slug})
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="mt-1 mono text-[10.5px] text-[var(--color-fg-3)]">
+        {current
+          ? "the Watch's “scaffold skill” action files SKILL.md tasks here"
+          : "set an npx-skills repo project to enable “scaffold skill” on Watch insights"}
+      </div>
       {save.isError ? (
         <div className="mt-1 mono text-[10.5px] text-[var(--color-verdict-trashed)]">
           {(save.error as Error).message}
