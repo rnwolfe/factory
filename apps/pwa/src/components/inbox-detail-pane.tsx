@@ -21,11 +21,17 @@ export type InboxDetailItem =
   | { kind: "audit"; row: AuditRow; projectName: string | null }
   | { kind: "feedback"; row: FeedbackInboxRow };
 
-type DecisionAction = "approve" | "park" | "trash" | "decompose" | "dismiss";
+type DecisionAction = "approve" | "park" | "trash" | "decompose" | "dismiss" | "scaffold_skill";
+
+interface ActionOpts {
+  selectedIssues?: number[];
+  /** Operator directive for `scaffold_skill` — shapes the authored skill. */
+  note?: string;
+}
 
 interface Props {
   item: InboxDetailItem | null;
-  onDecisionAction: (id: string, action: DecisionAction, selectedIssues?: number[]) => void;
+  onDecisionAction: (id: string, action: DecisionAction, opts?: ActionOpts) => void;
 }
 
 export function InboxDetailPane({ item, onDecisionAction }: Props) {
@@ -46,7 +52,9 @@ export function InboxDetailPane({ item, onDecisionAction }: Props) {
         return (
           <IssueImportDetail
             row={item.row}
-            onAction={(a, selected) => onDecisionAction(item.row.id, a, selected)}
+            onAction={(a, selected) =>
+              onDecisionAction(item.row.id, a, { selectedIssues: selected })
+            }
           />
         );
       }
@@ -54,7 +62,7 @@ export function InboxDetailPane({ item, onDecisionAction }: Props) {
         <DecisionDetail
           row={item.row}
           ideaText={item.ideaText}
-          onAction={(a) => onDecisionAction(item.row.id, a)}
+          onAction={(a, opts) => onDecisionAction(item.row.id, a, opts)}
         />
       );
     case "plan":
@@ -225,7 +233,7 @@ function DecisionDetail({
 }: {
   row: DecisionRow;
   ideaText: string | null;
-  onAction: (a: DecisionAction) => void;
+  onAction: (a: DecisionAction, opts?: ActionOpts) => void;
 }) {
   const summary = typeof row.payload?.summary === "string" ? row.payload.summary : null;
   const rationale = typeof row.payload?.rationale === "string" ? row.payload.rationale : null;
@@ -362,8 +370,8 @@ function DecisionDetail({
           </span>
         </div>
         <p className="text-[var(--color-fg-2)]">
-          The Watch synthesized this from your out-of-band work — {adoptLabel} to act on it, or
-          dismiss to clear it. Never a blocking review.
+          The Watch synthesized this from your out-of-band work — {adoptLabel} to act on it,
+          scaffold it into a reusable skill, or dismiss to clear it. Never a blocking review.
         </p>
         <div className="flex flex-wrap gap-2 pt-2">
           <button
@@ -377,6 +385,7 @@ function DecisionDetail({
             dismiss
           </button>
         </div>
+        <ScaffoldSkillControl onScaffold={(note) => onAction("scaffold_skill", { note })} />
       </DetailShell>
     );
   }
@@ -643,4 +652,53 @@ function kindLabel(kind: DecisionRow["kind"], payload?: DecisionRow["payload"]):
 /** Humanize a hyphenated observation/proposal token: "tooling-gap" → "tooling gap". */
 function humanizeToken(token: string): string {
   return token.replace(/-/g, " ");
+}
+
+/**
+ * "Scaffold skill" affordance for a Watch insight (ADR-024) — the actionable
+ * outcome for a project-less/note-only insight. Collapsed to a single link until
+ * the operator opens it; then an optional directive box ("let's make this a
+ * reusable global skill…") shapes the authored skill. Files a skill task on the
+ * designated skills-registry project.
+ */
+function ScaffoldSkillControl({ onScaffold }: { onScaffold: (note: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)] hover:text-[var(--color-accent)] text-left"
+      >
+        + scaffold a reusable skill from this
+      </button>
+    );
+  }
+  return (
+    <div className="surface p-3 space-y-2">
+      <p className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-fg-3)]">
+        scaffold skill
+      </p>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="optional directive — e.g. 'generalize the upgrade/install machinery so any new tool is born with it'"
+        rows={3}
+        className="input text-[12px] w-full"
+      />
+      <p className="mono text-[10px] text-[var(--color-fg-3)]">
+        files a skill-authoring task on your skills registry; a run writes an npx-skills SKILL.md
+        there. Set a skills project in Settings if you haven't.
+      </p>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => onScaffold(note)} className="btn btn-primary flex-1">
+          scaffold skill
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="btn">
+          cancel
+        </button>
+      </div>
+    </div>
+  );
 }

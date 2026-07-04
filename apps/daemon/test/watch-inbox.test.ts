@@ -6,7 +6,11 @@ import { createDb, runMigrations, schema } from "@factory/db";
 import { createId } from "@paralleldrive/cuid2";
 import { eq } from "drizzle-orm";
 import { type DaemonEvent, EventBus } from "../src/events.ts";
-import { surfaceObservations, type WatchInsightPayload } from "../src/watch/observation-inbox.ts";
+import {
+  renderSkillBrief,
+  surfaceObservations,
+  type WatchInsightPayload,
+} from "../src/watch/observation-inbox.ts";
 import type { PersistedObservation } from "../src/watch/observation-store.ts";
 
 function obs(over: Partial<PersistedObservation> = {}): PersistedObservation {
@@ -58,6 +62,36 @@ function seedObservation(db: ReturnType<typeof createDb>, o: PersistedObservatio
     })
     .run();
 }
+
+describe("renderSkillBrief (ADR-024)", () => {
+  const payload: WatchInsightPayload = {
+    observationId: "o1",
+    observationKind: "repeated-ritual",
+    title: "Generalize the upgrade machinery",
+    detail: "The operator hand-ports the channel-based upgrade CLI into each new tool.",
+    proposal: "note-only",
+    evidence: [{ sourceId: "claude-code", sessionId: "deadbeef1234" }],
+    targetProjectSlug: null,
+    targetTaskId: null,
+  };
+
+  test("captures the ritual, provenance, and npx-skills acceptance", () => {
+    const brief = renderSkillBrief(payload);
+    expect(brief).toContain("The operator hand-ports"); // the ritual
+    expect(brief).toContain("skills/<kebab-name>/SKILL.md"); // the layout
+    expect(brief).toContain("harness-agnostic"); // the whole point
+    expect(brief).toContain("npx skills add rnwolfe/skills"); // installable
+    expect(brief).toContain("claude-code/deadbeef"); // provenance from evidence
+  });
+
+  test("folds an operator directive into the brief", () => {
+    const brief = renderSkillBrief(payload, "make it own the whole upgrade surface");
+    expect(brief).toContain("Operator directive:");
+    expect(brief).toContain("make it own the whole upgrade surface");
+    // …and omits the block when there's no directive.
+    expect(renderSkillBrief(payload, "  ")).not.toContain("Operator directive:");
+  });
+});
 
 describe("surfaceObservations", () => {
   test("creates a watch_insight decision, resolves the project, flips status", () => {

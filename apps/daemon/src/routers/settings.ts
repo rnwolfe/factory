@@ -4,6 +4,7 @@ import {
   clearSetting,
   isSettingKey,
   parseReplyAllowlist,
+  readAllSettings,
   SETTING_KEYS,
   setSetting,
   snapshotSettings,
@@ -32,6 +33,9 @@ export const settingsRouter = router({
       githubReplyAllowlist: snap.githubReplyAllowlist,
       publicBaseUrl: snap.publicBaseUrl,
       factoryProjectId: snap.factoryProjectId,
+      // The designated skills-registry project (ADR-024). Read directly — it drives
+      // behavior (the Watch scaffold-skill action), not FactoryConfig.
+      skillsProjectId: readAllSettings(ctx.db).get("skills-project-id") || null,
       notifyOnRunComplete: snap.notifyOnRunComplete,
       ops: {
         landingRoute: snap.ops.landingRoute,

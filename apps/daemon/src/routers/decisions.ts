@@ -22,9 +22,10 @@ import { adoptIssue } from "../projects/github-task-store.ts";
 import { runImportEnrichment } from "../projects/import-enrich.ts";
 import type { IssueImportPayload } from "../projects/import-issues.ts";
 import { createTask, updateTaskStatus } from "../projects/tasks.ts";
+import { readAllSettings } from "../settings/store.ts";
 import { runFollowupTriage, type TriageDecisionPayload } from "../triage/orchestrate.ts";
 import { protectedProcedure, router } from "../trpc.ts";
-import type { WatchInsightPayload } from "../watch/observation-inbox.ts";
+import { renderSkillBrief, type WatchInsightPayload } from "../watch/observation-inbox.ts";
 import { MERGE_FAILURE_OUTCOME } from "../workers/merge-failure.ts";
 import { resetMainAndRetryMerge } from "../workers/merge-remediation.ts";
 import { applyPostMergeRunOutcome } from "../workers/post-merge.ts";
@@ -114,7 +115,16 @@ interface MergeFailurePayload {
   };
 }
 
-const ActionEnum = z.enum(["approve", "park", "trash", "decompose", "dismiss"]);
+const ActionEnum = z.enum([
+  "approve",
+  "park",
+  "trash",
+  "decompose",
+  "dismiss",
+  // Watch-insight only (ADR-024): turn the insight into a reusable, harness-agnostic
+  // skill by filing a skill-authoring task on the designated skills-registry project.
+  "scaffold_skill",
+]);
 
 const OverrideShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("single"), choice: z.string().min(1).max(240) }),
@@ -823,6 +833,48 @@ export const decisionsRouter = router({
               }
             }
           }
+          await ctx.db
+            .update(schema.watchObservations)
+            .set({ status: "adopted", updatedAt: Date.now() })
+            .where(eq(schema.watchObservations.id, payload.observationId));
+        } else if (input.action === "scaffold_skill") {
+          // Turn the insight into a reusable, harness-agnostic skill (ADR-024).
+          // Works even for a project-less / note-only insight — the whole point:
+          // "good idea, make this a reusable skill." Files a skill-authoring task
+          // on the designated skills-registry project; a normal run authors the
+          // `npx skills`-compatible SKILL.md there.
+          const skillsProjectId = readAllSettings(ctx.db).get("skills-project-id");
+          if (!skillsProjectId) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "No skills registry is designated. Set a skills project in Settings, then try again.",
+            });
+          }
+          const skillsProject = await ctx.db
+            .select()
+            .from(schema.projects)
+            .where(eq(schema.projects.id, skillsProjectId))
+            .get();
+          if (!skillsProject) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "The designated skills project no longer exists. Update it in Settings.",
+            });
+          }
+          const skillTask = await createTask(skillsProject, {
+            title: `Skill: ${payload.title}`,
+            body: renderSkillBrief(payload, input.note),
+            labels: ["skill", "watch", payload.observationKind],
+            priority: "med",
+            estimate: "small",
+          });
+          await commitNewTaskFile(
+            skillsProject,
+            ctx.config,
+            `chore: add skill-authoring task ${skillTask.id}`,
+          );
+          projectId = skillsProject.id;
           await ctx.db
             .update(schema.watchObservations)
             .set({ status: "adopted", updatedAt: Date.now() })

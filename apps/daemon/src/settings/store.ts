@@ -74,6 +74,12 @@ export const SETTING_KEYS = [
   // JSON blob, deep-merged over the built-in defaults. Per-project overrides live
   // on `projects.autonomyConfig`; resolution is built-in ⊕ system ⊕ project.
   "autonomy-config",
+  // The designated skills-registry project (ADR-024): the Factory project id whose
+  // repo is an `npx skills`-compatible SKILL.md registry. The Watch "scaffold
+  // skill" action files skill-authoring tasks here, so a project-less insight can
+  // still become a real, harness-agnostic skill. Empty = no registry designated
+  // (the action prompts the operator to set one). Display/behavior-side.
+  "skills-project-id",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];

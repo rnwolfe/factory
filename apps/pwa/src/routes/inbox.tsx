@@ -183,8 +183,9 @@ export function Inbox() {
   const action = useMutation({
     mutationFn: (vars: {
       decisionId: string;
-      action: "approve" | "park" | "trash" | "decompose" | "dismiss";
+      action: "approve" | "park" | "trash" | "decompose" | "dismiss" | "scaffold_skill";
       selectedIssues?: number[];
+      note?: string;
     }) => trpc.decisions.action.mutate(vars),
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: ["decisions.inbox", view] });
@@ -214,10 +215,15 @@ export function Inbox() {
   const handleDecisionAction = useCallback(
     (
       decisionId: string,
-      a: "approve" | "park" | "trash" | "decompose" | "dismiss",
-      selectedIssues?: number[],
+      a: "approve" | "park" | "trash" | "decompose" | "dismiss" | "scaffold_skill",
+      opts?: { selectedIssues?: number[]; note?: string },
     ) => {
-      action.mutate({ decisionId, action: a, selectedIssues });
+      action.mutate({
+        decisionId,
+        action: a,
+        selectedIssues: opts?.selectedIssues,
+        note: opts?.note,
+      });
     },
     [action],
   );

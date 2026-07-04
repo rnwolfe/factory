@@ -26,6 +26,49 @@ export interface WatchInsightPayload {
   targetTaskId?: string | null;
 }
 
+/**
+ * Compose the body of a skill-authoring task from a Watch insight (ADR-024). The
+ * task lands on the designated skills-registry project; a normal Factory run then
+ * authors an `npx skills`-compatible `SKILL.md`. This is the actionable outcome
+ * for a project-less insight — "good idea, make this a reusable skill" — turned
+ * into real, harness-agnostic work rather than a bare acknowledge.
+ */
+export function renderSkillBrief(payload: WatchInsightPayload, directive?: string | null): string {
+  const sessions = payload.evidence
+    .map((e) => `${e.sourceId}/${e.sessionId.slice(0, 8)}`)
+    .join(", ");
+  const provenance = sessions
+    ? `observed across ${payload.evidence.length} out-of-band session(s): ${sessions}`
+    : "synthesized by The Watch";
+  const directiveBlock = directive?.trim() ? `\n**Operator directive:** ${directive.trim()}\n` : "";
+  return `Author a new, reusable **agent skill** in this registry from a recurring ritual The
+Watch noticed. Follow \`AGENTS.md\` for the conventions.
+
+## The ritual
+${payload.detail}
+${directiveBlock}
+## What to build
+Create \`skills/<kebab-name>/SKILL.md\` where \`<kebab-name>\` reads as the capability:
+
+- **Frontmatter** — \`name\` (matching the dir) and a \`description\` written as a *trigger*:
+  what it does AND when to use it, in the third person, with the concrete phrasings the
+  operator would type next time. Not a summary.
+- **Body** — the actual repeatable procedure, written **harness-agnostically** (no reliance
+  on a specific agent's tool names, slash commands, or config paths) so the one \`SKILL.md\`
+  installs cleanly across Claude Code, Codex, Cursor, OpenCode, etc. Keep it lean; push long
+  references/templates into \`reference/\` files.
+- **Provenance** — record that this skill originated from a Watch insight (${provenance})
+  in a trailing note or \`reference/origin.md\`.
+
+## Acceptance
+- \`skills/<name>/SKILL.md\` exists with valid frontmatter (\`name\`, \`description\`).
+- The description names concrete trigger situations, not just a summary.
+- The body is harness-agnostic and captures the *repeatable* ritual, not a one-off.
+- Installable via \`npx skills add rnwolfe/skills --skill <name>\`.
+
+_From The Watch — ${provenance}._`;
+}
+
 export function surfaceObservations(
   db: Db,
   events: EventBus,
