@@ -147,6 +147,7 @@ function StatTile({
   hint,
   window,
   emphasis,
+  loading,
 }: {
   label: string;
   value: string;
@@ -154,6 +155,8 @@ function StatTile({
   /** Short window label (e.g. "all-time", "7d") — states what the number covers. */
   window?: string;
   emphasis?: boolean;
+  /** Show a skeleton in place of the value while the snapshot loads. */
+  loading?: boolean;
 }) {
   return (
     <div className="surface p-3">
@@ -167,16 +170,20 @@ function StatTile({
           </span>
         ) : null}
       </div>
-      <div
-        className={[
-          "mono tabular-nums mt-1 leading-none",
-          emphasis
-            ? "text-[26px] text-[var(--color-working)]"
-            : "text-[20px] text-[var(--color-fg)]",
-        ].join(" ")}
-      >
-        {value}
-      </div>
+      {loading ? (
+        <div className={`skel mt-1 rounded ${emphasis ? "h-[26px] w-20" : "h-5 w-16"}`} />
+      ) : (
+        <div
+          className={[
+            "mono tabular-nums mt-1 leading-none",
+            emphasis
+              ? "text-[26px] text-[var(--color-working)]"
+              : "text-[20px] text-[var(--color-fg)]",
+          ].join(" ")}
+        >
+          {value}
+        </div>
+      )}
       {hint ? (
         <div className="mono text-[9.5px] text-[var(--color-fg-3)] mt-1.5">{hint}</div>
       ) : null}
@@ -375,6 +382,20 @@ export function AutonomyMetrics() {
     ? "portfolio"
     : (projects.find((p) => p.id === scopeId)?.name ?? "project");
 
+  // Loading affordances (ADR-013): the tiles read from the snapshot; each chart
+  // reads from its own series queries. Show a skeleton on the FIRST fetch —
+  // `isLoading` is false on background refetches (data already present), so a
+  // populated chart never flickers back to a skeleton. Until the catalog lands
+  // no series query has fired yet, so treat that window as loading too.
+  const tilesLoading = snapQ.isLoading;
+  const chartLoading = (...keys: SeriesMetric[]): boolean => {
+    if (catalogQ.isLoading) return true;
+    return keys.some((k) => {
+      const i = SERIES_METRICS.indexOf(k);
+      return i >= 0 ? (seriesResults[i]?.isLoading ?? false) : false;
+    });
+  };
+
   return (
     <section className="space-y-3">
       {/* Section header + controls */}
@@ -412,24 +433,28 @@ export function AutonomyMetrics() {
           value={snap ? fmtRatio(snap.derived.decisions_per_run) : "—"}
           hint="north-star → 0"
           window={snap ? WINDOW_LABEL[snap.derivedWindow] : undefined}
+          loading={tilesLoading}
           emphasis
         />
         <StatTile
           label="auto-ratify"
           value={snap ? fmtPct(snap.derived.auto_ratify_rate) : "—"}
           window={snap ? WINDOW_LABEL[snap.derivedWindow] : undefined}
+          loading={tilesLoading}
         />
         <StatTile
           label="runs"
           value={fmtInt(m.runs_total ?? 0)}
           hint={scopeName}
           window={snap ? WINDOW_LABEL[snap.windows.runs_total ?? "cumulative"] : undefined}
+          loading={tilesLoading}
         />
         <StatTile
           label="commits"
           value={fmtInt(m.commits ?? 0)}
           hint="merged"
           window={snap ? WINDOW_LABEL[snap.windows.commits ?? "cumulative"] : undefined}
+          loading={tilesLoading}
         />
       </div>
 
@@ -441,6 +466,7 @@ export function AutonomyMetrics() {
           height={180}
           formatX={fmtDay}
           formatY={fmtRatio}
+          loading={chartLoading("decisions_total", "runs_total")}
           empty={rowsAllZero(dprRows, ["value"])}
           emptyLabel="no runs in this range yet"
         />
@@ -454,6 +480,7 @@ export function AutonomyMetrics() {
             series={[{ key: "runs_completed", label: "completed", color: PALETTE.green }]}
             formatX={fmtDay}
             formatY={fmtInt}
+            loading={chartLoading("runs_completed")}
             empty={rowsAllZero(throughputRows, ["runs_completed"])}
           />
         </ChartCard>
@@ -464,6 +491,7 @@ export function AutonomyMetrics() {
             series={[{ key: "commits", label: "commits", color: PALETTE.neutral }]}
             formatX={fmtDay}
             formatY={fmtInt}
+            loading={chartLoading("commits")}
             empty={rowsAllZero(commitRows, ["commits"])}
           />
         </ChartCard>
@@ -483,6 +511,7 @@ export function AutonomyMetrics() {
             ]}
             formatX={fmtDay}
             formatY={fmtInt}
+            loading={chartLoading("loc_added", "loc_removed")}
             empty={rowsAllZero(locRows, ["loc_added", "loc_removed"])}
           />
         </ChartCard>
@@ -494,6 +523,7 @@ export function AutonomyMetrics() {
             formatX={fmtDay}
             formatY={fmtPct}
             formatValue={fmtPct}
+            loading={chartLoading("auto_ratified_total", "decisions_total")}
             empty={rowsAllZero(ratifyRows, ["value"])}
             emptyLabel="no decisions in this range yet"
           />
@@ -527,6 +557,7 @@ export function AutonomyMetrics() {
             ]}
             formatX={fmtDay}
             formatY={fmtInt}
+            loading={chartLoading("projects_collaborative", "projects_autonomous")}
             empty={rowsAllZero(mixRows, ["projects_collaborative", "projects_autonomous"])}
           />
         </ChartCard>
@@ -567,6 +598,13 @@ export function AutonomyMetrics() {
           ]}
           formatX={fmtDay}
           formatY={fmtInt}
+          loading={chartLoading(
+            "merge_failures_resolved_auto_dirty_reset",
+            "merge_failures_resolved_auto_agent_resolve",
+            "merge_failures_resolved_operator_agent_resolve",
+            "merge_failures_resolved_manual_tmux",
+            "merge_failures_unresolved",
+          )}
           empty={rowsAllZero(mergeResolutionRows, [
             "auto_dirty_reset",
             "auto_agent_resolve",
@@ -593,6 +631,7 @@ export function AutonomyMetrics() {
           ]}
           formatX={fmtDay}
           formatY={fmtInt}
+          loading={chartLoading("merge_failures_lever_on", "merge_failures_lever_off")}
           empty={rowsAllZero(mergeLeverRows, ["lever_on", "lever_off"])}
           emptyLabel="no merge failures in this range"
         />

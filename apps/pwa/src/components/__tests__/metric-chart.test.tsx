@@ -91,6 +91,15 @@ describe("MetricChart", () => {
     expect(container.textContent).toContain("no data in this range yet");
   });
 
+  test("renders a loading skeleton (not the placeholder) when loading", () => {
+    // `loading` wins over both the empty flag and absent data, so an in-flight
+    // query shows a skeleton rather than the "no data" copy that reads as
+    // genuinely-empty.
+    const { container } = render(<MetricChart data={[]} series={series} loading empty />);
+    expect(container.textContent).not.toContain("no data in this range yet");
+    expect((container.firstChild as HTMLElement | null)?.className).toContain("skel");
+  });
+
   test("renders a chart (not the placeholder) when data is present", () => {
     const data = [
       { date: "2026-06-01", value: 2 },

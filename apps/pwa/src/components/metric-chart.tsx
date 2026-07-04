@@ -57,6 +57,8 @@ interface MetricChartProps {
   /** Render the empty placeholder instead of a chart. */
   empty?: boolean;
   emptyLabel?: string;
+  /** Render a loading skeleton instead of a chart (initial data fetch). */
+  loading?: boolean;
   /** Strip axes / grid / tooltip down to an inline sparkline. */
   bare?: boolean;
 }
@@ -128,8 +130,12 @@ export function MetricChart({
   formatValue,
   empty,
   emptyLabel = "no data in this range yet",
+  loading = false,
   bare = false,
 }: MetricChartProps) {
+  if (loading) {
+    return <div className="skel rounded" style={{ height }} />;
+  }
   if (empty || data.length === 0) {
     return (
       <div
