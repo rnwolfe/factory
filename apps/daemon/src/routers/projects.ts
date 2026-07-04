@@ -34,6 +34,7 @@ import {
   unarchiveProject,
 } from "../projects/lifecycle.ts";
 import { confirmMilestone, proposeMilestone } from "../projects/milestone-decompose.ts";
+import { PushError, pushUpstream } from "../projects/push.ts";
 import {
   childrenOf,
   createTask,
@@ -1387,6 +1388,44 @@ export const projectsRouter = router({
         .where(eq(schema.projects.id, input.id));
 
       return { htmlUrl: result.htmlUrl, fullName: result.fullName };
+    }),
+
+  /**
+   * Guarded upstream push (feature plan lro3heax): fast-forward the project's
+   * tracked remote from Factory with a plain `git push` (no force) using ambient
+   * git credentials. Refuses — never pushes — unless the worktree is clean AND
+   * the branch is strictly ahead of its upstream; a remote-side non-fast-forward
+   * rejection surfaces as CONFLICT and leaves the project untouched. Backed by
+   * the same upstream snapshot shown on the workdir view. See projects/push.ts.
+   */
+  pushUpstream: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.id, input.id))
+        .get();
+      if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
+      try {
+        const result = await pushUpstream(project.workdirPath);
+        await ctx.db
+          .update(schema.projects)
+          .set({ lastActivityAt: Date.now() })
+          .where(eq(schema.projects.id, project.id));
+        return result;
+      } catch (err) {
+        if (err instanceof PushError) {
+          const code =
+            err.code === "push_rejected"
+              ? "CONFLICT"
+              : err.code === "push_failed"
+                ? "INTERNAL_SERVER_ERROR"
+                : "PRECONDITION_FAILED"; // dirty_worktree / no_upstream / not_ahead
+          throw new TRPCError({ code, message: err.message });
+        }
+        throw err;
+      }
     }),
 
   tasks: tasksRouter,

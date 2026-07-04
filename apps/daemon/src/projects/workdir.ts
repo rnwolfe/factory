@@ -145,7 +145,7 @@ function deriveUpstreamState(ahead: number, behind: number): UpstreamStatus["sta
  * Reads only local refs (no fetch). Returns NO_REMOTE when the branch has no
  * upstream, when HEAD is detached, or on any git error — never throws.
  */
-async function computeUpstream(workdirPath: string): Promise<UpstreamStatus> {
+export async function computeUpstream(workdirPath: string): Promise<UpstreamStatus> {
   // `@{upstream}` resolves to the tracking ref (e.g. origin/main) for the
   // current branch; exits non-zero when none is configured or HEAD is detached.
   const upstream = await git(
