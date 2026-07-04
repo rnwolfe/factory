@@ -1303,6 +1303,13 @@ export const autonomyEvents = sqliteTable(
     /** Optional JSON detail blob. */
     detail: text("detail"),
     createdAt: integer("created_at").notNull(),
+    /**
+     * When the operator dismissed this event from the inbox's "done while you
+     * were away" digest. Null = still showing. The event stays in the log (→
+     * /ops history + metrics are unaffected); this flag only hides it from the
+     * ambient inbox group so the operator can clear FYI rows they've seen.
+     */
+    acknowledgedAt: integer("acknowledged_at"),
   },
   (t) => [
     index("autonomy_events_created_idx").on(t.createdAt),

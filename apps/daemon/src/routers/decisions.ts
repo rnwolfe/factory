@@ -2,7 +2,7 @@ import { type Db, schema } from "@factory/db";
 import { commitAllChanges, mergeIntoMain } from "@factory/runtime";
 import { createId } from "@paralleldrive/cuid2";
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { AGENT_NAME_ENUM } from "../agents/registry.ts";
 import { resolveAutonomyConfig } from "../autonomy/config.ts";
@@ -364,6 +364,8 @@ export const decisionsRouter = router({
       .where(
         and(
           gte(schema.autonomyEvents.createdAt, since),
+          // Dismissed FYI rows drop out of the digest (they stay in the log).
+          isNull(schema.autonomyEvents.acknowledgedAt),
           inArray(schema.autonomyEvents.kind, [
             "auto_merged",
             "auto_ran",
@@ -378,6 +380,34 @@ export const decisionsRouter = router({
 
     return { inFlight, unattended };
   }),
+
+  /**
+   * Dismiss one or more "done while you were away" digest rows. These are
+   * ambient FYI events (auto-merged / auto-ran / trust-promoted / …), not
+   * pending decisions — so they carry no approve/park verdict, just an
+   * acknowledge. Stamping `acknowledgedAt` hides them from `ambient` without
+   * deleting the event, so the /ops history + autonomy metrics are unaffected.
+   * The client passes a single id for per-row dismiss or the visible set for
+   * "clear all"; already-acknowledged ids are silently skipped (idempotent).
+   */
+  acknowledgeAmbient: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(50) }))
+    .mutation(async ({ ctx, input }) => {
+      const now = Date.now();
+      await ctx.db
+        .update(schema.autonomyEvents)
+        .set({ acknowledgedAt: now })
+        .where(
+          and(
+            inArray(schema.autonomyEvents.id, input.ids),
+            isNull(schema.autonomyEvents.acknowledgedAt),
+          ),
+        );
+
+      ctx.events.publish({ channel: "inbox", kind: "ambient_acknowledged" });
+
+      return { ok: true, acknowledgedAt: now };
+    }),
 
   /**
    * The narrow "needs you" count — pending, non-snoozed decisions only. Backs the

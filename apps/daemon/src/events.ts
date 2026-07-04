@@ -112,6 +112,13 @@ export type DaemonEvent =
       projectId?: string | null;
     }
   | {
+      // An operator dismissed one or more "done while you were away" ambient
+      // FYI rows. Not a decision — carries no decisionId; connected clients
+      // just refetch `decisions.ambient` so the digest converges.
+      channel: "inbox";
+      kind: "ambient_acknowledged";
+    }
+  | {
       channel: "inbox";
       kind: "comment_added";
       decisionId: string;
