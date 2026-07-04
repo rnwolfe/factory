@@ -64,8 +64,42 @@ async function resolveStable(checkout: string, remote: string): Promise<Resolved
   tags.sort((a, b) => compareSemver(a.tag, b.tag));
   const top = tags[tags.length - 1];
   if (!top) throw new ChannelResolveError("no_tags", `no v*.*.* tags found on ${remote}`);
-  const subject = await readSubject(checkout, top.sha);
-  return { channel: "stable", ref: top.tag, sha: top.sha, subject };
+
+  // Two subtleties an ls-remote sha can't cover (found the hard way by dwell's
+  // first stable deploy, which ported this resolver):
+  //  1. For an ANNOTATED tag (what release flows create), `ls-remote --refs`
+  //     reports the tag OBJECT sha, not the commit — wrong for checkout
+  //     targets and for the post-upgrade version probe.
+  //  2. ls-remote never transfers objects, so a checkout that hasn't fetched
+  //     the tag has nothing to check out ("reference is not a tree"). The dev
+  //     checkout usually has tags fetched already, which masked both.
+  // Fetch the winning tag, then peel locally via rev-parse ^{commit}.
+  const fetch = await run(["git", "fetch", "--quiet", remote, "tag", top.tag, "--no-tags"], {
+    cwd: checkout,
+  });
+  if (fetch.exitCode !== 0) {
+    if (
+      /repository .* does not exist|could not read from remote|not a git repository/i.test(
+        fetch.stderr,
+      )
+    ) {
+      throw new ChannelResolveError("no_remote", `git fetch failed: ${fetch.stderr.trim()}`);
+    }
+    throw new ChannelResolveError(
+      "fetch_failed",
+      `git fetch ${remote} tag ${top.tag}: ${fetch.stderr.trim()}`,
+    );
+  }
+  const rev = await run(["git", "rev-parse", `${top.tag}^{commit}`], { cwd: checkout });
+  if (rev.exitCode !== 0 || !rev.stdout.trim()) {
+    throw new ChannelResolveError(
+      "rev_failed",
+      `git rev-parse ${top.tag}^{commit}: ${rev.stderr.trim() || "no output"}`,
+    );
+  }
+  const sha = rev.stdout.trim();
+  const subject = await readSubject(checkout, sha);
+  return { channel: "stable", ref: top.tag, sha, subject };
 }
 
 async function resolveBranch(

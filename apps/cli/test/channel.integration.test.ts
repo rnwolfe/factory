@@ -130,6 +130,28 @@ describe("resolveChannel", () => {
     expect(caught?.code).toBe("branch_not_found");
   });
 
+  test("stable peels an ANNOTATED tag to its commit and fetches it into the checkout", async () => {
+    // The dwell-first-deploy regression: release flows create annotated tags,
+    // whose ls-remote sha is the TAG OBJECT — and a checkout cloned BEFORE the
+    // tag existed has neither the ref nor the objects. Both bit at once.
+    await commit(upstream, "README", "v2\n", "feat: the two release");
+    await git(["tag", "-a", "v2.0.0", "-m", "release v2.0.0"], upstream);
+
+    const r = await resolveChannel("stable", {
+      checkout, // cloned in beforeEach, BEFORE v2.0.0 existed
+      remote: "origin",
+      devBranch: "dev",
+    });
+    expect(r.ref).toBe("v2.0.0");
+    // The sha must be the PEELED COMMIT, never the tag object…
+    const type = await run(["git", "cat-file", "-t", r.sha], { cwd: checkout });
+    expect(type.stdout.trim()).toBe("commit");
+    expect(r.subject).toBe("feat: the two release");
+    // …and the object must now exist locally, so the upgrade checkout works.
+    const co = await run(["git", "checkout", "--quiet", "--detach", r.sha], { cwd: checkout });
+    expect(co.exitCode).toBe(0);
+  });
+
   test("stable with no tags surfaces no_tags", async () => {
     // Create a checkout pointing at a tagless upstream.
     const blank = path.join(tmpRoot, "blank-upstream");

@@ -29,14 +29,30 @@ export async function checkoutSha(checkout: string, sha: string): Promise<void> 
 
   if (branchBefore) {
     const ff = await run(["git", "merge", "--ff-only", "--quiet", sha], { cwd: checkout });
-    if (ff.exitCode === 0) return;
-    // Fall through: branch has local commits beyond the target. Detach so
-    // the tree matches the upgrade target; the operator's branch ref is
-    // left where it was.
+    // `--ff-only` exits 0 WITHOUT MOVING when the target is an ANCESTOR of
+    // HEAD ("Already up to date") — e.g. a checkout sitting ahead of the
+    // latest stable tag, or a rollback. Verify HEAD actually landed; fall
+    // through to detach otherwise. (Ported from dwell's rollback postmortem.)
+    if (ff.exitCode === 0 && (await headSha(checkout)) === sha) return;
+    // Fall through: non-FF target (local commits beyond it) or the ancestor
+    // no-op. Detach so the tree matches the upgrade target; the operator's
+    // branch ref is left where it was.
   }
 
   const detach = await run(["git", "checkout", "--quiet", "--detach", sha], { cwd: checkout });
   if (detach.exitCode !== 0) {
     throw new Error(`git checkout ${sha}: ${detach.stderr.trim()}`);
   }
+  const after = await headSha(checkout);
+  if (after !== sha) {
+    throw new Error(`checkout verification failed: HEAD is ${after}, expected ${sha}`);
+  }
+}
+
+async function headSha(checkout: string): Promise<string> {
+  const r = await run(["git", "rev-parse", "HEAD"], { cwd: checkout });
+  if (r.exitCode !== 0) {
+    throw new Error(`git rev-parse HEAD failed: ${r.stderr.trim()}`);
+  }
+  return r.stdout.trim();
 }
