@@ -37,6 +37,7 @@ import { SkillsSection } from "../components/skills-section.tsx";
 import { type ProvenanceLink, ProvenanceLinks } from "../components/source-link.tsx";
 import { type Tag, TagChip } from "../components/tag-chip.tsx";
 import { TrustLadder } from "../components/trust-ladder.tsx";
+import { UpstreamChip, type UpstreamStatus } from "../components/upstream-chip.tsx";
 import { useProjectChannel } from "../lib/channels.ts";
 import { cn } from "../lib/cn.ts";
 import type { ChartRow } from "../lib/metric-series.ts";
@@ -154,6 +155,7 @@ interface WorkdirSnapshot {
   commits: Array<{ sha: string; subject: string; ts: number; author: string }>;
   worktrees: Array<{ path: string; branch: string | null; head: string | null }>;
   tree: Array<{ path: string; type: "file" | "dir"; size: number | null }>;
+  upstream: UpstreamStatus;
 }
 
 export function ProjectDetail() {
@@ -1211,7 +1213,7 @@ function WorkdirPanel({
       </div>
     );
   }
-  const { branch, headSha, dirty, status, commits, worktrees, tree } = data;
+  const { branch, headSha, dirty, status, commits, worktrees, tree, upstream } = data;
   const codeBase = `/projects/${projectId}/code`;
   return (
     <div className="surface divide-y divide-[var(--color-line)]">
@@ -1226,8 +1228,9 @@ function WorkdirPanel({
         {headSha ? (
           <span className="mono text-[10.5px] text-[var(--color-fg-3)]">{headSha.slice(0, 8)}</span>
         ) : null}
+        <UpstreamChip projectId={projectId} upstream={upstream} dirty={dirty} className="ml-auto" />
         <span
-          className={`chip ${dirty ? "chip-trashed" : "chip-greenlit"} ml-auto`}
+          className={`chip ${dirty ? "chip-trashed" : "chip-greenlit"}`}
           title={dirty ? `${status.length} change(s)` : "clean"}
         >
           {dirty ? `dirty · ${status.length}` : "clean"}
