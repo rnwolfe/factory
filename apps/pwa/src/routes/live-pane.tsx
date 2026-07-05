@@ -303,17 +303,36 @@ export function LivePane() {
     };
   }, [runId, shouldConnectPane]);
 
+  // Live "waiting to merge" indicator. Set when a `merge_waiting` event arrives
+  // (this run is queued behind another same-project merge on the per-project
+  // merge lock) and cleared the moment the merge proceeds — signalled by the
+  // merge `commit` event, or `run_finalized` for the no-op / already-merged /
+  // failed-merge cases that produce no commit.
+  const [mergeWaiting, setMergeWaiting] = useState(false);
+
   // Per-route invalidations: runs.get / runs.list / projects.get refetch on
   // any event matching this run. The structured stream (RunEventStream)
   // additionally handles its own UI updates via the same scoped channel.
   // `deferredTasks.forRun` is folded in so deferred_task_* events refresh
   // the panel immediately, instead of waiting for the 5s poll interval.
-  useRunChannel(runId || null, [
-    ["runs.get", runId],
-    ["runs.list", id],
-    ["projects.get", id],
-    ["deferredTasks.forRun", runId],
-  ]);
+  useRunChannel(
+    runId || null,
+    [
+      ["runs.get", runId],
+      ["runs.list", id],
+      ["projects.get", id],
+      ["deferredTasks.forRun", runId],
+    ],
+    {
+      onEvent: (e) => {
+        if (!e || typeof e !== "object") return;
+        const ev = e as { channel?: string; kind?: string };
+        if (ev.channel !== "events") return;
+        if (ev.kind === "merge_waiting") setMergeWaiting(true);
+        else if (ev.kind === "commit" || ev.kind === "run_finalized") setMergeWaiting(false);
+      },
+    },
+  );
 
   const abort = async () => {
     try {
@@ -480,6 +499,18 @@ export function LivePane() {
 
       {verifierReport || run.data?.status === "completed" ? (
         <VerifierReport report={verifierReport} />
+      ) : null}
+
+      {mergeWaiting ? (
+        <div
+          className="breathe mb-2 px-3 py-2 rounded-[10px] border border-[var(--color-working-line)] bg-[var(--color-working-tint)] flex items-center gap-2"
+          title="another run on this project holds the per-project merge lock; this run merges as soon as it's released"
+        >
+          <Hourglass size={13} className="text-[var(--color-working)]" />
+          <span className="mono text-[10.5px] uppercase tracking-[0.18em] text-[var(--color-working)]">
+            waiting to merge — another run is merging first
+          </span>
+        </div>
       ) : null}
 
       <div className="flex items-center gap-2 mb-1.5">

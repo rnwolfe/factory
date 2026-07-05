@@ -17,6 +17,19 @@ export class KeyedMutex {
    * Run `fn` while holding `key`'s lock. Resolves/rejects with `fn`'s result.
    * A rejection does not poison the chain — the next waiter still runs.
    */
+  /**
+   * True when `key` currently has an in-flight chain — i.e. a `run(key, …)` is
+   * executing or queued right now. A synchronous check-then-act against `run`
+   * is race-free: the daemon is single-threaded, so nothing interleaves between
+   * this read and a `run(key, …)` call in the same tick. Used to detect merge
+   * contention: a run that observes `isHeld(projectId)` before it acquires the
+   * merge lock knows it is about to WAIT behind another same-project merge, and
+   * can surface a "waiting to merge" indicator to the operator.
+   */
+  isHeld(key: string): boolean {
+    return this.chains.has(key);
+  }
+
   run<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.chains.get(key) ?? Promise.resolve();
     // Chain off the prior tail, swallowing its outcome so one caller's error

@@ -945,6 +945,30 @@ export async function executeRun(
       // dirty-reset / conflict-resolve remediation paths — and collide on
       // `.git/index.lock`, spuriously failing a merge that should have landed.
       // Keyed by projectId, so runs on other projects still merge concurrently.
+      //
+      // Contention signal: if the lock is already held, this run is about to
+      // queue behind another same-project merge. Surface that to the operator —
+      // a "waiting to merge" indicator in the live run view (structured event
+      // row + banner) that clears once the merge below actually proceeds. The
+      // read is race-free (single-threaded daemon; nothing runs between it and
+      // the `mergeLock.run` call on the next line).
+      if (mergeLock.isHeld(project.id)) {
+        events.publish({
+          channel: "events",
+          projectId: project.id,
+          kind: "merge_waiting",
+          runId,
+          iteration: 1,
+        });
+        // Also drop a line into the raw tmux pane, for operators watching [raw].
+        events.publish({
+          channel: "pane",
+          runId,
+          bytes: paneEncoder.encode(
+            "\r\n⏳ waiting to merge — another run on this project is merging first…\r\n",
+          ),
+        });
+      }
       await mergeLock.run(project.id, async () => {
         const taskId = row.taskId ?? "ad-hoc";
         const merge = await mergeIntoMain({

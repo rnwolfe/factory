@@ -14,6 +14,20 @@ export type DaemonRunEvent =
       overall: "pass" | "fail" | "skipped";
     }
   | {
+      /**
+       * A completed run reached the merge-into-main section but another
+       * same-project run is already holding the per-project merge lock, so this
+       * run is WAITING its turn (merge-lock.ts serializes auto-merge per project
+       * to avoid `.git/index.lock` collisions). Transient + informational: the
+       * live pane surfaces a "waiting to merge" indicator that clears once the
+       * lock is acquired and the merge proceeds. Not persisted — purely a
+       * live-view signal.
+       */
+      kind: "merge_waiting";
+      runId: string;
+      iteration: number;
+    }
+  | {
       kind: "deferred_task_started";
       runId: string;
       deferredTaskId: string;
