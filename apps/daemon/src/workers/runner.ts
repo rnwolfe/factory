@@ -956,13 +956,19 @@ export async function executeRun(
         if (merge.ok) {
           mergeSha = merge.sha;
           if (!merge.alreadyMerged) {
+            // `recovered` = main advanced under the run and the direct --no-ff
+            // merge conflicted, but rebasing onto latest main and retrying once
+            // landed it unattended (mergeIntoMain). Surface that in the subject
+            // so the operator can see the auto-recovery happened.
             events.publish({
               channel: "events",
               kind: "commit",
               runId,
               iteration: 1,
               sha: merge.sha,
-              subject: `merge to main: ${result.branch}`,
+              subject: merge.recovered
+                ? `merge to main (auto-updated onto latest main): ${result.branch}`
+                : `merge to main: ${result.branch}`,
               projectId: project.id,
             });
           }

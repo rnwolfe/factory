@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { spawn as bunSpawn } from "bun";
 
@@ -216,7 +217,7 @@ export async function commitAllChanges(
 }
 
 export type MergeResult =
-  | { ok: true; sha: string; alreadyMerged: boolean }
+  | { ok: true; sha: string; alreadyMerged: boolean; recovered?: boolean }
   | { ok: false; reason: "dirty" | "conflict" | "wrong-branch" | "other"; message: string };
 
 export interface MergeIntoMainOpts {
@@ -236,8 +237,17 @@ export interface MergeIntoMainOpts {
  * it, every run starts from bootstrap and the project's main never moves.
  *
  * Refuses if the project's working tree is dirty or HEAD isn't on the
- * target branch (the operator may be doing manual git work). On conflict,
- * aborts the merge so main stays clean.
+ * target branch (the operator may be doing manual git work).
+ *
+ * When the target advanced under the run (the branch was cut from an older
+ * target tip) the first `--no-ff` attempt can conflict. Before surfacing that
+ * to the operator, this makes exactly ONE recovery attempt: rebase the branch
+ * onto the latest target in an isolated scratch worktree and retry the merge
+ * (`updateBranchAndRetryMerge`). A stale-base artifact merges cleanly on the
+ * retry (`recovered: true`); a true content overlap re-conflicts on the rebase
+ * and we fall through to the held conflict — the merge is aborted so the target
+ * stays clean, exactly as before. The retry is bounded to a single pass; there
+ * is no loop. (Feature plan dwuu3g1k: concurrent runs colliding on auto-merge.)
  */
 export async function mergeIntoMain(opts: MergeIntoMainOpts): Promise<MergeResult> {
   const { projectPath, branch, message, author } = opts;
@@ -271,29 +281,155 @@ export async function mergeIntoMain(opts: MergeIntoMainOpts): Promise<MergeResul
     return { ok: true, sha, alreadyMerged: true };
   }
 
-  const env: Record<string, string> = {
-    GIT_AUTHOR_NAME: author.name,
-    GIT_AUTHOR_EMAIL: author.email,
-    GIT_COMMITTER_NAME: author.name,
-    GIT_COMMITTER_EMAIL: author.email,
-  };
+  const env = gitAuthorEnv(author);
   // --no-ff matches the project convention (CLAUDE.md): preserve per-run
-  // history as a topology marker even when fast-forward would work.
+  // history as a topology marker even when fast-forward would work. Git's
+  // 3-way merge already lands the common case — a target that advanced with
+  // changes that don't overlap the run's — without any retry.
   const merge = await git(["merge", "--no-ff", "--no-verify", "-m", message, branch], projectPath, {
     env,
   });
-  if (merge.exitCode !== 0) {
-    // Abort so main is left clean.
-    await git(["merge", "--abort"], projectPath);
+  if (merge.exitCode === 0) {
+    const sha = (await git(["rev-parse", "HEAD"], projectPath, { check: true })).stdout.trim();
+    return { ok: true, sha, alreadyMerged: false };
+  }
+
+  // The first attempt conflicted. Abort so the target is left clean before we
+  // decide whether recovery is worth attempting.
+  await git(["merge", "--abort"], projectPath);
+  const conflictMessage = (merge.stderr.trim() || merge.stdout.trim() || "merge failed").slice(
+    0,
+    400,
+  );
+
+  // Bounded single recovery: only when the target advanced under this branch —
+  // otherwise the conflict can't be a stale-base artifact and a rebase can't help.
+  if (await targetAdvancedUnderBranch(projectPath, branch, targetBranch)) {
+    const retry = await updateBranchAndRetryMerge({
+      projectPath,
+      branch,
+      targetBranch,
+      message,
+      author,
+    });
+    if (retry.ok) return retry;
+    // Recovery couldn't land it (true overlap / setup failure). Everything the
+    // retry touched is already cleaned up; hold the ORIGINAL conflict below.
+  }
+
+  return { ok: false, reason: "conflict", message: conflictMessage };
+}
+
+/**
+ * True when `targetBranch` has commits the run branch was not cut from — i.e.
+ * the target advanced under the run (run cut from target@X, target now at
+ * target@Y>X). Detected by comparing the merge-base against the target tip.
+ * Returns false on any git error, so a probe failure degrades to "don't retry".
+ */
+async function targetAdvancedUnderBranch(
+  projectPath: string,
+  branch: string,
+  targetBranch: string,
+): Promise<boolean> {
+  const base = await git(["merge-base", branch, targetBranch], projectPath);
+  const tip = await git(["rev-parse", targetBranch], projectPath);
+  if (base.exitCode !== 0 || tip.exitCode !== 0) return false;
+  const baseSha = base.stdout.trim();
+  return baseSha.length > 0 && baseSha !== tip.stdout.trim();
+}
+
+export interface UpdateBranchAndRetryMergeOpts {
+  projectPath: string;
+  /** The run branch (e.g. `factory/run-<id>`) whose first merge conflicted. */
+  branch: string;
+  /** The branch being merged into (e.g. "main"). */
+  targetBranch: string;
+  /** Merge commit subject. */
+  message: string;
+  author: GitAuthor;
+  /**
+   * Where to stage the isolated rebase. Defaults to a fresh OS temp dir so the
+   * scratch worktree never lands inside the project checkout (which would show
+   * up as untracked in `git status`). Tests override this for a deterministic path.
+   */
+  scratchPath?: string;
+}
+
+/**
+ * The single, bounded recovery for a merge that conflicted because the target
+ * advanced under the run. Rebases the run branch's commits onto the latest
+ * `targetBranch` in an ISOLATED, detached scratch worktree — so the run branch
+ * ref is never mutated and the project checkout is never disturbed on the
+ * failure path — then retries the `--no-ff` merge exactly once against the
+ * rebased tip.
+ *
+ * Returns `{ ok: true, recovered: true }` when the rebase-and-retry lands the
+ * merge; `{ ok: false, reason: "conflict" }` when the rebase hits a real content
+ * overlap (target left clean); `{ ok: false, reason: "other" }` when the scratch
+ * worktree machinery itself failed. There is exactly one rebase and one merge —
+ * never a loop. The scratch worktree is always torn down.
+ */
+export async function updateBranchAndRetryMerge(
+  opts: UpdateBranchAndRetryMergeOpts,
+): Promise<MergeResult> {
+  const { projectPath, branch, targetBranch, message } = opts;
+  const env = gitAuthorEnv(opts.author);
+  const scratch =
+    opts.scratchPath ??
+    path.join(os.tmpdir(), `factory-merge-retry-${branch.replace(/[^\w.-]/g, "-")}-${process.pid}`);
+
+  // A stale scratch from a crashed prior attempt would make `worktree add` fail;
+  // clear the path + any dangling registration first.
+  await rm(scratch, { recursive: true, force: true }).catch(() => {});
+  await git(["worktree", "prune"], projectPath).catch(() => {});
+
+  const add = await git(["worktree", "add", "--detach", scratch, branch], projectPath);
+  if (add.exitCode !== 0) {
     return {
       ok: false,
-      reason: "conflict",
-      message: (merge.stderr.trim() || merge.stdout.trim() || "merge failed").slice(0, 400),
+      reason: "other",
+      message: (add.stderr.trim() || "scratch worktree add failed").slice(0, 400),
     };
   }
 
-  const sha = (await git(["rev-parse", "HEAD"], projectPath, { check: true })).stdout.trim();
-  return { ok: true, sha, alreadyMerged: false };
+  try {
+    // Rebase the branch's commits onto the latest target. Detached HEAD → the
+    // run branch ref stays at its pre-rebase tip for post-merge inspection.
+    const rebase = await git(["rebase", targetBranch], scratch, { env });
+    if (rebase.exitCode !== 0) {
+      await git(["rebase", "--abort"], scratch).catch(() => {});
+      return {
+        ok: false,
+        reason: "conflict",
+        message: (rebase.stderr.trim() || rebase.stdout.trim() || "rebase conflict").slice(0, 400),
+      };
+    }
+    const rebasedSha = (await git(["rev-parse", "HEAD"], scratch, { check: true })).stdout.trim();
+
+    // Retry the --no-ff merge in the project checkout against the rebased tip.
+    // The checkout is still on the (clean) target branch. The rebased tip sits
+    // directly on top of the target, so this merge does not re-derive the
+    // conflict; --no-ff keeps the per-run merge-commit topology.
+    const merge = await git(
+      ["merge", "--no-ff", "--no-verify", "-m", message, rebasedSha],
+      projectPath,
+      { env },
+    );
+    if (merge.exitCode !== 0) {
+      await git(["merge", "--abort"], projectPath).catch(() => {});
+      return {
+        ok: false,
+        reason: "conflict",
+        message: (merge.stderr.trim() || merge.stdout.trim() || "retry merge failed").slice(0, 400),
+      };
+    }
+    const sha = (await git(["rev-parse", "HEAD"], projectPath, { check: true })).stdout.trim();
+    return { ok: true, sha, alreadyMerged: false, recovered: true };
+  } finally {
+    await git(["worktree", "remove", "--force", scratch], projectPath).catch(() => {});
+    await rm(scratch, { recursive: true, force: true }).catch(() => {});
+    await git(["worktree", "prune"], projectPath).catch(() => {});
+  }
 }
 
 function gitAuthorEnv(author: GitAuthor): Record<string, string> {
