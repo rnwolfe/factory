@@ -38,6 +38,7 @@ import {
   wrapResumePromptWithPlan,
 } from "./factory-status.ts";
 import { recordMergeFailure } from "./merge-failure.ts";
+import { mergeLock } from "./merge-lock.ts";
 import { resetMainAndRetryMerge } from "./merge-remediation.ts";
 import type { WorkerPool } from "./pool.ts";
 import { applyPostMergeRunOutcome, taskStatusFor } from "./post-merge.ts";
@@ -938,205 +939,213 @@ export async function executeRun(
     let mergeFailureNote: string | null = null;
     let mergeSha: string | null = null;
     if (finalStatus === "completed") {
-      const taskId = row.taskId ?? "ad-hoc";
-      const merge = await mergeIntoMain({
-        projectPath: project.workdirPath,
-        branch: result.branch,
-        message: buildMergeMessage({ taskId, taskTitle, runId, summary, finalStatus }),
-        author: botAuthor ?? config.gitAuthor,
-      });
-      if (merge.ok) {
-        mergeSha = merge.sha;
-        if (!merge.alreadyMerged) {
-          events.publish({
-            channel: "events",
-            kind: "commit",
-            runId,
-            iteration: 1,
-            sha: merge.sha,
-            subject: `merge to main: ${result.branch}`,
-            projectId: project.id,
-          });
-        }
-        // Worktree is now redundant: the agent's work lives on main via
-        // the merge commit, and the run's branch ref still points at
-        // the pre-merge tip if the operator wants to inspect via
-        // `git log <branch>`. Removing just the working directory
-        // reclaims disk; the branch ref stays for history.
-        //
-        // Without this, every completed run leaves its worktree on disk
-        // forever (the runtime's existing cleanup only triggers on
-        // commits.length === 0). After weeks of use the worktrees dir
-        // becomes the largest thing in ~/.factory.
-        try {
-          await removeWorktree({
-            projectPath: project.workdirPath,
-            worktreePath: result.worktreePath,
-          });
-        } catch (err) {
-          // Best-effort. If the worktree is gone or git is wedged on it,
-          // the operator can clean up manually; the merge already
-          // succeeded so the run is otherwise complete.
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[runner] worktree cleanup failed for ${runId}: ${msg}`);
-        }
-
-        // Release runs push to origin AFTER the merge, from the project
-        // checkout — the run's worktree had a stale `main` (its release commit
-        // lived on the run branch until this merge). The agent created the
-        // annotated tag named after the confirmed version; push `main` + that
-        // tag now. Failures are surfaced in the run summary, not thrown — the
-        // local release is intact and the operator can push by hand.
-        if (row.releaseTag) {
-          const push = await pushReleaseRefs(project.workdirPath, row.releaseTag);
-          console.log(`[runner] ${runId} release push: ${push.note}`);
-          await runSideEffect("release-summary", async () => {
-            await db
-              .update(schema.runs)
-              .set({ summary: `${summary}\n\n[release] ${push.note}` })
-              .where(eq(schema.runs.id, runId));
-          });
-        }
-      } else {
-        // Merge remediation (feature plan mnx1zt27): when `main` was dirty, the
-        // `dirtyAutoReset` lever lets the daemon reset `main` and retry the merge
-        // unattended instead of stranding the work behind a manual git session.
-        // Scoped to the `dirty` failure mode — a conflict needs real resolution,
-        // not a reset. When the lever is off, or the reset+retry still fails, we
-        // fall through to the normal pending-decision surface (acceptance §5).
-        let remediated = false;
-        // `surfaced` = conflict auto-resolve already recorded a pending decision
-        // carrying a proposed resolution (lever off), so we must NOT also record
-        // the plain pending decision below.
-        let surfaced = false;
-        if (merge.reason === "dirty") {
-          const dirtyAutoReset = resolveAutonomyConfig(db, project.id).mergeRemediation
-            .dirtyAutoReset;
-          if (dirtyAutoReset) {
-            // Guarded: the run already finalized as `completed`, so a git throw
-            // in the reset/retry must fall through to the pending decision, not
-            // bubble to the outer catch and flip the run to `failed`.
-            const retry = await resetMainAndRetryMerge(
-              { config, db, events, runs, pool },
-              { projectId: project.id, runId, taskId: row.taskId ?? null, branch: result.branch },
-            ).catch((err) => {
-              const msg = err instanceof Error ? err.message : String(err);
-              return { ok: false as const, reason: "other", message: msg };
+      // Serialize this whole merge-into-main section per project (merge-lock.ts).
+      // Two same-project runs finalizing at overlapping moments would otherwise
+      // both drive git on the project checkout — `mergeIntoMain` plus the
+      // dirty-reset / conflict-resolve remediation paths — and collide on
+      // `.git/index.lock`, spuriously failing a merge that should have landed.
+      // Keyed by projectId, so runs on other projects still merge concurrently.
+      await mergeLock.run(project.id, async () => {
+        const taskId = row.taskId ?? "ad-hoc";
+        const merge = await mergeIntoMain({
+          projectPath: project.workdirPath,
+          branch: result.branch,
+          message: buildMergeMessage({ taskId, taskTitle, runId, summary, finalStatus }),
+          author: botAuthor ?? config.gitAuthor,
+        });
+        if (merge.ok) {
+          mergeSha = merge.sha;
+          if (!merge.alreadyMerged) {
+            events.publish({
+              channel: "events",
+              kind: "commit",
+              runId,
+              iteration: 1,
+              sha: merge.sha,
+              subject: `merge to main: ${result.branch}`,
+              projectId: project.id,
             });
-            if (retry.ok) {
-              remediated = true;
-              mergeSha = retry.sha;
-              recordAutonomyEvent(db, events, {
-                kind: "auto_merged",
-                projectId: project.id,
-                runId,
-                message: `${project.name} reset a dirty main and merged ${result.branch} unattended`,
+          }
+          // Worktree is now redundant: the agent's work lives on main via
+          // the merge commit, and the run's branch ref still points at
+          // the pre-merge tip if the operator wants to inspect via
+          // `git log <branch>`. Removing just the working directory
+          // reclaims disk; the branch ref stays for history.
+          //
+          // Without this, every completed run leaves its worktree on disk
+          // forever (the runtime's existing cleanup only triggers on
+          // commits.length === 0). After weeks of use the worktrees dir
+          // becomes the largest thing in ~/.factory.
+          try {
+            await removeWorktree({
+              projectPath: project.workdirPath,
+              worktreePath: result.worktreePath,
+            });
+          } catch (err) {
+            // Best-effort. If the worktree is gone or git is wedged on it,
+            // the operator can clean up manually; the merge already
+            // succeeded so the run is otherwise complete.
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[runner] worktree cleanup failed for ${runId}: ${msg}`);
+          }
+
+          // Release runs push to origin AFTER the merge, from the project
+          // checkout — the run's worktree had a stale `main` (its release commit
+          // lived on the run branch until this merge). The agent created the
+          // annotated tag named after the confirmed version; push `main` + that
+          // tag now. Failures are surfaced in the run summary, not thrown — the
+          // local release is intact and the operator can push by hand.
+          if (row.releaseTag) {
+            const push = await pushReleaseRefs(project.workdirPath, row.releaseTag);
+            console.log(`[runner] ${runId} release push: ${push.note}`);
+            await runSideEffect("release-summary", async () => {
+              await db
+                .update(schema.runs)
+                .set({ summary: `${summary}\n\n[release] ${push.note}` })
+                .where(eq(schema.runs.id, runId));
+            });
+          }
+        } else {
+          // Merge remediation (feature plan mnx1zt27): when `main` was dirty, the
+          // `dirtyAutoReset` lever lets the daemon reset `main` and retry the merge
+          // unattended instead of stranding the work behind a manual git session.
+          // Scoped to the `dirty` failure mode — a conflict needs real resolution,
+          // not a reset. When the lever is off, or the reset+retry still fails, we
+          // fall through to the normal pending-decision surface (acceptance §5).
+          let remediated = false;
+          // `surfaced` = conflict auto-resolve already recorded a pending decision
+          // carrying a proposed resolution (lever off), so we must NOT also record
+          // the plain pending decision below.
+          let surfaced = false;
+          if (merge.reason === "dirty") {
+            const dirtyAutoReset = resolveAutonomyConfig(db, project.id).mergeRemediation
+              .dirtyAutoReset;
+            if (dirtyAutoReset) {
+              // Guarded: the run already finalized as `completed`, so a git throw
+              // in the reset/retry must fall through to the pending decision, not
+              // bubble to the outer catch and flip the run to `failed`.
+              const retry = await resetMainAndRetryMerge(
+                { config, db, events, runs, pool },
+                { projectId: project.id, runId, taskId: row.taskId ?? null, branch: result.branch },
+              ).catch((err) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                return { ok: false as const, reason: "other", message: msg };
               });
-              // Record the merge_failure already-resolved for the audit trail —
-              // it never enters the inbox (no operator tap needed).
-              await runSideEffect("merge-remediation-audit", async () => {
-                await recordMergeFailure(db, events, {
+              if (retry.ok) {
+                remediated = true;
+                mergeSha = retry.sha;
+                recordAutonomyEvent(db, events, {
+                  kind: "auto_merged",
                   projectId: project.id,
-                  reason: merge.reason,
-                  message: merge.message,
-                  resolvedOutcome: "merge:dirty-auto-reset",
-                  payload: {
-                    runId,
-                    taskId: row.taskId ?? null,
-                    branch: result.branch,
+                  runId,
+                  message: `${project.name} reset a dirty main and merged ${result.branch} unattended`,
+                });
+                // Record the merge_failure already-resolved for the audit trail —
+                // it never enters the inbox (no operator tap needed).
+                await runSideEffect("merge-remediation-audit", async () => {
+                  await recordMergeFailure(db, events, {
+                    projectId: project.id,
                     reason: merge.reason,
                     message: merge.message,
-                    summary,
-                    remediation: "dirty-auto-reset",
-                    mergedSha: retry.sha,
-                  },
+                    resolvedOutcome: "merge:dirty-auto-reset",
+                    payload: {
+                      runId,
+                      taskId: row.taskId ?? null,
+                      branch: result.branch,
+                      reason: merge.reason,
+                      message: merge.message,
+                      summary,
+                      remediation: "dirty-auto-reset",
+                      mergedSha: retry.sha,
+                    },
+                  });
                 });
+              } else {
+                console.warn(
+                  `[runner] dirtyAutoReset retry still failed for ${runId}: ${retry.reason}: ${retry.message}`,
+                );
+              }
+            }
+          } else if (merge.reason === "conflict") {
+            // Conflict auto-resolve (feature plan mnx1zt27): stage the conflict in
+            // an isolated scratch worktree and hand it to a `claude --print` agent.
+            // The `conflictAutoResolve` lever (default off; on only at hands-off)
+            // decides whether a valid resolution lands unattended or is attached to
+            // a pending decision as a *proposed* resolution the operator taps to
+            // apply. Agent block/fail/null-parse, or a land failure, returns
+            // `handled:false` → we fall through to the plain pending decision and
+            // the tmux-intervention fallback (acceptance §5). Guarded like the
+            // dirty path so a throw can't flip the settled `completed` run.
+            const outcome = await remediateMergeConflict(
+              { config, db, events, runs, pool },
+              {
+                projectId: project.id,
+                runId,
+                taskId: row.taskId ?? null,
+                branch: result.branch,
+                mergeMessage: merge.message,
+                summary,
+              },
+            ).catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              return { handled: false as const, reason: "other", message: msg };
+            });
+            if (outcome.handled && outcome.landed) {
+              // The auto_merged autonomy event + resolved audit decision are
+              // recorded inside remediateMergeConflict (the policy owner).
+              remediated = true;
+              mergeSha = outcome.sha;
+            } else if (outcome.handled && !outcome.landed) {
+              // A proposed resolution is attached to a pending decision; the run
+              // stays unmerged pending the operator's tap.
+              surfaced = true;
+              mergeFailureNote =
+                "[merge] conflict: proposed resolution attached — operator approval required";
+              await runSideEffect("merge-conflict-note", async () => {
+                await db
+                  .update(schema.runs)
+                  .set({ summary: `${summary}\n\n${mergeFailureNote}` })
+                  .where(eq(schema.runs.id, runId));
               });
             } else {
               console.warn(
-                `[runner] dirtyAutoReset retry still failed for ${runId}: ${retry.reason}: ${retry.message}`,
+                `[runner] conflictAutoResolve did not remediate ${runId}: ${outcome.reason}: ${outcome.message}`,
               );
             }
           }
-        } else if (merge.reason === "conflict") {
-          // Conflict auto-resolve (feature plan mnx1zt27): stage the conflict in
-          // an isolated scratch worktree and hand it to a `claude --print` agent.
-          // The `conflictAutoResolve` lever (default off; on only at hands-off)
-          // decides whether a valid resolution lands unattended or is attached to
-          // a pending decision as a *proposed* resolution the operator taps to
-          // apply. Agent block/fail/null-parse, or a land failure, returns
-          // `handled:false` → we fall through to the plain pending decision and
-          // the tmux-intervention fallback (acceptance §5). Guarded like the
-          // dirty path so a throw can't flip the settled `completed` run.
-          const outcome = await remediateMergeConflict(
-            { config, db, events, runs, pool },
-            {
-              projectId: project.id,
-              runId,
-              taskId: row.taskId ?? null,
-              branch: result.branch,
-              mergeMessage: merge.message,
-              summary,
-            },
-          ).catch((err) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            return { handled: false as const, reason: "other", message: msg };
-          });
-          if (outcome.handled && outcome.landed) {
-            // The auto_merged autonomy event + resolved audit decision are
-            // recorded inside remediateMergeConflict (the policy owner).
-            remediated = true;
-            mergeSha = outcome.sha;
-          } else if (outcome.handled && !outcome.landed) {
-            // A proposed resolution is attached to a pending decision; the run
-            // stays unmerged pending the operator's tap.
-            surfaced = true;
-            mergeFailureNote =
-              "[merge] conflict: proposed resolution attached — operator approval required";
-            await runSideEffect("merge-conflict-note", async () => {
+
+          if (!remediated && !surfaced) {
+            mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;
+            console.warn(`[runner] merge to main failed for ${runId}: ${mergeFailureNote}`);
+            // The merge is decided (it conflicted) and the run stays `completed`;
+            // the summary note + surfaced decision are side effects that must not
+            // flip the settled status if a write hiccups.
+            await runSideEffect("merge-failure-surface", async () => {
               await db
                 .update(schema.runs)
                 .set({ summary: `${summary}\n\n${mergeFailureNote}` })
                 .where(eq(schema.runs.id, runId));
-            });
-          } else {
-            console.warn(
-              `[runner] conflictAutoResolve did not remediate ${runId}: ${outcome.reason}: ${outcome.message}`,
-            );
-          }
-        }
 
-        if (!remediated && !surfaced) {
-          mergeFailureNote = `[merge] ${merge.reason}: ${merge.message}`;
-          console.warn(`[runner] merge to main failed for ${runId}: ${mergeFailureNote}`);
-          // The merge is decided (it conflicted) and the run stays `completed`;
-          // the summary note + surfaced decision are side effects that must not
-          // flip the settled status if a write hiccups.
-          await runSideEffect("merge-failure-surface", async () => {
-            await db
-              .update(schema.runs)
-              .set({ summary: `${summary}\n\n${mergeFailureNote}` })
-              .where(eq(schema.runs.id, runId));
-
-            // The agent's work is sitting on `result.branch` but main hasn't
-            // moved. Surface a decision so the operator can approve = retry
-            // or dismiss = leave on the branch. Same primitive sessions use.
-            await recordMergeFailure(db, events, {
-              projectId: project.id,
-              reason: merge.reason,
-              message: merge.message,
-              payload: {
-                runId,
-                taskId: row.taskId ?? null,
-                branch: result.branch,
+              // The agent's work is sitting on `result.branch` but main hasn't
+              // moved. Surface a decision so the operator can approve = retry
+              // or dismiss = leave on the branch. Same primitive sessions use.
+              await recordMergeFailure(db, events, {
+                projectId: project.id,
                 reason: merge.reason,
                 message: merge.message,
-                summary,
-              },
+                payload: {
+                  runId,
+                  taskId: row.taskId ?? null,
+                  branch: result.branch,
+                  reason: merge.reason,
+                  message: merge.message,
+                  summary,
+                },
+              });
             });
-          });
+          }
         }
-      }
+      });
     }
 
     // ── Finalization boundary ─────────────────────────────────────────────
