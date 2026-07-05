@@ -172,6 +172,14 @@ export function RunEventRow({ event }: { event: RunEvent }) {
         </div>
       );
 
+    case "merge_waiting":
+      return (
+        <div className="run-event run-event-iteration">
+          <Hourglass size={13} />
+          <span>waiting to merge — another run on this project is merging first…</span>
+        </div>
+      );
+
     case "decision_required":
       return (
         <div className="run-event run-event-decision">
