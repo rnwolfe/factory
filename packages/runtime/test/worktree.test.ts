@@ -3,7 +3,13 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn as bunSpawn } from "bun";
-import { ensureWorktree, getHeadRef, mergeIntoMain, removeWorktree } from "../src/worktree.ts";
+import {
+  ensureWorktree,
+  getHeadRef,
+  mergeIntoMain,
+  removeWorktree,
+  updateBranchAndRetryMerge,
+} from "../src/worktree.ts";
 
 const author = { name: "Test", email: "test@test.test" };
 
@@ -175,6 +181,149 @@ describe("mergeIntoMain", () => {
     // Nothing was committed — HEAD unchanged.
     expect(res.sha).toBe(before);
     expect(await getHeadRef(project)).toBe(before);
+  });
+});
+
+/**
+ * Advance `main` with a commit that writes `fileName`=`content`, simulating
+ * another run's work landing on main after the run branch was cut (main@X → @Y).
+ */
+async function advanceMain(project: string, fileName: string, content: string): Promise<void> {
+  await Bun.write(path.join(project, fileName), content);
+  await git(["add", "-A"], project);
+  await git(["commit", "-q", "-m", `main advances (${fileName})`], project);
+}
+
+/** Worktree paths registered on the repo other than the project checkout itself. */
+async function extraWorktrees(project: string): Promise<string[]> {
+  const list = await git(["worktree", "list", "--porcelain"], project);
+  return list.stdout
+    .split("\n")
+    .filter((l) => l.startsWith("worktree "))
+    .map((l) => l.slice("worktree ".length).trim())
+    .filter((p) => path.resolve(p) !== path.resolve(project));
+}
+
+// Acceptance for feature plan dwuu3g1k: a run whose base advanced (main@X → @Y)
+// must auto-merge when the changesets don't overlap, still hold on a true
+// content conflict, and bound the recovery to a single rebase-and-retry.
+describe("mergeIntoMain — main advanced under the run", () => {
+  test("non-overlapping change auto-merges without operator intervention", async () => {
+    // Run branch cut from main@X touches feature.txt...
+    await makeRunBranch(project, root, "factory/run-adv-ok", "feature.txt", "feature\n");
+    // ...then main advances to @Y with a change to a DIFFERENT file (no overlap).
+    await advanceMain(project, "mainfile.txt", "main work\n");
+
+    const res = await mergeIntoMain({
+      projectPath: project,
+      branch: "factory/run-adv-ok",
+      message: "merge run-adv-ok",
+      author,
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    // Both changesets are present on main — the merge compounded on the advance.
+    expect(existsSync(path.join(project, "feature.txt"))).toBe(true);
+    expect(existsSync(path.join(project, "mainfile.txt"))).toBe(true);
+    // No scratch worktree leaked regardless of which path landed it.
+    expect(await extraWorktrees(project)).toEqual([]);
+  });
+
+  test("true content conflict is still held: aborted, main clean, nothing leaks", async () => {
+    const runBranch = "factory/run-adv-conflict";
+    // Run branch and main both edit base.txt at the same spot after the fork.
+    await makeRunBranch(project, root, runBranch, "base.txt", "branch version\n");
+    await advanceMain(project, "base.txt", "main version\n");
+    const mainBefore = await getHeadRef(project);
+    const runTipBefore = (await git(["rev-parse", runBranch], project)).stdout.trim();
+
+    const res = await mergeIntoMain({
+      projectPath: project,
+      branch: runBranch,
+      message: "merge run-adv-conflict",
+      author,
+    });
+
+    // The single rebase-and-retry can't resolve a real overlap → held.
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("expected conflict");
+    expect(res.reason).toBe("conflict");
+    // main HEAD unmoved and the tree is clean (both the first-attempt abort and
+    // the failed retry cleaned up after themselves).
+    expect(await getHeadRef(project)).toBe(mainBefore);
+    expect((await git(["status", "--porcelain"], project)).stdout.trim()).toBe("");
+    expect(existsSync(path.join(project, ".git", "MERGE_HEAD"))).toBe(false);
+    // The run branch ref was never rewritten by the detached rebase.
+    expect((await git(["rev-parse", runBranch], project)).stdout.trim()).toBe(runTipBefore);
+    // The scratch worktree was torn down — no leaked registrations or dirs.
+    expect(await extraWorktrees(project)).toEqual([]);
+  });
+});
+
+// Direct coverage of the bounded recovery mechanism itself (acceptance §1 recovery
+// path + §3 boundedness), independent of whether git's first 3-way merge already
+// resolved the case.
+describe("updateBranchAndRetryMerge", () => {
+  test("rebases onto latest main and lands the merge (recovered=true)", async () => {
+    const runBranch = "factory/run-retry-ok";
+    await makeRunBranch(project, root, runBranch, "feature.txt", "feature\n");
+    await advanceMain(project, "mainfile.txt", "main work\n");
+    const runTipBefore = (await git(["rev-parse", runBranch], project)).stdout.trim();
+    const scratch = path.join(root, "scratch-ok");
+
+    const res = await updateBranchAndRetryMerge({
+      projectPath: project,
+      branch: runBranch,
+      targetBranch: "main",
+      message: "retry merge run-retry-ok",
+      author,
+      scratchPath: scratch,
+    });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.recovered).toBe(true);
+    // Both changesets landed; HEAD is a real merge commit (--no-ff preserved).
+    expect(existsSync(path.join(project, "feature.txt"))).toBe(true);
+    expect(existsSync(path.join(project, "mainfile.txt"))).toBe(true);
+    const parents = await git(["rev-list", "--parents", "-n", "1", "HEAD"], project);
+    expect(parents.stdout.trim().split(/\s+/).filter(Boolean).length - 1).toBe(2);
+    // The detached rebase left the run branch ref untouched.
+    expect((await git(["rev-parse", runBranch], project)).stdout.trim()).toBe(runTipBefore);
+    // Scratch worktree fully cleaned up.
+    expect(existsSync(scratch)).toBe(false);
+    expect(await extraWorktrees(project)).toEqual([]);
+  });
+
+  test("a real overlap re-conflicts on the rebase: single attempt, main untouched", async () => {
+    const runBranch = "factory/run-retry-conflict";
+    await makeRunBranch(project, root, runBranch, "base.txt", "branch version\n");
+    await advanceMain(project, "base.txt", "main version\n");
+    const mainBefore = await getHeadRef(project);
+    const runTipBefore = (await git(["rev-parse", runBranch], project)).stdout.trim();
+    const scratch = path.join(root, "scratch-conflict");
+
+    const res = await updateBranchAndRetryMerge({
+      projectPath: project,
+      branch: runBranch,
+      targetBranch: "main",
+      message: "retry merge run-retry-conflict",
+      author,
+      scratchPath: scratch,
+    });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("expected conflict");
+    expect(res.reason).toBe("conflict");
+    // Bounded, single pass: main never moved, tree clean, run branch ref intact,
+    // and the scratch worktree/rebase state is fully gone (no loop, no leak).
+    expect(await getHeadRef(project)).toBe(mainBefore);
+    expect((await git(["status", "--porcelain"], project)).stdout.trim()).toBe("");
+    expect(existsSync(path.join(project, ".git", "MERGE_HEAD"))).toBe(false);
+    expect((await git(["rev-parse", runBranch], project)).stdout.trim()).toBe(runTipBefore);
+    expect(existsSync(scratch)).toBe(false);
+    expect(await extraWorktrees(project)).toEqual([]);
   });
 });
 
