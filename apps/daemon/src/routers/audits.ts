@@ -4,16 +4,14 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { appendOperatorComment, listAuditComments, runAgentReply } from "../audits/comments.ts";
-import { runExecAudit } from "../audits/exec-iterate.ts";
 import { readFindings, writeFindings } from "../audits/findings.ts";
-import { runAuditIteration } from "../audits/iterate.ts";
 import { bridgePromoteFindings } from "../audits/promote.ts";
-import { computeSkillVersion } from "../audits/prompts.ts";
 import { commitApprovedAuditReport } from "../audits/report-commit.ts";
+import { submitAudit } from "../audits/submit.ts";
 import { installAuditTemplate, listAuditTemplates } from "../audits/templates.ts";
 import { inboxViewInput, snoozeInput, snoozeWhere } from "../inbox-snooze.ts";
 import { seedTaskPlanDraft } from "../plans/iterate.ts";
-import { listAuditSkills, readAuditSkill } from "../projects/audit-skills.ts";
+import { listAuditSkills } from "../projects/audit-skills.ts";
 import { createTask } from "../projects/tasks.ts";
 import { protectedProcedure, router } from "../trpc.ts";
 
@@ -168,72 +166,23 @@ export const auditsRouter = router({
         .get();
       if (!project) throw new TRPCError({ code: "NOT_FOUND", message: "project not found" });
 
-      const skill = await readAuditSkill(project.workdirPath, input.skillName);
-      if (!skill) {
+      // Single audit-execution path, shared with the cadence scheduler job.
+      const result = await submitAudit({
+        config: ctx.config,
+        db: ctx.db,
+        events: ctx.events,
+        project,
+        skillName: input.skillName,
+        trigger: "operator",
+      });
+      if (!result) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: `skill ${input.skillName} not installed in this project`,
         });
       }
 
-      const auditId = createId();
-      const now = Date.now();
-      const skillVersion = await computeSkillVersion(project.workdirPath, input.skillName);
-      await ctx.db.insert(schema.audits).values({
-        id: auditId,
-        projectId: project.id,
-        skillName: input.skillName,
-        skillVersion,
-        status: "running",
-        startedAt: now,
-      });
-      ctx.events.publish({
-        channel: "inbox",
-        kind: "audit_started",
-        auditId,
-        projectId: project.id,
-        skillName: input.skillName,
-      });
-
-      // Read-only and exec audits both fan out into the background. Read-only
-      // uses `claude --print`, no worktree; exec creates a per-audit worktree
-      // and spawns claude with cwd set so its shell tools see project state.
-      const isExec = skill.frontmatter.kind === "exec";
-
-      void (async () => {
-        try {
-          if (isExec) {
-            await runExecAudit(ctx.config, ctx.db, auditId);
-          } else {
-            await runAuditIteration(ctx.db, auditId);
-          }
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "audit_completed",
-            auditId,
-            projectId: project.id,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[audit-iterate] ${auditId}: ${message}`);
-          await ctx.db
-            .update(schema.audits)
-            .set({
-              status: "failed",
-              completedAt: Date.now(),
-              reportMarkdown: `# ${input.skillName} — failed\n\n${message.slice(0, 500)}\n`,
-            })
-            .where(eq(schema.audits.id, auditId));
-          ctx.events.publish({
-            channel: "inbox",
-            kind: "audit_completed",
-            auditId,
-            projectId: project.id,
-          });
-        }
-      })();
-
-      return { auditId };
+      return { auditId: result.auditId };
     }),
 
   markReviewed: protectedProcedure

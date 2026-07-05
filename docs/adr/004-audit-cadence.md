@@ -1,11 +1,60 @@
 # ADR-004 · Audit cadence — schedules layered on the v0.3 audit primitive
 
-**Status:** proposed (2026-05-04)
+**Status:** accepted (amended 2026-07-05 — see "Amendment" below)
 **Scope:** v0.4
 **Supersedes / refines:** ADR-003 (the audit primitive). v0.3 made
 audits possible on-demand; v0.4 adds the schedule layer that the audit
 primitive was already shaped to accept (ADR-003 §"What stays out of
 v0.3").
+
+> **Amendment (2026-07-05) — cadence rides the Watch scheduler; the
+> `audit_schedules` table is dropped from the design.**
+>
+> The original design below was never implemented: there is no
+> `audit_schedules` table, migration, or `computeNextRunAt`, and the four
+> shipped templates never gained `suggested_cadence` frontmatter. In the
+> interim, ADR-010 introduced a *generic* scheduler
+> (`apps/daemon/src/workers/scheduler.ts`) that already supplies everything
+> this ADR designed bespoke: the `off | hourly | daily | weekly` cadence
+> vocabulary, a durable last-run store (`scheduler_runs`) that survives the
+> daemon's frequent restarts, skip-if-inflight, event triggers, and live
+> settings cadence thunks.
+>
+> So cadence is now implemented as a **fifth job on the ADR-010 scheduler**
+> (`apps/daemon/src/workers/audit-cadence.ts`, `createAuditCadenceJob`),
+> not as a separate primitive. The concrete deltas from the design below:
+>
+> - **No `audit_schedules` table.** Per-project cadence is a single knob on
+>   the unified autonomy policy (`autonomy.audit.cadence`, ADR-016), so it
+>   resolves through the same built-in ⊕ system ⊕ project chain as every
+>   other autonomy knob. **Off by default.** Tier-gating comes for free:
+>   set the system default to `weekly` to enable all `personal+` projects,
+>   or set a per-project override to opt one project in/out.
+> - **Due-ness is read off the `audits` table**, not a `next_run_at`
+>   column: a `(project, skill)` is due when `max(audits.started_at)` for
+>   that pair is older than the cadence interval (never-run ⇒ always due).
+>   The audit rows already ARE the last-run log; a parallel schedule store
+>   would only drift from them.
+> - **One check granularity, `hourly`**, honoring the full vocabulary; the
+>   real gate is per-project due-ness inside the tick. One audit fires per
+>   eligible project per tick (the most-overdue installed skill), which
+>   bounds burst load and naturally staggers skills across ticks.
+> - **Eligibility:** `tag = active` ∧ `ceremony ≥ personal` ∧ opted-in
+>   (`audit.cadence ≠ off`) ∧ ≥1 installed skill ∧ no audit in flight ∧ not
+>   halted by `autorun.emergencyStop` (the portfolio kill-switch short-
+>   circuits the whole tick).
+> - **The event-based cadences (`on_merge`, `on_freeze`) and the
+>   suggested-cadence install-flow UX are deferred** — not needed to turn
+>   the empty `audits` table green, and the generic scheduler's
+>   `ScheduledJob.events` hook makes them a cheap later add. Provenance is
+>   carried on the `audit_started` event's `trigger` field
+>   (`operator | cadence`) rather than a schema column; no migration.
+>
+> Everything else below — read-mostly, never auto-approve/promote/merge,
+> the operator still owns triage, failures live on the audit row — holds
+> unchanged. The default-installation of audit skills at onboarding (a
+> prerequisite for cadence to have anything to run on a fresh project) is a
+> separate, still-open gap tracked outside this ADR.
 
 ## Context
 

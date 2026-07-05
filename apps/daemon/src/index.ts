@@ -35,6 +35,7 @@ import { surfaceObservations } from "./watch/observation-inbox.ts";
 import { persistObservations } from "./watch/observation-store.ts";
 import { createSynthesisJob, readWatchSynthesisCadence } from "./watch/synthesis-job.ts";
 import { type RawObservation, synthesizeObservations } from "./watch/synthesize.ts";
+import { createAuditCadenceJob } from "./workers/audit-cadence.ts";
 import { createEventsRetentionJob } from "./workers/events-retention.ts";
 import { startIdleAutoAdvancer } from "./workers/idle-advance.ts";
 import { WorkerPool } from "./workers/pool.ts";
@@ -266,6 +267,11 @@ export async function startDaemon(): Promise<DaemonHandle> {
         saveObservations,
       }),
       createMetricsRollupJob(db),
+      // Audit cadence (ADR-004, amended): fires installed audit skills on the
+      // per-project `autonomy.audit.cadence` (OFF by default). Read-mostly —
+      // produces reports/findings → inbox, never a run or a merge. This is the
+      // wiring that makes the shipped-but-inert audit primitive fire on its own.
+      createAuditCadenceJob({ db, config, events }),
       // Janitorial: age out `events` rows for terminal runs past the retention
       // window so the table doesn't grow without bound. No inbox card.
       createEventsRetentionJob(db, config.eventRetentionDays),

@@ -80,6 +80,13 @@ const SERIES_METRICS = [
   "loc_removed",
   "projects_collaborative",
   "projects_autonomous",
+  // Audit primitive activity (ADR-003/004) — audits fired per day, so the
+  // previously-empty `audits` table's usage is visible now that cadence fires it.
+  "audits_started",
+  "audits_completed",
+  "audits_failed",
+  // The Watch's out-of-band synthesis output, per day (portfolio-only).
+  "watch_observations_created",
   // Merge-failure remediation (feature plan mnx1zt27) — resolution-path + lever
   // breakdown of auto-merge failures, so the "manual git-surgery" slices are
   // visibly shrinking (or not) over time.
@@ -346,6 +353,20 @@ export function AutonomyMetrics() {
       ]),
     [series.projects_collaborative, series.projects_autonomous],
   );
+  const auditRows = useMemo(
+    () =>
+      mergeSeries([
+        { key: "audits_started", rows: series.audits_started },
+        { key: "audits_completed", rows: series.audits_completed },
+        { key: "audits_failed", rows: series.audits_failed },
+      ]),
+    [series.audits_started, series.audits_completed, series.audits_failed],
+  );
+  const watchRows = useMemo(
+    () =>
+      mergeSeries([{ key: "watch_observations_created", rows: series.watch_observations_created }]),
+    [series.watch_observations_created],
+  );
   const mergeResolutionRows = useMemo(
     () =>
       mergeSeries([
@@ -562,6 +583,56 @@ export function AutonomyMetrics() {
           />
         </ChartCard>
       ) : null}
+
+      {/* Audit primitive activity (ADR-003/004) — audits fired per day. The
+          `audits` table read 0 across the whole estate until the cadence job
+          wired it to fire on its own; this chart is how "the primitive is alive"
+          stays visible (and how a schedule quietly firing parse failures shows
+          up as the `failed` series). */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <ChartCard
+          title="audit activity · started / completed per day"
+          legend={[
+            { label: "started", color: PALETTE.working },
+            { label: "completed", color: PALETTE.green },
+            { label: "failed", color: PALETTE.red },
+          ]}
+        >
+          <MetricChart
+            data={auditRows}
+            series={[
+              { key: "audits_started", label: "started", color: PALETTE.working },
+              { key: "audits_completed", label: "completed", color: PALETTE.green },
+              { key: "audits_failed", label: "failed", color: PALETTE.red },
+            ]}
+            formatX={fmtDay}
+            formatY={fmtInt}
+            loading={chartLoading("audits_started", "audits_completed", "audits_failed")}
+            empty={rowsAllZero(auditRows, ["audits_started", "audits_completed", "audits_failed"])}
+            emptyLabel="no audits in this range yet"
+          />
+        </ChartCard>
+
+        {isPortfolio ? (
+          <ChartCard title="watch observations · synthesized / day">
+            <MetricChart
+              data={watchRows}
+              series={[
+                {
+                  key: "watch_observations_created",
+                  label: "observations",
+                  color: PALETTE.blue,
+                },
+              ]}
+              formatX={fmtDay}
+              formatY={fmtInt}
+              loading={chartLoading("watch_observations_created")}
+              empty={rowsAllZero(watchRows, ["watch_observations_created"])}
+              emptyLabel="no observations in this range yet"
+            />
+          </ChartCard>
+        ) : null}
+      </div>
 
       {/* Merge-failure remediation (feature plan mnx1zt27) — how auto-merge
           failures got resolved, and whether the remediation lever was on. The

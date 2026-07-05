@@ -189,6 +189,32 @@ function seedAutonomyEvent(
     .run();
 }
 
+/**
+ * Seed an `audits` row. `startedAt` drives `audits_started`; a non-null
+ * `completedAt` + terminal `status` drive `audits_completed` / `audits_failed`.
+ */
+function seedAudit(
+  db: Db,
+  projectId: string,
+  opts: {
+    status: "running" | "completed" | "reviewed" | "approved" | "rejected" | "failed";
+    startedAt: number;
+    completedAt?: number;
+  },
+): void {
+  db.insert(schema.audits)
+    .values({
+      id: createId(),
+      projectId,
+      skillName: "docs-audit",
+      skillVersion: "abc123",
+      status: opts.status,
+      startedAt: opts.startedAt,
+      completedAt: opts.completedAt ?? null,
+    })
+    .run();
+}
+
 function seedWatchObservation(db: Db, createdAt: number): void {
   db.insert(schema.watchObservations)
     .values({
@@ -339,6 +365,23 @@ describe("METRIC_CATALOG fixture coverage (every metric, both scopes)", () => {
       seedWatchObservation(db, MID + 2_000);
       seedWatchObservation(db, BEFORE); // out of window → excluded
 
+      // ── audits: alpha 4 started (2 completed, 1 failed, 1 still running) plus
+      //    one that STARTED before the window but COMPLETED inside it (proves
+      //    audits_completed anchors on completed_at, not started_at) and one
+      //    fully-excluded row. beta: 1 completed + 1 failed.
+      seedAudit(db, alpha, { status: "completed", startedAt: MID, completedAt: MID });
+      seedAudit(db, alpha, {
+        status: "approved",
+        startedAt: MID + 1_000,
+        completedAt: MID + 1_000,
+      });
+      seedAudit(db, alpha, { status: "failed", startedAt: MID + 2_000, completedAt: MID + 2_000 });
+      seedAudit(db, alpha, { status: "running", startedAt: MID + 3_000 }); // in-flight
+      seedAudit(db, alpha, { status: "completed", startedAt: BEFORE, completedAt: MID + 4_000 });
+      seedAudit(db, alpha, { status: "completed", startedAt: BEFORE, completedAt: BEFORE }); // excluded
+      seedAudit(db, beta, { status: "completed", startedAt: MID, completedAt: MID });
+      seedAudit(db, beta, { status: "failed", startedAt: MID + 1_000, completedAt: MID + 1_000 });
+
       await rollupDay(db, DAY_START);
 
       const expected: Record<string, Expect> = {
@@ -360,6 +403,12 @@ describe("METRIC_CATALOG fixture coverage (every metric, both scopes)", () => {
         projects_collaborative: { p: 1 },
         projects_autonomous: { p: 1 },
         watch_observations_created: { p: 3 },
+        // audit primitive activity — started anchors on started_at, completed /
+        // failed on completed_at. alpha's before→in-window completion counts in
+        // completed but not started.
+        audits_started: { p: 6, a: 4, b: 2 },
+        audits_completed: { p: 4, a: 3, b: 1 },
+        audits_failed: { p: 2, a: 1, b: 1 },
         // autonomy events
         autonomy_contractions: { p: 2, a: 1, b: 1 },
         autonomy_promotions: { p: 3, a: 1, b: 2 },
