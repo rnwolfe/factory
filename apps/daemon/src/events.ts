@@ -177,6 +177,8 @@ export type DaemonEvent =
       auditId: string;
       projectId: string;
       skillName: string;
+      /** How the audit was kicked off — "operator" (manual) or "cadence" (scheduled). */
+      trigger?: "operator" | "cadence";
     }
   | { channel: "inbox"; kind: "audit_completed"; auditId: string; projectId: string }
   | {

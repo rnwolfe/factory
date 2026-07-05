@@ -33,6 +33,15 @@ export interface AutonomyConfig {
   trust: { autoPromote: boolean; promoteStreak: number; autoContract: boolean };
   gate: { minLevel: VerifierLevel; maxBlastRadius: BlastCeiling; crossModel: boolean };
   watch: { synthesisCadence: Cadence; generatorEnabled: boolean; inbandGroom: boolean };
+  /**
+   * Audit cadence (ADR-004, amended). The schedule layer that fires installed
+   * audit skills automatically. OFF by default — a project (or the system
+   * default) opts in by setting a non-`off` cadence. The audit-cadence
+   * scheduler job (`workers/audit-cadence.ts`) reads this per project each tick.
+   * Read-mostly: a scheduled audit produces a report/findings only, never a run
+   * or a merge.
+   */
+  audit: { cadence: Cadence };
   /** Epic/sub-issue hierarchy policy (ADR-023). */
   hierarchy: {
     /** When all of an epic's children are terminal, auto-close the epic. Off by
@@ -77,6 +86,8 @@ export const BUILTIN_AUTONOMY: AutonomyConfig = {
   trust: { autoPromote: true, promoteStreak: 5, autoContract: true },
   gate: { minLevel: "high", maxBlastRadius: "contained", crossModel: true },
   watch: { synthesisCadence: "daily", generatorEnabled: true, inbandGroom: true },
+  // Off by default — the audit primitive stays manual until a project opts in.
+  audit: { cadence: "off" },
   hierarchy: { epicAutoClose: false },
   autorun: {
     enabled: false,
@@ -161,6 +172,7 @@ function merge(base: AutonomyConfig, over: DeepPartial<AutonomyConfig> | null): 
     trust: { ...base.trust, ...over.trust },
     gate: { ...base.gate, ...over.gate },
     watch: { ...base.watch, ...over.watch },
+    audit: { ...base.audit, ...over.audit },
     hierarchy: { ...base.hierarchy, ...over.hierarchy },
     autorun: {
       ...base.autorun,

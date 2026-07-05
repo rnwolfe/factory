@@ -1,5 +1,5 @@
 import { type Db, schema } from "@factory/db";
-import { and, count, eq, gte, isNotNull, lt } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
 import {
   classifyMergeResolution,
   governingLeverOn,
@@ -317,6 +317,79 @@ export const METRIC_CATALOG: MetricDef[] = [
     scope: "portfolio",
     window: "cumulative", // current mode count — window-independent
     compute: (c) => c.projects.filter((p) => p.autonomyMode === "autonomous").length,
+  },
+
+  // Audit primitive activity (ADR-003/004): audits STARTED per day — the direct
+  // measure of whether the primitive (manual + cadence) is firing at all. It
+  // read 0 across the whole estate before the cadence job landed; this is the
+  // metric that makes "the audit table is green now" visible over time. Anchored
+  // on `started_at` (like `runs_total`) so it counts every audit kicked off that
+  // day regardless of how the report later transitions through review.
+  {
+    key: "audits_started",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => {
+      const conds = [
+        gte(schema.audits.startedAt, c.dayStartMs),
+        lt(schema.audits.startedAt, c.dayEndMs),
+      ];
+      if (c.project) conds.push(eq(schema.audits.projectId, c.project.id));
+      return (
+        c.db
+          .select({ n: count() })
+          .from(schema.audits)
+          .where(and(...conds))
+          .get()?.n ?? 0
+      );
+    },
+  },
+  {
+    // Audits that reached a report (completed / reviewed / approved / rejected —
+    // any non-failed terminal). Anchored on `completed_at` so it's stable as the
+    // report moves through review. Failed audits are excluded (they count below).
+    key: "audits_completed",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => {
+      const conds = [
+        isNotNull(schema.audits.completedAt),
+        gte(schema.audits.completedAt, c.dayStartMs),
+        lt(schema.audits.completedAt, c.dayEndMs),
+        ne(schema.audits.status, "failed"),
+      ];
+      if (c.project) conds.push(eq(schema.audits.projectId, c.project.id));
+      return (
+        c.db
+          .select({ n: count() })
+          .from(schema.audits)
+          .where(and(...conds))
+          .get()?.n ?? 0
+      );
+    },
+  },
+  {
+    // Audits that failed to produce a parseable report — a schedule quietly
+    // firing 1-line parse failures shows up here rather than as silent noise.
+    key: "audits_failed",
+    scope: "both",
+    window: "cumulative",
+    compute: (c) => {
+      const conds = [
+        isNotNull(schema.audits.completedAt),
+        gte(schema.audits.completedAt, c.dayStartMs),
+        lt(schema.audits.completedAt, c.dayEndMs),
+        eq(schema.audits.status, "failed"),
+      ];
+      if (c.project) conds.push(eq(schema.audits.projectId, c.project.id));
+      return (
+        c.db
+          .select({ n: count() })
+          .from(schema.audits)
+          .where(and(...conds))
+          .get()?.n ?? 0
+      );
+    },
   },
 
   // The Watch output (DB flow): observations synthesized per day — makes the
