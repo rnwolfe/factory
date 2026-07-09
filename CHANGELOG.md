@@ -4,6 +4,24 @@ All notable changes to Factory are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.54.0 — 2026-07-09
+
+Concurrent runs against one project now merge cleanly instead of colliding, the audit primitive finally fires on its own, and projects gained a first-class upstream sync surface.
+
+### Added
+- **Audits run on a cadence — the primitive is no longer inert.** The v0.3 audit primitive shipped with no automatic trigger and had fired zero times in production. A new off-by-default `autonomy.audit.cadence` knob (built-in ⊕ system ⊕ project, resolved through the unified autonomy policy) enables an hourly tick that fires the single most-overdue installed audit skill per eligible project — active tag, ceremony ≥ personal, opted in, a skill installed, nothing already in flight, not emergency-stopped. Due-ness is read off the `audits` table rather than a parallel schedule store, so there's one source of truth. Audits stay read-mostly: cadence calls the same single execution path as the router and never spawns a run or merges code. New `audits_started` / `audits_completed` / `audits_failed` metrics and an audit-activity chart on the ops surface make the primitive's usage measurable going forward. (ADR-004, amended — the cadence rides the ADR-010 Watch scheduler instead of v0.4's bespoke `audit_schedules` table.)
+- **Upstream sync status and a guarded push on every project.** The workdir snapshot now computes the branch's ahead/behind against its configured tracking ref using only local refs — no network fetch — and surfaces it as a chip on project detail (in sync / ahead N / behind N / diverged / no remote, with an as-of-last-fetch tooltip). The push affordance appears only when the workdir is clean *and* strictly ahead; behind or diverged renders read-only with a resolve-manually hint, and a dirty-ahead workdir hints to commit first. The daemon guard enforces the same conditions server-side, so a stale UI can't force a bad push.
+- **Runs tell you when they're waiting to merge.** A run queued behind another run's merge on the same project used to sit in `completed` with no explanation. The live run view now shows a "waiting to merge" event row and a breathing banner that clears the instant the merge proceeds.
+
+### Changed
+- **The desktop inbox reading pane shows the real thing.** The side pane used to be a truncated duplicate of the detail page, which made it worse than useless. It now docks the actual decision / plan / feedback / audit detail component beside the list — one canonical detail surface, Gmail-style, nothing abbreviated. Phone widths still navigate to the full route; the phone-first invariant is untouched.
+
+### Fixed
+- **Concurrent same-project runs no longer fail their merges on `index.lock`.** Two runs finalizing against one project drove git on the same checkout at overlapping moments, and the loser's merge returned non-ok — a run that genuinely completed got surfaced as a merge failure or held at the gate. Merges are now serialized per project by a keyed lock; different projects still merge concurrently.
+- **A run whose base advanced under it recovers on its own.** When `main` moved forward after a run's branch was cut, the direct `--no-ff` merge could conflict even when the changesets didn't actually overlap. The merge now makes exactly one bounded recovery attempt — rebase onto latest `main` in an isolated detached scratch worktree, retry the merge once. Non-overlapping work lands unattended; a true content overlap re-conflicts and falls through to the existing conflict-hold contract, unchanged. No loop, no rewrite of the run branch ref.
+- **`factory upgrade --channel=stable` actually deploys the release.** Two bugs, both masked by the dev checkout doubling as the upgrade checkout: stable resolution used the `ls-remote` sha directly, which for an annotated tag (what every release creates) is the tag object rather than the commit, so a host that had never fetched the tag failed with `reference is not a tree`; and the checkout trusted `git merge --ff-only`'s exit code, which is 0 *without moving* when the target is already an ancestor of HEAD — reporting a successful upgrade while deploying nothing. Tags are now peeled to their commit after an explicit fetch, and HEAD is verified against the target on every path.
+- **Ops and metrics pages distinguish "loading" from "no data."** Query-backed stat tiles and charts on `/ops` and `/metrics` rendered their empty-state placeholder while still in flight, so an in-flight query read as "no runs in this range yet." They now show skeletons on first fetch, and background refetches keep showing data rather than flickering.
+
 ## v0.53.0 — 2026-07-04
 
 ### Added
