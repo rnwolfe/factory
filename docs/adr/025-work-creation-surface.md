@@ -53,10 +53,20 @@ controls; it invents none:
    for adopted GitHub issues.
 3. **Attributable.** `ideas.source = "mcp:<agent>"` + a task `sourceInjection`
    provenance field record who injected what, citing which handoff/commit.
-4. **Verifier gate intact, no auto-merge for fresh work.** When the operator starts
-   a promoted run it flows through the unchanged factory-status + verifier-coverage
-   pipeline; at L1 + auto-advance-off there is **no path to auto-merge** freshly
-   injected external work (ADR-014 + ADR-012 upper rungs are earned, not granted).
+4. **No unattended run — therefore no unattended merge.** The guarantee is at the
+   *start* gate, not the merge step. Injected work can't start a run on its own: the
+   auto-advance worker only fires for `autonomous` + `autoAdvance` projects
+   (`workers/idle-advance.ts`) and `isStartable` gates on `ready`
+   (`projects/tasks.ts`), while injected work is collaborative/L1 + `autoAdvance:false`
+   with tasks at `needs_triage`. Nothing starts unattended, so nothing merges
+   unattended. **Honest caveat:** once the operator promotes and starts a run, a
+   `completed` collaborative run **does** merge to `main` (`workers/runner.ts` merges
+   unconditionally on `finalStatus === "completed"`); the ADR-014 verifier gate that
+   holds a run for review is *autonomous-only*, so it does **not** gate supervised
+   injected runs. A true "hold injected runs for review before merge even after an
+   operator start" is a **merge-policy change the follow-on build must add**, not
+   existing behavior. The trust ladder's upper rungs (L3/L4) remain earned by track
+   record, which brand-new injected work never has.
 5. **Rate + scope limits.** Per-agent injection quota; a `config.yaml` allowlist of
    injectable repo roots; spec size already bounded by the Zod input.
 

@@ -17,7 +17,9 @@ run via `pipeline/run.md`). That is the leverage leak this spec closes.
 **Goal:** a first-class, authenticated, agent-facing surface that lets a trusted
 external agent **inject a spec and have Factory decompose it into a project + task
 DAG and (optionally) run it** — reusing the existing ingest end-to-end, entering at
-the *bottom* of the trust ladder, and never auto-merging freshly-injected work.
+the *bottom* of the trust ladder, where injected work is **inert until an operator
+promotes and starts it**, so nothing an agent injects ever runs — or merges —
+unattended.
 
 **Non-goals:** no new decomposition engine, no new run executor, no new task store,
 no weakening of the verifier gate / trust ladder / `needs_triage` intake. This
@@ -70,8 +72,12 @@ bind the PWA uses, because this surface *writes work*, not just reads it (§6).
 
 ## 4. Tool list (the MCP surface)
 
-Five tools. Each maps 1:1 onto an existing procedure; the mapping column is the
-whole implementation.
+Five tools, each a thin wrapper over the procedures in the "Maps to" column — the
+mapping column is the whole implementation. Most wrap a single procedure; a couple
+compose more than one (`factory.createProject` chains `proposeImportSpec` →
+`confirmImportSpec`; `factory.getStatus` aggregates `projects.get` +
+`projects.tasks.list` + `runs.get`). No tool adds business logic beyond wiring those
+calls together.
 
 | MCP tool | Purpose | Maps to |
 |---|---|---|
@@ -121,7 +127,7 @@ decomposition so they become task acceptance, not lost metadata.
   "tasks": [ { "id": "task-001", "title": "...", "status": "needs_triage",
               "blockedBy": ["task-000"], "estimate": "medium" } ],   // the DAG
   "unknowns": ["..."], "risks": ["..."],
-  "statusUrl": "http://<daemon>/#/projects/<id>",   // operator review deep-link
+  "statusUrl": "http://<daemon>/projects/<id>",   // operator review deep-link (PWA is BrowserRouter — apps/pwa/src/app.tsx route `/projects/:id`)
   "trustLevel": "L1", "autoAdvance": false           // proof of supervised entry
 }
 ```
@@ -175,16 +181,45 @@ attribution + `ref` land in the synthesized idea's `rawText` and the decision
 payload, so the audit trail answers "which agent asked for this, citing what" for
 every injected artifact.
 
-### 5.4 Verifier gate + no auto-merge for fresh external work
-When the operator *does* promote injected work to `ready` and start a run, it goes
-through the **unchanged** pipeline: factory-status footer (`done|blocked|failed`,
-null-parse → `failed`), the verifier-coverage report (ADR-014: `absent ≠ pass`;
-zero coverage → not autonomy-eligible), quality checks, and per-run worktree
-isolation. Because the project sits at **L1 + auto-advance off**, there is **no path
-to auto-merge for freshly-injected work** — merge-on-green still requires
-`completed`, and the trust ladder's upper rungs (L3/L4 auto-retry / auto-run) are
-*earned by track record*, which a brand-new injected project does not have. This
-satisfies the handoff's hard guardrail directly.
+### 5.4 The real guarantee: injected work never *starts* — so it never merges — unattended
+The load-bearing protection is **not** a merge-time block; it is that injected work
+**cannot start a run without an explicit operator action.** Two independent gates
+enforce that, both verified against the daemon:
+
+- **Auto-advance can't pick it.** The idle auto-advance worker only considers
+  projects that are `autonomyMode: "autonomous"` **and** `autoAdvance: true`
+  (`workers/idle-advance.ts` — `collectIdleColdStarts` filters on both). Injected
+  projects are forced to **collaborative (L1) + `autoAdvance:false`** (§5.1), so the
+  auto-advance worker skips them entirely.
+- **`isStartable` can't reach the tasks.** Injected tasks land at `needs_triage`,
+  and `isStartable` gates on `ready` (`projects/tasks.ts`), so no scheduler path can
+  select an injected task until the operator promotes it (§5.2).
+
+Because no run fires unattended, **nothing an agent injected can merge on its own.**
+The operator is the only thing that can turn injected work into a running, mergeable
+run — exactly the "operator is the only path to a repo write" contract (ADR-012).
+
+**Honest note on merge-on-complete, and the residual gap.** Once the operator *does*
+promote an injected task to `ready` and start the run, that run flows through the
+**unchanged** pipeline — factory-status footer (`done|blocked|failed`, null-parse →
+`failed`), the verifier-coverage report (ADR-014: `absent ≠ pass`), quality checks,
+per-run worktree isolation — and, on `finalStatus === "completed"`, **it merges into
+`main`** (`workers/runner.ts`, the unconditional `if (finalStatus === "completed")`
+merge block). That is intended: the run only started because the operator started
+it, so the operator is in the loop — the definition of collaborative/L1 mode.
+
+Crucially, the ADR-014 verifier-coverage gate that downgrades a completed run to
+`needs_review` is **autonomous-mode-only** in the current runner; collaborative (L1)
+runs are explicitly exempt and merge on `completed` (`runner.ts`: *"For AUTONOMOUS
+runs only … Collaborative runs are unchanged — they merge on `completed`"*). So there
+is **no automatic "hold for review before merge" for a supervised injected run
+today.** If we later want injected runs to *land for review instead of merging* even
+after an operator starts them, that is a **new merge-policy change the follow-on
+build must add** (e.g. extend the ADR-014 gate to cover injected/L1 runs, or land a
+completed injected run at `needs_review` rather than merging) — it does **not** exist
+yet, and this spec does not claim it does. The trust ladder's upper rungs (L3/L4
+auto-retry / auto-run) remain *earned by track record*, which a brand-new injected
+project never has.
 
 ### 5.5 Rate & scope limits
 - **Rate:** per-agent injection quota (e.g. N `createProject` + M `createTask` per
